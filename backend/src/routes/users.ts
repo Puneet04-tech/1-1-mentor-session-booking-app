@@ -4,24 +4,39 @@ import authMiddleware, { AuthRequest } from '@/middleware/auth';
 
 const router = Router();
 
-// Get user profile
-router.get('/:id', async (req: AuthRequest, res: Response) => {
+// Get all mentors (MUST come before /:id)
+router.get('/mentors', async (req: AuthRequest, res: Response) => {
   try {
-    const user = await queryOne('SELECT id, email, name, role, avatar_url, bio, verified FROM users WHERE id = $1', [
-      req.params.id,
-    ]);
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    const mentors = await query(
+      'SELECT id, email, name, avatar_url, bio FROM users WHERE role = $1 LIMIT 50',
+      ['mentor']
+    );
 
     res.json({
       success: true,
-      data: user,
+      data: mentors,
     });
   } catch (err) {
-    console.error('Get user error:', err);
-    res.status(500).json({ error: 'Failed to get user' });
+    console.error('Get mentors error:', err);
+    res.status(500).json({ error: 'Failed to get mentors' });
+  }
+});
+
+// Get all students (MUST come before /:id)
+router.get('/students', async (req: AuthRequest, res: Response) => {
+  try {
+    const students = await query(
+      'SELECT id, email, name, avatar_url, bio FROM users WHERE role = $1 LIMIT 50',
+      ['student']
+    );
+
+    res.json({
+      success: true,
+      data: students,
+    });
+  } catch (err) {
+    console.error('Get students error:', err);
+    res.status(500).json({ error: 'Failed to get students' });
   }
 });
 
@@ -48,7 +63,28 @@ router.put('/profile', authMiddleware, async (req: AuthRequest, res: Response) =
   }
 });
 
-// Get all mentors
+// Get user profile by ID
+router.get('/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await queryOne('SELECT id, email, name, role, avatar_url, bio, verified FROM users WHERE id = $1', [
+      req.params.id,
+    ]);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      success: true,
+      data: user,
+    });
+  } catch (err) {
+    console.error('Get user error:', err);
+    res.status(500).json({ error: 'Failed to get user' });
+  }
+});
+
+// Get all users (backward compatibility)
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const mentors = await query(
@@ -61,8 +97,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       data: mentors,
     });
   } catch (err) {
-    console.error('Get mentors error:', err);
-    res.status(500).json({ error: 'Failed to get mentors' });
+    console.error('Get users error:', err);
+    res.status(500).json({ error: 'Failed to get users' });
   }
 });
 

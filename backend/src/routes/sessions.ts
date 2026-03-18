@@ -44,7 +44,43 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Get session
+// Get active sessions (MUST come before /:id)
+router.get('/active', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const sessions = await query(
+      'SELECT * FROM sessions WHERE status = $1 AND (mentor_id = $2 OR student_id = $2)',
+      ['in_progress', req.user?.id]
+    );
+
+    res.json({
+      success: true,
+      data: sessions,
+    });
+  } catch (err) {
+    console.error('Get active sessions error:', err);
+    res.status(500).json({ error: 'Failed to get sessions' });
+  }
+});
+
+// Get user sessions (MUST come before /:id)
+router.get('/user', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const sessions = await query(
+      'SELECT * FROM sessions WHERE mentor_id = $1 OR student_id = $1 ORDER BY created_at DESC',
+      [req.user?.id]
+    );
+
+    res.json({
+      success: true,
+      data: sessions,
+    });
+  } catch (err) {
+    console.error('Get user sessions error:', err);
+    res.status(500).json({ error: 'Failed to get user sessions' });
+  }
+});
+
+// Get session by ID
 router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const session = await queryOne('SELECT * FROM sessions WHERE id = $1', [req.params.id]);
@@ -111,24 +147,6 @@ router.post('/:id/end', authMiddleware, async (req: AuthRequest, res: Response) 
   } catch (err) {
     console.error('End session error:', err);
     res.status(500).json({ error: 'Failed to end session' });
-  }
-});
-
-// Get active sessions
-router.get('/active', authMiddleware, async (req: AuthRequest, res: Response) => {
-  try {
-    const sessions = await query(
-      'SELECT * FROM sessions WHERE status = $1 AND (mentor_id = $2 OR student_id = $2)',
-      ['in_progress', req.user?.id]
-    );
-
-    res.json({
-      success: true,
-      data: sessions,
-    });
-  } catch (err) {
-    console.error('Get active sessions error:', err);
-    res.status(500).json({ error: 'Failed to get sessions' });
   }
 });
 
