@@ -1,0 +1,202 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  @apply m-0 p-0 box-border;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-dark-950 text-gray-100;
+  background-image: radial-gradient(circle at 20% 50%, rgba(168, 85, 247, 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(34, 197, 94, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 40% 10%, rgba(59, 130, 246, 0.1) 0%, transparent 50%);
+  background-attachment: fixed;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-dark-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gradient-to-b from-primary-600 to-secondary-500 rounded-full;
+  transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply from-primary-500 to-secondary-400 shadow-glow-purple;
+}
+
+/* Input Focus Styles */
+input:focus,
+textarea:focus,
+select:focus {
+  @apply outline-none ring-2 ring-primary-500 ring-offset-2 ring-offset-dark-900;
+}
+
+/* Button Transitions */
+button {
+  @apply transition-all duration-300 ease-out;
+}
+
+/* Glassmorphic Cards */
+.card-glass {
+  @apply backdrop-blur-md bg-gradient-to-br from-dark-800/60 to-dark-900/60 border border-gray-700/30 rounded-2xl p-6 hover:border-primary-500/50 transition-all duration-300;
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+}
+
+.card-glass:hover {
+  @apply shadow-glow-purple;
+}
+
+/* Glow Effects */
+.glow-text-primary {
+  @apply text-primary-400 drop-shadow-lg;
+  text-shadow: 0 0 10px rgba(168, 85, 247, 0.6);
+}
+
+.glow-text-secondary {
+  @apply text-secondary-400 drop-shadow-lg;
+  text-shadow: 0 0 10px rgba(34, 197, 94, 0.6);
+}
+
+.glow-text-accent {
+  @apply text-accent-400 drop-shadow-lg;
+  text-shadow: 0 0 10px rgba(245, 158, 11, 0.6);
+}
+
+/* Animated Gradient Border */
+@keyframes gradient-border {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.gradient-border {
+  background: linear-gradient(
+    90deg,
+    #a855f7 0%,
+    #22c55e 25%,
+    #3b82f6 50%,
+    #f59e0b 75%,
+    #a855f7 100%
+  );
+  background-size: 200% 200%;
+  animation: gradient-border 6s ease infinite;
+}
+
+/* Floating Animation */
+@keyframes float-smooth {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+.float-animation {
+  animation: float-smooth 3s ease-in-out infinite;
+}
+
+/* Neon Light Effect */
+.neon-box {
+  @apply relative rounded-xl border border-transparent overflow-hidden;
+}
+
+.neon-box::before {
+  content: '';
+  @apply absolute inset-0 rounded-xl opacity-0 hover:opacity-100 transition-opacity duration-300;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(168, 85, 247, 0.4) 25%,
+    rgba(34, 197, 94, 0.4) 50%,
+    rgba(245, 158, 11, 0.4) 75%,
+    transparent 100%
+  );
+  animation: slide 8s linear infinite;
+}
+
+@keyframes slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Code Block Styling */
+pre {
+  @apply bg-dark-900/80 border border-gray-700/30 rounded-lg p-4 overflow-x-auto;
+  backdrop-filter: blur(10px);
+}
+
+code {
+  @apply font-mono text-sm text-gray-300;
+}
+
+/* Selection Styling */
+::selection {
+  @apply bg-primary-600 text-white;
+}
+
+::-moz-selection {
+  @apply bg-primary-600 text-white;
+}
+
+/* Focus Ring for Accessibility */
+:focus-visible {
+  @apply outline-none ring-2 ring-primary-500 ring-offset-2 ring-offset-dark-900 rounded;
+}
+
+/* Smooth Transitions for All Elements */
+* {
+  @apply transition-colors duration-200;
+}
+
+/* Loading Spinner */
+@keyframes spin-smooth {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-smooth {
+  animation: spin-smooth 1s linear infinite;
+}
+
+/* Gradient Text */
+.gradient-text {
+  @apply bg-gradient-to-r from-primary-400 via-secondary-400 to-accent-400 bg-clip-text text-transparent;
+}
+
+/* Dark Mode Support (already in dark mode by default) */
+@supports (color: oklch(0 0 0)) {
+  :root {
+    color-scheme: dark;
+  }
+}
