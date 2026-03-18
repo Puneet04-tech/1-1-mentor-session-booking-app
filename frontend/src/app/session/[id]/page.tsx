@@ -105,8 +105,35 @@ export default function SessionPage() {
     return () => {
       listenerRef.current?.cleanup();
       socketService.leaveSession(sessionId);
+      // Stop all media streams on unmount
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+        localStreamRef.current = null;
+      }
     };
   }, [sessionId]);
+
+  // Update video element when camera state changes
+  useEffect(() => {
+    if (videoRef.current && localStreamRef.current) {
+      if (isCameraOn) {
+        videoRef.current.srcObject = localStreamRef.current;
+      } else {
+        videoRef.current.srcObject = null;
+      }
+    }
+  }, [isCameraOn]);
+
+  // Cleanup media streams on unmount
+  useEffect(() => {
+    return () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => {
+          track.stop();
+        });
+      }
+    };
+  }, []);
 
   // Auto-scroll to latest message
   useEffect(() => {
@@ -148,10 +175,10 @@ export default function SessionPage() {
           video: { width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false
         });
+        localStreamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
-        localStreamRef.current = stream;
         videoStore.toggleCamera();
         videoStore.setLocalStream(stream);
         setCameraError('');
@@ -166,12 +193,9 @@ export default function SessionPage() {
     } else {
       // Disable camera
       if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-        localStreamRef.current = null;
+        localStreamRef.current.getVideoTracks().forEach(track => track.stop());
       }
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
+      videoRef.current ? videoRef.current.srcObject = null : null;
       videoStore.toggleCamera();
       videoStore.setLocalStream(null);
       setCameraError('');
