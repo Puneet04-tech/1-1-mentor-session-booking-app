@@ -89,19 +89,52 @@ export default function SessionPage() {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSendMessage = (content: string) => {
+  const handleSendMessage = async (content: string) => {
+    if (!socketService.isConnected()) {
+      console.error('Socket not connected');
+      return;
+    }
     socketService.sendMessage(content);
   };
 
   const handleCodeChange = (value: string | undefined) => {
     if (value === undefined) return;
+    if (!socketService.isConnected()) {
+      console.error('Socket not connected');
+      return;
+    }
     setCode(value);
-    socketService.sendCode(value, language, '');
+    socketService.sendCode(value, language, sessionId);
   };
 
   const handleLanguageChange = (newLanguage: string) => {
     setLanguage(newLanguage);
-    socketService.emit('language:change', { sessionId, language: newLanguage } as any);
+    if (socketService.isConnected()) {
+      socketService.emit('language:change', { sessionId, language: newLanguage } as any);
+    }
+  };
+
+  const handleToggleCamera = () => {
+    if (socketService.isConnected()) {
+      socketService.toggleCamera();
+    }
+  };
+
+  const handleToggleMic = () => {
+    if (socketService.isConnected()) {
+      socketService.toggleMic();
+    }
+  };
+
+  const handleEndSession = async () => {
+    try {
+      await apiClient.endSession(sessionId);
+      socketService.endSession(sessionId);
+      // Navigate back to dashboard
+      window.location.href = '/dashboard';
+    } catch (err) {
+      console.error('Error ending session:', err);
+    }
   };
 
   if (loading) {
@@ -123,7 +156,11 @@ export default function SessionPage() {
           </div>
           <div className="flex items-center gap-4">
             <Badge color="purple">{session?.status}</Badge>
-            <GlowingButton variant="outline" className="text-sm">
+            <GlowingButton 
+              variant="outline" 
+              className="text-sm"
+              onClick={handleEndSession}
+            >
               End Session
             </GlowingButton>
           </div>
@@ -136,17 +173,29 @@ export default function SessionPage() {
         <div className="lg:col-span-2 flex flex-col bg-dark-900/40 rounded-lg border border-gray-700/30 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-700/30 flex justify-between items-center">
             <h2 className="text-lg font-bold text-white">Code Editor</h2>
-            <select
-              value={language}
-              onChange={(e) => handleLanguageChange(e.target.value)}
-              className="px-3 py-1 bg-dark-800 border border-gray-700/50 rounded text-sm text-white"
-            >
-              <option value="javascript">JavaScript</option>
-              <option value="python">Python</option>
-              <option value="typescript">TypeScript</option>
-              <option value="java">Java</option>
-              <option value="cpp">C++</option>
-            </select>
+            <div className="flex items-center gap-2">
+              <select
+                value={language}
+                onChange={(e) => handleLanguageChange(e.target.value)}
+                className="px-3 py-1 bg-dark-800 border border-gray-700/50 rounded text-sm text-white"
+              >
+                <option value="javascript">JavaScript</option>
+                <option value="python">Python</option>
+                <option value="typescript">TypeScript</option>
+                <option value="java">Java</option>
+                <option value="cpp">C++</option>
+              </select>
+              <GlowingButton 
+                variant="secondary" 
+                className="text-sm"
+                onClick={() => {
+                  // TODO: Implement code execution via Piston API
+                  console.log('Run code:', code);
+                }}
+              >
+                ▶ Run
+              </GlowingButton>
+            </div>
           </div>
           <div className="flex-1 overflow-hidden">
             <Editor
@@ -176,10 +225,18 @@ export default function SessionPage() {
                   {isCameraOn && isMicOn ? '🎥 Camera & Mic On' : '🔇 Camera & Mic Off'}
                 </p>
                 <div className="flex gap-2 justify-center">
-                  <GlowingButton variant="secondary" className="text-sm">
+                  <GlowingButton 
+                    variant="secondary" 
+                    className="text-sm"
+                    onClick={handleToggleCamera}
+                  >
                     {isCameraOn ? '📹' : '❌'} Camera
                   </GlowingButton>
-                  <GlowingButton variant="secondary" className="text-sm">
+                  <GlowingButton 
+                    variant="secondary" 
+                    className="text-sm"
+                    onClick={handleToggleMic}
+                  >
                     {isMicOn ? '🎤' : '🔇'} Mic
                   </GlowingButton>
                 </div>

@@ -47,8 +47,15 @@ class SocketService {
     }
   }
 
+  isConnected(): boolean {
+    return this.socket?.connected ?? false;
+  }
+
   on<K extends keyof SocketEvents>(event: K, callback: (data: SocketEvents[K]) => void) {
-    if (!this.socket) return;
+    if (!this.socket) {
+      console.warn(`Socket not initialized for event: ${event}`);
+      return;
+    }
     
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
@@ -64,13 +71,14 @@ class SocketService {
   }
 
   emit<K extends keyof SocketEvents>(event: K, data?: SocketEvents[K]) {
-    if (!this.socket) {
-      console.warn('Socket not connected');
+    if (!this.socket?.connected) {
+      console.warn(`Socket not connected for event: ${event}`);
       return;
     }
     this.socket.emit(event as string, data);
   }
 
+  // Session management
   joinSession(sessionId: string) {
     this.emit('session:join', { sessionId } as any);
   }
@@ -79,44 +87,43 @@ class SocketService {
     this.emit('session:leave', { sessionId } as any);
   }
 
-  sendCode(code: string, language: string, userId: string) {
-    this.emit('code:update', { code, language, user_id: userId });
+  endSession(sessionId: string) {
+    this.emit('session:end', { sessionId } as any);
   }
 
-  sendMessage(content: string, type: string = 'text') {
-    this.emit('message:send', { content, type } as any);
+  // Chat
+  sendMessage(content: string) {
+    this.emit('message:send', { content } as any);
   }
 
-  moveCursor(line: number, column: number, userId: string) {
-    this.emit('cursor:move', { line, column, user_id: userId });
+  // Code Editor
+  sendCode(code: string, language: string, sessionId: string) {
+    this.emit('code:update', { code, language, sessionId } as any);
   }
 
-  initiateVideoCall(initiatorId: string) {
-    this.emit('video:initiate', { initiator_id: initiatorId });
+  moveCursor(line: number, column: number) {
+    this.emit('cursor:move', { line, column } as any);
   }
 
-  acceptVideoCall(acceptorId: string) {
-    this.emit('video:accept', { acceptor_id: acceptorId });
+  // Video
+  toggleCamera() {
+    this.emit('video:toggle-camera', {} as any);
   }
 
-  declineVideoCall(reason?: string) {
-    this.emit('video:decline', { reason } as any);
+  toggleMic() {
+    this.emit('video:toggle-mic', {} as any);
   }
 
   sendVideoOffer(offer: any) {
-    this.emit('video:offer', { offer });
+    this.emit('video:offer', { offer } as any);
   }
 
   sendVideoAnswer(answer: any) {
-    this.emit('video:answer', { answer });
+    this.emit('video:answer', { answer } as any);
   }
 
   sendICECandidate(candidate: any) {
-    this.emit('video:ice-candidate', candidate);
-  }
-
-  isConnected(): boolean {
-    return this.socket?.connected ?? false;
+    this.emit('video:ice-candidate', candidate as any);
   }
 }
 
