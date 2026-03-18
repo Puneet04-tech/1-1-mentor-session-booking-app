@@ -1,11 +1,13 @@
 import { io, Socket } from 'socket.io-client';
 import { SocketEvents } from '@/types';
+import { useAuthStore } from '@/store';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
 
 class SocketService {
   private socket: Socket | null = null;
   private listeners: Map<string, Function[]> = new Map();
+  private currentSessionId: string | null = null;
 
   connect(token: string): Socket {
     if (this.socket?.connected) {
@@ -80,11 +82,15 @@ class SocketService {
 
   // Session management
   joinSession(sessionId: string) {
-    this.emit('session:join', { sessionId } as any);
+    this.currentSessionId = sessionId;
+    const user = useAuthStore.getState().user;
+    this.emit('session:join', { sessionId, userId: user?.id, userName: user?.name } as any);
   }
 
   leaveSession(sessionId: string) {
-    this.emit('session:leave', { sessionId } as any);
+    const user = useAuthStore.getState().user;
+    this.emit('session:leave', { sessionId, userId: user?.id } as any);
+    this.currentSessionId = null;
   }
 
   endSession(sessionId: string) {
@@ -93,25 +99,45 @@ class SocketService {
 
   // Chat
   sendMessage(content: string) {
-    this.emit('message:send', { content } as any);
+    const user = useAuthStore.getState().user;
+    this.emit('message:send', { 
+      content, 
+      sessionId: this.currentSessionId,
+      userId: user?.id,
+      type: 'text'
+    } as any);
   }
 
   // Code Editor
-  sendCode(code: string, language: string, sessionId: string) {
-    this.emit('code:update', { code, language, sessionId } as any);
+  sendCode(code: string, language: string, sessionId?: string) {
+    const user = useAuthStore.getState().user;
+    this.emit('code:update', { 
+      code, 
+      language, 
+      sessionId: sessionId || this.currentSessionId,
+      userId: user?.id 
+    } as any);
   }
 
   moveCursor(line: number, column: number) {
-    this.emit('cursor:move', { line, column } as any);
+    const user = useAuthStore.getState().user;
+    this.emit('cursor:move', { 
+      line, 
+      column, 
+      sessionId: this.currentSessionId,
+      userId: user?.id
+    } as any);
   }
 
   // Video
   toggleCamera() {
-    this.emit('video:toggle-camera', {} as any);
+    const user = useAuthStore.getState().user;
+    this.emit('video:toggle-camera', { userId: user?.id } as any);
   }
 
   toggleMic() {
-    this.emit('video:toggle-mic', {} as any);
+    const user = useAuthStore.getState().user;
+    this.emit('video:toggle-mic', { userId: user?.id } as any);
   }
 
   sendVideoOffer(offer: any) {

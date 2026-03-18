@@ -115,12 +115,16 @@ export default function SessionPage() {
   };
 
   const handleToggleCamera = () => {
+    const { toggleCamera } = useVideoStore.getState();
+    toggleCamera();
     if (socketService.isConnected()) {
       socketService.toggleCamera();
     }
   };
 
   const handleToggleMic = () => {
+    const { toggleMic } = useVideoStore.getState();
+    toggleMic();
     if (socketService.isConnected()) {
       socketService.toggleMic();
     }
@@ -135,6 +139,56 @@ export default function SessionPage() {
     } catch (err) {
       console.error('Error ending session:', err);
     }
+  };
+
+  const handleRunCode = async () => {
+    if (!code.trim()) {
+      alert('Please write some code first');
+      return;
+    }
+
+    const { setExecutionOutput, setIsExecuting } = useEditorStore.getState();
+    setIsExecuting(true);
+
+    try {
+      // Use Piston API to execute code
+      const response = await fetch('https://emkc.org/api/v2/piston/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          language,
+          version: '*',
+          files: [{ name: `main.${getFileExtension(language)}`, content: code }],
+        }),
+      });
+
+      const result = await response.json();
+      
+      if (result.run?.output) {
+        setExecutionOutput(result.run.output);
+        console.log('Execution output:', result.run.output);
+      } else if (result.compile?.output) {
+        setExecutionOutput(result.compile.output);
+      } else {
+        setExecutionOutput('Code executed successfully with no output');
+      }
+    } catch (err) {
+      console.error('Error executing code:', err);
+      setExecutionOutput(`Error: ${err instanceof Error ? err.message : 'Failed to execute code'}`);
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  const getFileExtension = (lang: string): string => {
+    const extensions: { [key: string]: string } = {
+      javascript: 'js',
+      python: 'py',
+      typescript: 'ts',
+      java: 'java',
+      cpp: 'cpp',
+    };
+    return extensions[lang] || 'txt';
   };
 
   if (loading) {
@@ -188,10 +242,7 @@ export default function SessionPage() {
               <GlowingButton 
                 variant="secondary" 
                 className="text-sm"
-                onClick={() => {
-                  // TODO: Implement code execution via Piston API
-                  console.log('Run code:', code);
-                }}
+                onClick={handleRunCode}
               >
                 ▶ Run
               </GlowingButton>
