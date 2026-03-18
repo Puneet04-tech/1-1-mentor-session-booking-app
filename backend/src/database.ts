@@ -3,14 +3,10 @@ import { config } from './config';
 
 const pool = new Pool({
   connectionString: config.DATABASE_URL,
-  host: config.DB_HOST,
-  port: config.DB_PORT,
-  database: config.DB_NAME,
-  user: config.DB_USER,
-  password: config.DB_PASSWORD,
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 5000,
+  ssl: { rejectUnauthorized: false },
 });
 
 pool.on('error', (err: Error) => {
