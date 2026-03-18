@@ -1,0 +1,153 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { GlowingButton, GlowingInput, GlowingCard, GradientText, LoadingSpinner } from '@/components/ui/GlowingComponents';
+import { useAuth } from '@/hooks/useAuth';
+
+export default function SignupPage() {
+  const router = useRouter();
+  const { signup, isLoading, error } = useAuth();
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    role: 'student' as 'mentor' | 'student',
+  });
+  const [formError, setFormError] = useState('');
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError('');
+
+    if (!formData.name || !formData.email || !formData.password || !formData.role) {
+      setFormError('Please fill in all fields');
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      setFormError('Password must be at least 6 characters');
+      return;
+    }
+
+    try {
+      await signup(formData);
+      router.push('/dashboard');
+    } catch (err: any) {
+      setFormError(err.message || 'Signup failed');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950 flex items-center justify-center px-4 py-8">
+      <div className="w-full max-w-md">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold mb-2">
+            <GradientText>Mentor Sessions</GradientText>
+          </h1>
+          <p className="text-gray-400">Join our mentorship community</p>
+        </div>
+
+        {/* Signup Form */}
+        <GlowingCard glow="green" className="space-y-6">
+          <div>
+            <h2 className="text-2xl font-bold text-white mb-6">Create Account</h2>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {(formError || error) && (
+              <div className="p-4 bg-red-900/20 border border-red-700/50 rounded-lg text-red-300 text-sm">
+                {formError || error}
+              </div>
+            )}
+
+            <GlowingInput
+              label="Full Name"
+              type="text"
+              name="name"
+              value={formData.name}
+              onChange={handleChange}
+              placeholder="John Doe"
+              disabled={isLoading}
+            />
+
+            <GlowingInput
+              label="Email"
+              type="email"
+              name="email"
+              value={formData.email}
+              onChange={handleChange}
+              placeholder="you@example.com"
+              disabled={isLoading}
+            />
+
+            <GlowingInput
+              label="Password"
+              type="password"
+              name="password"
+              value={formData.password}
+              onChange={handleChange}
+              placeholder="••••••••"
+              disabled={isLoading}
+            />
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">I am a</label>
+              <select
+                name="role"
+                value={formData.role}
+                onChange={handleChange}
+                disabled={isLoading}
+                className="w-full px-4 py-3 bg-dark-800/50 border border-gray-700/50 rounded-lg text-white focus:border-secondary-500 focus:ring-2 focus:ring-secondary-500/50 transition-all duration-200"
+              >
+                <option value="student">Student (Want to learn)</option>
+                <option value="mentor">Mentor (Willing to teach)</option>
+              </select>
+            </div>
+
+            <GlowingButton variant="secondary" type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? <LoadingSpinner /> : 'Sign Up'}
+            </GlowingButton>
+          </form>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-700/30"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-dark-800/60 text-gray-400">or</span>
+            </div>
+          </div>
+
+          <p className="text-center text-gray-400">
+            Already have an account?{' '}
+            <Link href="/login" className="text-secondary-400 hover:text-secondary-300 font-semibold">
+              Sign in
+            </Link>
+          </p>
+        </GlowingCard>
+
+        {/* Features */}
+        <div className="mt-6 grid grid-cols-3 gap-4">
+          {[
+            { icon: '🎯', label: 'Learn' },
+            { icon: '💬', label: 'Chat' },
+            { icon: '💻', label: 'Code' },
+          ].map((feature) => (
+            <div key={feature.label} className="text-center">
+              <div className="text-3xl mb-2">{feature.icon}</div>
+              <p className="text-xs text-gray-400">{feature.label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}

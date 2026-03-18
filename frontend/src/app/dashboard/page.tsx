@@ -1,0 +1,162 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useAuth } from '@/hooks/useAuth';
+import { apiClient } from '@/services/api';
+import { Session, User } from '@/types';
+import { GlowingButton, GlowingCard, Badge, Avatar, LoadingSpinner } from '@/components/ui/GlowingComponents';
+
+export default function DashboardPage() {
+  const { user, logout, isLoading: authLoading } = useAuth();
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [mentors, setMentors] = useState<User[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const [sessionsRes, mentorsRes] = await Promise.all([
+          apiClient.getUserSessions(),
+          apiClient.getMentors(),
+        ]);
+
+        setSessions(sessionsRes.data || []);
+        setMentors(mentorsRes.data || []);
+      } catch (err) {
+        console.error('Error fetching data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [user]);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950 flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
+      {/* Header */}
+      <header className="border-b border-gray-700/30 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+          <h1 className="text-2xl font-bold gradient-text">Mentor Sessions</h1>
+          <div className="flex items-center gap-4">
+            <Avatar name={user?.name || 'User'} />
+            <div>
+              <p className="font-semibold text-white">{user?.name}</p>
+              <p className="text-sm text-gray-400 capitalize">{user?.role}</p>
+            </div>
+            <GlowingButton variant="outline" onClick={() => logout()} className="ml-4">
+              Logout
+            </GlowingButton>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Welcome */}
+        <div className="mb-8">
+          <h2 className="text-3xl font-bold text-white mb-2">Welcome back, {user?.name}! 👋</h2>
+          <p className="text-gray-400">
+            {user?.role === 'mentor'
+              ? 'Create sessions and help students learn'
+              : 'Find a mentor and start learning'}
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          {user?.role === 'mentor' && (
+            <GlowingCard glow="purple">
+              <h3 className="text-xl font-bold text-white mb-4">Create New Session</h3>
+              <p className="text-gray-400 mb-6">Schedule a mentoring session with a student</p>
+              <Link href="/session/create">
+                <GlowingButton variant="primary" className="w-full">
+                  Create Session
+                </GlowingButton>
+              </Link>
+            </GlowingCard>
+          )}
+
+          <GlowingCard glow="green">
+            <h3 className="text-xl font-bold text-white mb-4">Browse Available</h3>
+            <p className="text-gray-400 mb-6">
+              {user?.role === 'mentor'
+                ? 'See student profiles'
+                : 'Find mentors in your areas'}
+            </p>
+            <Link href="/browse">
+              <GlowingButton variant="secondary" className="w-full">
+                Browse
+              </GlowingButton>
+            </Link>
+          </GlowingCard>
+        </div>
+
+        {/* Sessions */}
+        <div className="mb-8">
+          <h3 className="text-2xl font-bold text-white mb-4">My Sessions</h3>
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <LoadingSpinner />
+            </div>
+          ) : sessions.length === 0 ? (
+            <GlowingCard glow="blue" className="text-center py-8">
+              <p className="text-gray-400">No sessions yet</p>
+            </GlowingCard>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {sessions.map((session) => (
+                <GlowingCard key={session.id} glow="purple">
+                  <div className="flex justify-between items-start mb-4">
+                    <h4 className="text-lg font-bold text-white">{session.title}</h4>
+                    <Badge color="green">{session.status}</Badge>
+                  </div>
+                  <p className="text-gray-400 text-sm mb-4">{session.description}</p>
+                  <div className="flex gap-2">
+                    <Link href={`/session/${session.id}`} className="flex-1">
+                      <GlowingButton variant="primary" className="w-full text-sm">
+                        View
+                      </GlowingButton>
+                    </Link>
+                  </div>
+                </GlowingCard>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Mentors */}
+        {user?.role === 'student' && (
+          <div>
+            <h3 className="text-2xl font-bold text-white mb-4">Featured Mentors</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {mentors.slice(0, 6).map((mentor) => (
+                <GlowingCard key={mentor.id} glow="yellow">
+                  <div className="flex flex-col items-center text-center">
+                    <Avatar name={mentor.name} size="lg" />
+                    <h4 className="text-lg font-bold text-white mt-4">{mentor.name}</h4>
+                    <p className="text-gray-400 text-sm mt-1">{mentor.bio}</p>
+                    <GlowingButton variant="secondary" className="w-full mt-6 text-sm">
+                      Learn from {mentor.name.split(' ')[0]}
+                    </GlowingButton>
+                  </div>
+                </GlowingCard>
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
