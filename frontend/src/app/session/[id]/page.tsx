@@ -20,8 +20,11 @@ export default function SessionPage() {
   const sessionId = params.id as string;
   const [loading, setLoading] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
+  const [cameraError, setCameraError] = useState<string>('');
   const messageEndRef = useRef<HTMLDivElement>(null);
   const listenerRef = useRef<{ cleanup: () => void } | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
 
   const {
     messages,
@@ -135,19 +138,81 @@ export default function SessionPage() {
     }
   };
 
-  const handleToggleCamera = () => {
-    const { toggleCamera } = useVideoStore.getState();
-    toggleCamera();
-    if (socketService.isConnected()) {
-      socketService.toggleCamera();
+  const handleToggleCamera = async () => {
+    const videoStore = useVideoStore.getState();
+    
+    if (!videoStore.isCameraOn) {
+      // Enable camera
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+        localStreamRef.current = stream;
+        videoStore.toggleCamera();
+        videoStore.setLocalStream(stream);
+        setCameraError('');
+        if (socketService.isConnected()) {
+          socketService.toggleCamera();
+        }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Camera access denied';
+        setCameraError(errorMsg);
+        console.error('Camera error:', errorMsg);
+      }
+    } else {
+      // Disable camera
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+        localStreamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      videoStore.toggleCamera();
+      videoStore.setLocalStream(null);
+      setCameraError('');
+      if (socketService.isConnected()) {
+        socketService.toggleCamera();
+      }
     }
   };
 
-  const handleToggleMic = () => {
-    const { toggleMic } = useVideoStore.getState();
-    toggleMic();
-    if (socketService.isConnected()) {
-      socketService.toggleMic();
+  const handleToggleMic = async () => {
+    const videoStore = useVideoStore.getState();
+    
+    if (!videoStore.isMicOn) {
+      // Enable mic
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: true,
+          video: false
+        });
+        // Store mic stream separately or merge with video stream
+        localStreamRef.current?.addTrack(stream.getAudioTracks()[0]);
+        videoStore.toggleMic();
+        setCameraError('');
+        if (socketService.isConnected()) {
+          socketService.toggleMic();
+        }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Mic access denied';
+        setCameraError(errorMsg);
+        console.error('Mic error:', errorMsg);
+      }
+    } else {
+      // Disable mic
+      if (localStreamRef.current) {
+        localStreamRef.current.getAudioTracks().forEach(track => track.stop());
+      }
+      videoStore.toggleMic();
+      setCameraError('');
+      if (socketService.isConnected()) {
+        socketService.toggleMic();
+      }
     }
   };
 
@@ -173,26 +238,49 @@ export default function SessionPage() {
     setExecutionOutput('');  // Clear previous output
 
     try {
+      // Prepare code based on language
+      let codeToExecute = code;
+      let pistonLanguage = language;
+
+      if (language === 'java') {
+        // Java requires a class with main method
+        if (!code.includes('class ') || !code.includes('public static void main')) {
+          codeToExecute = `public class Main {\n  public static void main(String[] args) {\n    ${code.replace(/\n/g, '\n    ')}\n  }\n}`;
+        }
+        pistonLanguage = 'java';
+      } else if (language === 'typescript') {
+        pistonLanguage = 'typescript';
+      } else if (language === 'cpp') {
+        pistonLanguage = 'cpp';
+      } else if (language === 'python') {
+        pistonLanguage = 'python';
+      } else if (language === 'javascript') {
+        pistonLanguage = 'javascript';
+      }
+
       // Use Piston API to execute code
       const response = await fetch('https://emkc.org/api/v2/piston/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          language,
+          language: pistonLanguage,
           version: '*',
-          files: [{ name: `main.${getFileExtension(language)}`, content: code }],
+          files: [{ name: `main.${getFileExtension(language)}`, content: codeToExecute }],
         }),
       });
 
       const result = await response.json();
       
+      console.log('Piston response:', result);
+      
       if (result.run?.output) {
-        setExecutionOutput(result.run.output);
-        console.log('Execution output:', result.run.output);
+        setExecutionOutput(result.run.output || 'Code executed successfully (no output)');
       } else if (result.compile?.output) {
-        setExecutionOutput(result.compile.output);
+        setExecutionOutput('Compilation error:\n' + result.compile.output);
+      } else if (result.message) {
+        setExecutionOutput(`Error: ${result.message}`);
       } else {
-        setExecutionOutput('Code executed successfully with no output');
+        setExecutionOutput('Code executed successfully (no output)');
       }
     } catch (err) {
       console.error('Error executing code:', err);
@@ -224,7 +312,7 @@ export default function SessionPage() {
   return (
     <div className="h-screen bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950 flex flex-col">
       {/* Header */}
-      <header className="border-b border-gray-700/30 backdrop-blur-sm px-6 py-4">
+      <header className="border-b border-gray-700/30 backdrop-blur-sm px-6 py-4 flex-shrink-0">
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold text-white">{session?.title}</h1>
@@ -243,11 +331,11 @@ export default function SessionPage() {
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 overflow-hidden">
-        {/* Code Editor */}
+      {/* Main Content - Flex layout to manage space */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 overflow-hidden">
+        {/* Code Editor - takes 2/3 on large screens */}
         <div className="lg:col-span-2 flex flex-col bg-dark-900/40 rounded-lg border border-gray-700/30 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-700/30 flex justify-between items-center">
+          <div className="px-4 py-3 border-b border-gray-700/30 flex justify-between items-center flex-shrink-0">
             <h2 className="text-lg font-bold text-white">Code Editor</h2>
             <div className="flex items-center gap-2">
               <select
@@ -270,7 +358,7 @@ export default function SessionPage() {
               </GlowingButton>
             </div>
           </div>
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-hidden">
             <Editor
               height="100%"
               language={language}
@@ -288,63 +376,63 @@ export default function SessionPage() {
         </div>
 
         {/* Right Panel - Video + Chat */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
           {/* Video Panel */}
-          <GlowingCard glow="purple" className="flex-1 flex flex-col">
-            <h3 className="font-bold text-white mb-3 px-4 pt-4">Video Call</h3>
-            <div className="flex-1 bg-black rounded flex flex-col items-center justify-center min-h-64">
-              {isCameraOn ? (
-                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-900/20 to-black">
-                  <div className="text-center">
-                    <p className="text-gray-300 text-sm mb-2">📹 Camera Stream</p>
-                    <p className="text-gray-500 text-xs">
-                      {isMicOn ? '🎤 Microphone ON' : '🔇 Microphone OFF'}
-                    </p>
-                  </div>
-                </div>
+          <GlowingCard glow="purple" className="flex-shrink-0 h-56 flex flex-col">
+            <h3 className="font-bold text-white mb-3 px-4 pt-4 flex-shrink-0">Video Call</h3>
+            <div className="flex-1 min-h-0 bg-black rounded flex flex-col items-center justify-center overflow-hidden relative">
+              {isCameraOn && localStreamRef.current ? (
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover"
+                />
               ) : (
-                <div className="text-center">
+                <div className="text-center flex flex-col items-center justify-center h-full">
                   <p className="text-gray-400 text-sm mb-4">📹 Camera is OFF</p>
+                  {cameraError && <p className="text-red-400 text-xs mb-2">{cameraError}</p>}
                   <p className="text-gray-500 text-xs mb-4">
                     {isMicOn ? '🎤 Microphone ON' : '🔇 Microphone OFF'}
                   </p>
                 </div>
               )}
-              <div className="w-full px-4 py-3 border-t border-gray-700/30 gap-2 flex">
+              <div className="w-full px-4 py-3 border-t border-gray-700/30 gap-2 flex flex-shrink-0 bg-dark-950/80">
                 <GlowingButton 
                   variant="secondary" 
-                  className="text-sm flex-1"
+                  className="text-xs flex-1"
                   onClick={handleToggleCamera}
                 >
-                  {isCameraOn ? '✓ Camera On' : '✗ Camera Off'}
+                  {isCameraOn ? '✓ Camera' : '✗ Camera'}
                 </GlowingButton>
                 <GlowingButton 
                   variant="secondary" 
-                  className="text-sm flex-1"
+                  className="text-xs flex-1"
                   onClick={handleToggleMic}
                 >
-                  {isMicOn ? '✓ Mic On' : '✗ Mic Off'}
+                  {isMicOn ? '✓ Mic' : '✗ Mic'}
                 </GlowingButton>
               </div>
             </div>
           </GlowingCard>
 
           {/* Chat Panel */}
-          <GlowingCard glow="green" className="flex-1 flex flex-col max-h-96">
-            <h3 className="font-bold text-white mb-3 px-4 pt-4">Chat</h3>
-            <div className="flex-1 overflow-y-auto px-4 space-y-3 text-sm">
+          <GlowingCard glow="green" className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <h3 className="font-bold text-white mb-3 px-4 pt-4 flex-shrink-0">Chat</h3>
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 space-y-3 text-sm">
               {messages.map((msg) => (
                 <div key={msg.id} className="flex gap-2">
                   <Avatar name={msg.user?.name || 'User'} size="sm" />
                   <div>
-                    <p className="font-semibold text-white">{msg.user?.name}</p>
-                    <p className="text-gray-300 break-words">{msg.content}</p>
+                    <p className="font-semibold text-white text-xs">{msg.user?.name}</p>
+                    <p className="text-gray-300 break-words text-sm">{msg.content}</p>
                   </div>
                 </div>
               ))}
               <div ref={messageEndRef} />
             </div>
-            <div className="px-4 py-3 border-t border-gray-700/30">
+            <div className="px-4 py-3 border-t border-gray-700/30 flex-shrink-0">
               <input
                 type="text"
                 placeholder="Send a message..."
@@ -361,11 +449,11 @@ export default function SessionPage() {
         </div>
       </div>
 
-      {/* Code Execution Output */}
+      {/* Code Execution Output - Compact fixed size at bottom */}
       {executionOutput && (
-        <div className="border-t border-gray-700/30 bg-dark-900/40 p-4 max-h-32 overflow-y-auto">
+        <div className="border-t border-gray-700/30 bg-dark-900/40 p-4 h-24 overflow-y-auto flex-shrink-0">
           <p className="text-sm font-semibold text-gray-400 mb-2">Output:</p>
-          <pre className="text-sm text-green-400 font-mono">{executionOutput}</pre>
+          <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap break-words">{executionOutput}</pre>
         </div>
       )}
     </div>
