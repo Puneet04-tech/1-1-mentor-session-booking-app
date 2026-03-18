@@ -47,49 +47,134 @@ router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Respons
   }
 });
 
-// Execute code
+// Execute code - using Judge0 API
 router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    if (!config.ENABLE_CODE_EXECUTION) {
-      return res.status(403).json({ error: 'Code execution is disabled' });
-    }
-
     const { code, language } = req.body;
 
     if (!code || !language) {
       return res.status(400).json({ error: 'Code and language required' });
     }
 
-    // Use Piston API for code execution
-    const response = await axios.post(
-      `${config.PISTON_API}/execute`,
+    // Map language to Judge0 language ID
+    const languageMap: { [key: string]: number } = {
+      javascript: 63,
+      python: 71,
+      java: 62,
+      cpp: 54,
+      typescript: 63, // TypeScript uses JavaScript ID
+    };
+
+    const languageId = languageMap[language];
+    if (!languageId) {
+      return res.status(400).json({ error: `Unsupported language: ${language}` });
+    }
+
+    // Prepare code for Java (add main method if needed)
+    let codeToExecute = code;
+    if (language === 'java') {
+      if (!code.includes('class ') || !code.includes('public static void main')) {
+        codeToExecute = `public class Main {
+  public static void main(String[] args) {
+    ${code.replace(/\n/g, '\n    ')}
+  }
+}`;
+      }
+    }
+
+    // Step 1: Submit code to Judge0
+    console.log(`Submitting ${language} code to Judge0...`);
+    const submitResponse = await axios.post(
+      'https://judge0-ce.com/api/submissions',
       {
-        language: language,
-        version: '*',
-        files: [
-          {
-            name: 'main',
-            content: code,
-          },
-        ],
+        source_code: codeToExecute,
+        language_id: languageId,
+        stdin: '',
       },
-      { timeout: 10000 }
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 5000,
+      }
     );
 
-    const { run } = response.data;
+    const submissionToken = submitResponse.data.token;
+    console.log(`Code submitted with token: ${submissionToken}`);
+
+    // Step 2: Poll for result
+    let result = null;
+    let attempts = 0;
+    const maxAttempts = 20;
+    let delayMs = 500;
+
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+
+      try {
+        const statusResponse = await axios.get(
+          `https://judge0-ce.com/api/submissions/${submissionToken}`,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            timeout: 5000,
+          }
+        );
+
+        result = statusResponse.data;
+
+        // Status 1 = In Queue, 2 = Processing, anything else = Done
+        if (result.status.id > 2) {
+          console.log(`Execution completed with status: ${result.status.description}`);
+          break;
+        }
+
+        attempts++;
+        delayMs = Math.min(delayMs * 1.2, 2000);
+      } catch (pollErr) {
+        console.error('Poll error:', pollErr);
+        attempts++;
+      }
+    }
+
+    if (!result) {
+      return res.status(504).json({
+        error: 'Code execution timeout',
+        message: 'The code took too long to execute',
+      });
+    }
+
+    // Step 3: Format and return output
+    let output = '';
+    let error = null;
+
+    if (result.compile_output) {
+      error = result.compile_output;
+      output = `Compilation Error:\n${result.compile_output}`;
+    } else if (result.runtime_error) {
+      error = result.runtime_error;
+      output = `Runtime Error:\n${result.runtime_error}`;
+    } else if (result.stdout) {
+      output = result.stdout;
+    } else {
+      output = 'Code executed successfully (no output)';
+    }
 
     res.json({
       success: true,
       data: {
-        output: run.stdout || run.stderr || '',
-        error: run.stderr || null,
+        output: output.trim(),
+        error: error,
+        status: result.status.description,
       },
     });
   } catch (err: any) {
-    console.error('Code execution error:', err);
+    console.error('Code execution error:', err.message);
     res.status(500).json({
       error: 'Code execution failed',
-      message: err.message,
+      message: err.message || 'Unknown error occurred',
+      tip: 'Make sure you have internet connectivity. Judge0 API is used for code execution.',
     });
   }
 });

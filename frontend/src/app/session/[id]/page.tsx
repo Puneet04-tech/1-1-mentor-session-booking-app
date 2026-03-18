@@ -257,7 +257,7 @@ export default function SessionPage() {
       python: { id: 71, main: false },
       java: { id: 62, main: true },
       cpp: { id: 54, main: false },
-      typescript: { id: 63, main: false }, // Use JavaScript for TypeScript
+      typescript: { id: 63, main: false },
     };
     const result = mapping[lang] || mapping.javascript;
     return { langId: result.id, requiresMain: result.main };
@@ -274,96 +274,23 @@ export default function SessionPage() {
     setExecutionOutput('Executing code...');
 
     try {
-      const { langId, requiresMain } = getJudge0LanguageId(language);
-      
-      // Prepare code based on language
-      let codeToExecute = code;
+      // Call backend endpoint for code execution
+      const response = await apiClient.executeCode(code, language);
 
-      if (language === 'java' && requiresMain) {
-        // Java requires a class with main method
-        if (!code.includes('class ') || !code.includes('public static void main')) {
-          codeToExecute = `public class Main {\n  public static void main(String[] args) {\n    ${code.replace(/\n/g, '\n    ')}\n  }\n}`;
-        }
-      }
-
-      // Step 1: Submit code to Judge0
-      const submitResponse = await fetch('https://judge0-ce.com/api/submissions', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-RapidAPI-Pro-User-Id': '',
-        },
-        body: JSON.stringify({
-          source_code: codeToExecute,
-          language_id: langId,
-          stdin: '',
-        }),
-      });
-
-      if (!submitResponse.ok) {
-        throw new Error(`Judge0 API error: ${submitResponse.statusText}`);
-      }
-
-      const submitData = await submitResponse.json();
-      const submissionId = submitData.token;
-
-      console.log('Code submission token:', submissionId);
-
-      // Step 2: Poll for result with exponential backoff
-      let result = null;
-      let attempts = 0;
-      const maxAttempts = 20;
-      let delayMs = 500;
-
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-        
-        const statusResponse = await fetch(`https://judge0-ce.com/api/submissions/${submissionId}`, {
-          headers: { 'X-RapidAPI-Pro-User-Id': '' }
-        });
-
-        if (!statusResponse.ok) {
-          throw new Error('Failed to check execution status');
-        }
-
-        result = await statusResponse.json();
-
-        // Status 1 = In Queue, 2 = Processing, anything else = Done
-        if (result.status.id > 2) {
-          break;
-        }
-
-        attempts++;
-        delayMs = Math.min(delayMs * 1.2, 2000); // Increase delay up to 2sec
-      }
-
-      if (!result) {
-        throw new Error('Code execution timeout');
-      }
-
-      // Step 3: Format and display output
-      let output = '';
-
-      if (result.compile_output) {
-        output = `Compilation Error:\n${result.compile_output}`;
-      } else if (result.runtime_error) {
-        output = `Runtime Error:\n${result.runtime_error}`;
-      } else if (result.stdout) {
-        output = result.stdout;
-      } else if (result.status.id === 3 || result.status.id === 4) {
-        // Status 3 = Accepted, 4 = Wrong Answer (no output expected)
-        output = 'Code executed successfully (no output)';
+      if (response?.data?.output) {
+        setExecutionOutput(response.data.output);
       } else {
-        output = `Status: ${result.status.description || 'Unknown'}`;
+        setExecutionOutput('Code executed successfully (no output)');
       }
 
-      setExecutionOutput(output.trim() || 'Code executed successfully');
-      console.log('Execution result:', result);
-
-    } catch (err) {
+      console.log('Execution result:', response);
+    } catch (err: any) {
       console.error('Error executing code:', err);
-      const errorMsg = err instanceof Error ? err.message : 'Failed to execute code';
-      setExecutionOutput(`Error: ${errorMsg}\n\nNote: Using Judge0 Community API (free tier). For faster execution, consider deploying a dedicated Judge0 instance.`);
+      const errorMsg = err?.response?.data?.message || 
+                       err?.response?.data?.error ||
+                       err?.message || 
+                       'Failed to execute code. Make sure your backend is running.';
+      setExecutionOutput(`Error: ${errorMsg}`);
     } finally {
       setIsExecuting(false);
     }
