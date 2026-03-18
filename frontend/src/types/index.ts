@@ -118,6 +118,8 @@ export interface SocketEvents {
   'video:answer': { answer: VideoAnswer };
   'video:ice-candidate': ICECandidate;
   'video:end': void;
+  'video:toggle-camera': { userId: string };
+  'video:toggle-mic': { userId: string };
 
   // Presence Events
   'presence:update': { status: 'online' | 'away' | 'typing'; user_id: string };
@@ -129,6 +131,7 @@ export interface SocketEvents {
   'session:leave': { sessionId: string };
   'session:joined': { user: User };
   'session:left': { user_id: string };
+  'session:end': { sessionId: string };
   'session:ended': void;
 }
 

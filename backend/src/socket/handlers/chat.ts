@@ -16,14 +16,19 @@ export async function handleMessageSend(socket: Socket, io: SocketIOServer, data
       [messageId, sessionId, userId, content, type, timestamp]
     );
 
-    // Broadcast message to session
+    // Fetch user details
+    const users = await query<any>('SELECT id, name, email, avatar_url FROM users WHERE id = $1', [userId]);
+    const user = users[0];
+
+    // Broadcast message to session (including full user details)
     io.to(`session:${sessionId}`).emit('message:receive', {
       id: messageId,
-      sessionId,
-      userId,
+      session_id: sessionId,
+      user_id: userId,
       content,
       type,
       created_at: timestamp,
+      user: user ? { id: user.id, name: user.name, email: user.email, avatar: user.avatar_url } : null,
     });
   } catch (err) {
     console.error('Message send error:', err);

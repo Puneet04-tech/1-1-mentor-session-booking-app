@@ -67,9 +67,29 @@ class SocketService {
     this.socket.on(event as string, callback);
   }
 
-  off<K extends keyof SocketEvents>(event: K, callback: (data: SocketEvents[K]) => void) {
+  off<K extends keyof SocketEvents>(event: K, callback?: (data: SocketEvents[K]) => void) {
     if (!this.socket) return;
-    this.socket.off(event as string, callback);
+    
+    if (callback) {
+      this.socket.off(event as string, callback);
+      const listeners = this.listeners.get(event);
+      if (listeners) {
+        const index = listeners.indexOf(callback);
+        if (index > -1) {
+          listeners.splice(index, 1);
+        }
+      }
+    } else {
+      // Remove all listeners for this event
+      this.socket.off(event as string);
+      this.listeners.delete(event);
+    }
+  }
+
+  offAll<K extends keyof SocketEvents>(event: K) {
+    if (!this.socket) return;
+    this.socket.off(event as string);
+    this.listeners.delete(event);
   }
 
   emit<K extends keyof SocketEvents>(event: K, data?: SocketEvents[K]) {

@@ -21,6 +21,7 @@ export default function SessionPage() {
   const [loading, setLoading] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
+  const listenerRef = useRef<{ cleanup: () => void } | null>(null);
 
   const {
     messages,
@@ -68,18 +69,38 @@ export default function SessionPage() {
 
     socketService.joinSession(sessionId);
 
-    socketService.on('code:update', (data) => {
+    // Handler for code updates
+    const handleCodeUpdate = (data: any) => {
       if (data.user_id !== useSessionStore.getState().currentSession?.mentor_id) {
         setCode(data.code);
         setLanguage(data.language);
       }
-    });
+    };
 
-    socketService.on('message:receive', (message) => {
-      addMessage(message);
-    });
+    // Handler for incoming messages - with deduplication
+    const handleMessageReceive = (message: any) => {
+      // Prevent duplicate messages by checking if message ID already exists
+      const existingMessages = useSessionStore.getState().messages;
+      if (!existingMessages.find((m) => m.id === message.id)) {
+        addMessage(message);
+      }
+    };
 
+    // Register listeners
+    socketService.on('code:update', handleCodeUpdate);
+    socketService.on('message:receive', handleMessageReceive);
+
+    // Store cleanup function
+    listenerRef.current = {
+      cleanup: () => {
+        socketService.off('code:update', handleCodeUpdate);
+        socketService.off('message:receive', handleMessageReceive);
+      },
+    };
+
+    // Cleanup on unmount or sessionId change
     return () => {
+      listenerRef.current?.cleanup();
       socketService.leaveSession(sessionId);
     };
   }, [sessionId]);
@@ -149,6 +170,7 @@ export default function SessionPage() {
 
     const { setExecutionOutput, setIsExecuting } = useEditorStore.getState();
     setIsExecuting(true);
+    setExecutionOutput('');  // Clear previous output
 
     try {
       // Use Piston API to execute code
@@ -270,27 +292,39 @@ export default function SessionPage() {
           {/* Video Panel */}
           <GlowingCard glow="purple" className="flex-1 flex flex-col">
             <h3 className="font-bold text-white mb-3 px-4 pt-4">Video Call</h3>
-            <div className="flex-1 bg-dark-950 rounded flex items-center justify-center">
-              <div className="text-center">
-                <p className="text-gray-400 text-sm mb-4">
-                  {isCameraOn && isMicOn ? '🎥 Camera & Mic On' : '🔇 Camera & Mic Off'}
-                </p>
-                <div className="flex gap-2 justify-center">
-                  <GlowingButton 
-                    variant="secondary" 
-                    className="text-sm"
-                    onClick={handleToggleCamera}
-                  >
-                    {isCameraOn ? '📹' : '❌'} Camera
-                  </GlowingButton>
-                  <GlowingButton 
-                    variant="secondary" 
-                    className="text-sm"
-                    onClick={handleToggleMic}
-                  >
-                    {isMicOn ? '🎤' : '🔇'} Mic
-                  </GlowingButton>
+            <div className="flex-1 bg-black rounded flex flex-col items-center justify-center min-h-64">
+              {isCameraOn ? (
+                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-900/20 to-black">
+                  <div className="text-center">
+                    <p className="text-gray-300 text-sm mb-2">📹 Camera Stream</p>
+                    <p className="text-gray-500 text-xs">
+                      {isMicOn ? '🎤 Microphone ON' : '🔇 Microphone OFF'}
+                    </p>
+                  </div>
                 </div>
+              ) : (
+                <div className="text-center">
+                  <p className="text-gray-400 text-sm mb-4">📹 Camera is OFF</p>
+                  <p className="text-gray-500 text-xs mb-4">
+                    {isMicOn ? '🎤 Microphone ON' : '🔇 Microphone OFF'}
+                  </p>
+                </div>
+              )}
+              <div className="w-full px-4 py-3 border-t border-gray-700/30 gap-2 flex">
+                <GlowingButton 
+                  variant="secondary" 
+                  className="text-sm flex-1"
+                  onClick={handleToggleCamera}
+                >
+                  {isCameraOn ? '✓ Camera On' : '✗ Camera Off'}
+                </GlowingButton>
+                <GlowingButton 
+                  variant="secondary" 
+                  className="text-sm flex-1"
+                  onClick={handleToggleMic}
+                >
+                  {isMicOn ? '✓ Mic On' : '✗ Mic Off'}
+                </GlowingButton>
               </div>
             </div>
           </GlowingCard>

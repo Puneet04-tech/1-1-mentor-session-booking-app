@@ -7,13 +7,26 @@ const router = Router();
 // Get messages for session
 router.get('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const messages = await query(
-      `SELECT m.*, u.name, u.avatar_url FROM messages m
+    const result = await query<any>(
+      `SELECT m.id, m.session_id, m.user_id, m.content, m.type, m.created_at,
+              json_build_object('id', u.id, 'name', u.name, 'email', u.email, 'avatar', u.avatar_url) as user
+       FROM messages m
        JOIN users u ON m.user_id = u.id
        WHERE m.session_id = $1
        ORDER BY m.created_at ASC`,
       [req.params.sessionId]
     );
+
+    // Transform the result to include user object properly
+    const messages = result.map((msg: any) => ({
+      id: msg.id,
+      session_id: msg.session_id,
+      user_id: msg.user_id,
+      content: msg.content,
+      type: msg.type,
+      created_at: msg.created_at,
+      user: msg.user,
+    }));
 
     res.json({
       success: true,
