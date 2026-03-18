@@ -251,6 +251,18 @@ export default function SessionPage() {
     }
   };
 
+  const getJudge0LanguageId = (lang: string): { langId: number; requiresMain: boolean } => {
+    const mapping: { [key: string]: { id: number; main: boolean } } = {
+      javascript: { id: 63, main: false },
+      python: { id: 71, main: false },
+      java: { id: 62, main: true },
+      cpp: { id: 54, main: false },
+      typescript: { id: 63, main: false }, // Use JavaScript for TypeScript
+    };
+    const result = mapping[lang] || mapping.javascript;
+    return { langId: result.id, requiresMain: result.main };
+  };
+
   const handleRunCode = async () => {
     if (!code.trim()) {
       alert('Please write some code first');
@@ -259,56 +271,99 @@ export default function SessionPage() {
 
     const { setExecutionOutput, setIsExecuting } = useEditorStore.getState();
     setIsExecuting(true);
-    setExecutionOutput('');  // Clear previous output
+    setExecutionOutput('Executing code...');
 
     try {
+      const { langId, requiresMain } = getJudge0LanguageId(language);
+      
       // Prepare code based on language
       let codeToExecute = code;
-      let pistonLanguage = language;
 
-      if (language === 'java') {
+      if (language === 'java' && requiresMain) {
         // Java requires a class with main method
         if (!code.includes('class ') || !code.includes('public static void main')) {
           codeToExecute = `public class Main {\n  public static void main(String[] args) {\n    ${code.replace(/\n/g, '\n    ')}\n  }\n}`;
         }
-        pistonLanguage = 'java';
-      } else if (language === 'typescript') {
-        pistonLanguage = 'typescript';
-      } else if (language === 'cpp') {
-        pistonLanguage = 'cpp';
-      } else if (language === 'python') {
-        pistonLanguage = 'python';
-      } else if (language === 'javascript') {
-        pistonLanguage = 'javascript';
       }
 
-      // Use Piston API to execute code
-      const response = await fetch('https://emkc.org/api/v2/piston/execute', {
+      // Step 1: Submit code to Judge0
+      const submitResponse = await fetch('https://judge0-ce.com/api/submissions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-RapidAPI-Pro-User-Id': '',
+        },
         body: JSON.stringify({
-          language: pistonLanguage,
-          version: '*',
-          files: [{ name: `main.${getFileExtension(language)}`, content: codeToExecute }],
+          source_code: codeToExecute,
+          language_id: langId,
+          stdin: '',
         }),
       });
 
-      const result = await response.json();
-      
-      console.log('Piston response:', result);
-      
-      if (result.run?.output) {
-        setExecutionOutput(result.run.output || 'Code executed successfully (no output)');
-      } else if (result.compile?.output) {
-        setExecutionOutput('Compilation error:\n' + result.compile.output);
-      } else if (result.message) {
-        setExecutionOutput(`Error: ${result.message}`);
-      } else {
-        setExecutionOutput('Code executed successfully (no output)');
+      if (!submitResponse.ok) {
+        throw new Error(`Judge0 API error: ${submitResponse.statusText}`);
       }
+
+      const submitData = await submitResponse.json();
+      const submissionId = submitData.token;
+
+      console.log('Code submission token:', submissionId);
+
+      // Step 2: Poll for result with exponential backoff
+      let result = null;
+      let attempts = 0;
+      const maxAttempts = 20;
+      let delayMs = 500;
+
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        
+        const statusResponse = await fetch(`https://judge0-ce.com/api/submissions/${submissionId}`, {
+          headers: { 'X-RapidAPI-Pro-User-Id': '' }
+        });
+
+        if (!statusResponse.ok) {
+          throw new Error('Failed to check execution status');
+        }
+
+        result = await statusResponse.json();
+
+        // Status 1 = In Queue, 2 = Processing, anything else = Done
+        if (result.status.id > 2) {
+          break;
+        }
+
+        attempts++;
+        delayMs = Math.min(delayMs * 1.2, 2000); // Increase delay up to 2sec
+      }
+
+      if (!result) {
+        throw new Error('Code execution timeout');
+      }
+
+      // Step 3: Format and display output
+      let output = '';
+
+      if (result.compile_output) {
+        output = `Compilation Error:\n${result.compile_output}`;
+      } else if (result.runtime_error) {
+        output = `Runtime Error:\n${result.runtime_error}`;
+      } else if (result.stdout) {
+        output = result.stdout;
+      } else if (result.status.id === 3 || result.status.id === 4) {
+        // Status 3 = Accepted, 4 = Wrong Answer (no output expected)
+        output = 'Code executed successfully (no output)';
+      } else {
+        output = `Status: ${result.status.description || 'Unknown'}`;
+      }
+
+      setExecutionOutput(output.trim() || 'Code executed successfully');
+      console.log('Execution result:', result);
+
     } catch (err) {
       console.error('Error executing code:', err);
-      setExecutionOutput(`Error: ${err instanceof Error ? err.message : 'Failed to execute code'}`);
+      const errorMsg = err instanceof Error ? err.message : 'Failed to execute code';
+      setExecutionOutput(`Error: ${errorMsg}\n\nNote: Using Judge0 Community API (free tier). For faster execution, consider deploying a dedicated Judge0 instance.`);
     } finally {
       setIsExecuting(false);
     }
