@@ -99,8 +99,8 @@ export default function JoinSessionPage() {
         </header>
 
         <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <GlowingCard glow="red" className="text-center py-12">
-            <p className="text-red-400 text-lg">{error}</p>
+          <GlowingCard glow="yellow" className="text-center py-12">
+            <p className="text-yellow-400 text-lg">{error}</p>
           </GlowingCard>
         </main>
       </div>
@@ -156,7 +156,7 @@ export default function JoinSessionPage() {
                     ? 'green'
                     : session.status === 'in_progress'
                       ? 'yellow'
-                      : 'gray'
+                      : 'purple'
                 }
               >
                 {session.status}
@@ -167,7 +167,7 @@ export default function JoinSessionPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 pb-8 border-b border-gray-700/30">
             <div>
               <p className="text-gray-400 text-sm mb-1">Language</p>
-              <Badge color="blue">{session.code_language}</Badge>
+              <Badge color="purple">{session.code_language}</Badge>
             </div>
             <div>
               <p className="text-gray-400 text-sm mb-1">Duration</p>
@@ -218,8 +218,8 @@ export default function JoinSessionPage() {
 
         {/* Error Alert */}
         {error && (
-          <GlowingCard glow="red" className="mb-8">
-            <p className="text-red-400">{error}</p>
+          <GlowingCard glow="yellow" className="mb-8">
+            <p className="text-yellow-400">{error}</p>
           </GlowingCard>
         )}
 

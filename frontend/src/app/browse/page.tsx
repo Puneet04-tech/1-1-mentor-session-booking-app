@@ -191,7 +191,7 @@ export default function BrowsePage() {
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-gray-400">Language:</span>
-                            <Badge color="blue">{session.code_language}</Badge>
+                            <Badge color="purple">{session.code_language}</Badge>
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-gray-400">Duration:</span>

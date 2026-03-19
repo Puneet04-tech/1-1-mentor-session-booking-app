@@ -80,8 +80,8 @@ export default function MentorProfilePage() {
         </header>
 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <GlowingCard glow="red" className="text-center py-12">
-            <p className="text-red-400 text-lg">{error || 'Mentor not found'}</p>
+          <GlowingCard glow="yellow" className="text-center py-12">
+            <p className="text-yellow-400 text-lg">{error || 'Mentor not found'}</p>
           </GlowingCard>
         </main>
       </div>
@@ -105,7 +105,7 @@ export default function MentorProfilePage() {
         <GlowingCard glow="yellow" className="mb-8">
           <div className="flex flex-col md:flex-row gap-8 items-start">
             <div className="flex flex-col items-center text-center">
-              <Avatar name={mentor.name} size="xl" />
+              <Avatar name={mentor.name} size="lg" />
               <h2 className="text-2xl font-bold text-white mt-6 mb-2">{mentor.name}</h2>
               <p className="text-gray-400 mb-4">{mentor.bio || 'No bio provided'}</p>
               <Badge color="purple">{mentor.role}</Badge>
@@ -162,7 +162,7 @@ export default function MentorProfilePage() {
                   <div className="space-y-2 mb-6 text-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-gray-400">Language:</span>
-                      <Badge color="blue">{session.code_language}</Badge>
+                      <Badge color="purple">{session.code_language}</Badge>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-gray-400">Duration:</span>
