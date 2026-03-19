@@ -64,26 +64,26 @@ export default function BrowsePage() {
     <div className="min-h-screen bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
       {/* Header */}
       <header className="border-b border-gray-700/30 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex justify-between items-center">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 md:py-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-3xl font-bold gradient-text">Browse Mentors & Sessions</h1>
-            <p className="text-gray-400 mt-1">Find the perfect mentor and session for your learning</p>
+            <h1 className="text-2xl md:text-3xl font-bold gradient-text">Browse Sessions</h1>
+            <p className="text-gray-400 text-sm mt-1">Find the perfect mentor</p>
           </div>
-          <Link href="/dashboard">
-            <GlowingButton variant="outline">Back to Dashboard</GlowingButton>
+          <Link href="/dashboard" className="w-full sm:w-auto">
+            <GlowingButton variant="outline" className="w-full sm:w-auto text-sm">Back to Dashboard</GlowingButton>
           </Link>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 md:py-8">
         {/* Filter Section */}
-        <div className="mb-8 flex gap-4 flex-wrap">
-          <div className="flex-1 min-w-[200px]">
-            <label className="block text-sm font-medium text-gray-300 mb-2">Filter by Mentor</label>
+        <div className="mb-6 md:mb-8 flex flex-col sm:flex-row gap-2 md:gap-4">
+          <div className="flex-1 min-w-0">
+            <label className="block text-xs md:text-sm font-medium text-gray-300 mb-2">Filter by Mentor</label>
             <select
               value={selectedMentor || ''}
               onChange={(e) => setSelectedMentor(e.target.value || null)}
-              className="w-full px-4 py-2 bg-dark-800/50 border border-gray-700/50 rounded-lg text-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/50"
+              className="w-full px-3 md:px-4 py-2 bg-dark-800/50 border border-gray-700/50 rounded-lg text-white text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/50"
             >
               <option value="">All Mentors</option>
               {mentors.map((mentor) => (
@@ -94,12 +94,12 @@ export default function BrowsePage() {
             </select>
           </div>
 
-          <div className="flex-1 min-w-[200px]">
-            <label className="block text-sm font-medium text-gray-300 mb-2">Filter by Language</label>
+          <div className="flex-1 min-w-0">
+            <label className="block text-xs md:text-sm font-medium text-gray-300 mb-2">Filter by Language</label>
             <select
               value={filterLanguage}
               onChange={(e) => setFilterLanguage(e.target.value)}
-              className="w-full px-4 py-2 bg-dark-800/50 border border-gray-700/50 rounded-lg text-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/50"
+              className="w-full px-3 md:px-4 py-2 bg-dark-800/50 border border-gray-700/50 rounded-lg text-white text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/50"
             >
               <option value="">All Languages</option>
               <option value="javascript">JavaScript</option>
@@ -116,11 +116,11 @@ export default function BrowsePage() {
             <LoadingSpinner />
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Mentors Sidebar */}
-            <div className="lg:col-span-1">
-              <h2 className="text-xl font-bold text-white mb-4">Mentors</h2>
-              <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 lg:gap-8">
+            {/* Mentors Sidebar - Hidden on mobile, shown on md+ */}
+            <div className="hidden md:block lg:col-span-1">
+              <h2 className="text-lg md:text-xl font-bold text-white mb-3 md:mb-4">Mentors</h2>
+              <div className="space-y-2 md:space-y-3">
                 {mentors.length === 0 ? (
                   <GlowingCard glow="blue" className="text-center py-6">
                     <p className="text-gray-400">No mentors available</p>
@@ -159,8 +159,8 @@ export default function BrowsePage() {
             </div>
 
             {/* Sessions Grid */}
-            <div className="lg:col-span-2">
-              <h2 className="text-xl font-bold text-white mb-4">
+            <div className="md:col-span-2 lg:col-span-2">
+              <h2 className="text-lg md:text-xl font-bold text-white mb-3 md:mb-4">
                 Available Sessions {filteredSessions.length > 0 && `(${filteredSessions.length})`}
               </h2>
 
@@ -173,19 +173,19 @@ export default function BrowsePage() {
                   </p>
                 </GlowingCard>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 lg:gap-6">
                   {filteredSessions.map((session) => {
                     const mentor = mentors.find((m) => m.id === session.mentor_id);
                     return (
-                      <GlowingCard key={session.id} glow="purple">
-                        <div className="flex justify-between items-start mb-3">
-                          <h3 className="text-lg font-bold text-white">{session.title}</h3>
-                          <Badge color="green">{session.status}</Badge>
+                      <GlowingCard key={session.id} glow="purple" className="p-3 md:p-4">
+                        <div className="flex justify-between items-start mb-2 md:mb-3">
+                          <h3 className="text-base md:text-lg font-bold text-white">{session.title}</h3>
+                          <Badge color="green" className="text-xs md:text-sm">{session.status}</Badge>
                         </div>
 
-                        <p className="text-gray-400 text-sm mb-3">{session.description}</p>
+                        <p className="text-gray-400 text-xs md:text-sm mb-2 md:mb-3">{session.description}</p>
 
-                        <div className="space-y-2 mb-4 text-sm">
+                        <div className="space-y-1 md:space-y-2 mb-3 md:mb-4 text-xs md:text-sm">
                           <div className="flex items-center gap-2">
                             <span className="text-gray-400">Mentor:</span>
                             <span className="text-white font-semibold">{mentor?.name}</span>
@@ -220,7 +220,7 @@ export default function BrowsePage() {
               )}
             </div>
           </div>
-        )}
+        )}  
       </main>
     </div>
   );

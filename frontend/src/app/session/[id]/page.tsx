@@ -342,16 +342,16 @@ export default function SessionPage() {
       </header>
 
       {/* Main Content - Flex layout to manage space */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 overflow-hidden">
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-2 md:gap-3 lg:gap-4 p-2 md:p-3 lg:p-4 overflow-hidden">
         {/* Code Editor - takes 2/3 on large screens */}
-        <div className="lg:col-span-2 flex flex-col bg-dark-900/40 rounded-lg border border-gray-700/30 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-700/30 flex justify-between items-center flex-shrink-0">
-            <h2 className="text-lg font-bold text-white">Code Editor</h2>
-            <div className="flex items-center gap-2">
+        <div className="lg:col-span-2 md:col-span-1 flex flex-col bg-dark-900/40 rounded-lg border border-gray-700/30 overflow-hidden min-h-[300px] md:min-h-[400px] lg:min-h-0">
+          <div className="px-2 md:px-4 py-2 md:py-3 border-b border-gray-700/30 flex flex-col md:flex-row justify-between items-start md:items-center gap-2 flex-shrink-0">
+            <h2 className="text-base md:text-lg font-bold text-white">Code Editor</h2>
+            <div className="flex items-center gap-1 md:gap-2 w-full md:w-auto">
               <select
                 value={language}
                 onChange={(e) => handleLanguageChange(e.target.value)}
-                className="px-3 py-1 bg-dark-800 border border-gray-700/50 rounded text-sm text-white"
+                className="px-2 md:px-3 py-1 bg-dark-800 border border-gray-700/50 rounded text-xs md:text-sm text-white flex-1 md:flex-none"
               >
                 <option value="javascript">JavaScript</option>
                 <option value="python">Python</option>
@@ -361,7 +361,7 @@ export default function SessionPage() {
               </select>
               <GlowingButton 
                 variant="secondary" 
-                className="text-sm"
+                className="text-xs md:text-sm flex-1 md:flex-none"
                 onClick={handleRunCode}
               >
                 ▶ Run
@@ -386,10 +386,10 @@ export default function SessionPage() {
         </div>
 
         {/* Right Panel - Video + Chat */}
-        <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+        <div className="flex flex-col gap-2 md:gap-3 lg:gap-4 min-h-0 overflow-hidden">
           {/* Video Panel */}
-          <GlowingCard glow="purple" className="flex-shrink-0 h-56 flex flex-col">
-            <h3 className="font-bold text-white mb-3 px-4 pt-4 flex-shrink-0">Video Call</h3>
+          <GlowingCard glow="purple" className="flex-shrink-0 h-40 md:h-48 lg:h-56 flex flex-col">
+            <h3 className="font-bold text-white text-sm md:text-base mb-2 md:mb-3 px-2 md:px-4 pt-2 md:pt-4 flex-shrink-0">Video Call</h3>
             <div className="flex-1 min-h-0 bg-black rounded flex flex-col items-center justify-center overflow-hidden relative">
               {isCameraOn && localStreamRef.current ? (
                 <video
@@ -408,29 +408,29 @@ export default function SessionPage() {
                   </p>
                 </div>
               )}
-              <div className="w-full px-4 py-3 border-t border-gray-700/30 gap-2 flex flex-shrink-0 bg-dark-950/80">
+              <div className="w-full px-2 md:px-4 py-2 md:py-3 border-t border-gray-700/30 gap-1 md:gap-2 flex flex-shrink-0 bg-dark-950/80">
                 <GlowingButton 
                   variant="secondary" 
-                  className="text-xs flex-1"
+                  className="text-xs flex-1 py-1 md:py-2"
                   onClick={handleToggleCamera}
                 >
-                  {isCameraOn ? '✓ Camera' : '✗ Camera'}
+                  {isCameraOn ? '✓ Cam' : '✗ Cam'}
                 </GlowingButton>
                 <GlowingButton 
                   variant="secondary" 
-                  className="text-xs flex-1"
+                  className="text-xs flex-1 py-1 md:py-2"
                   onClick={handleToggleMic}
                 >
-                  {isMicOn ? '✓ Mic' : '✗ Mic'}
+                  {isMicOn ? '✓ 🎤' : '✗ 🎤'}
                 </GlowingButton>
               </div>
             </div>
           </GlowingCard>
 
           {/* Chat Panel */}
-          <GlowingCard glow="green" className="flex-1 min-h-0 flex flex-col overflow-hidden">
-            <h3 className="font-bold text-white mb-3 px-4 pt-4 flex-shrink-0">Chat</h3>
-            <div className="flex-1 min-h-0 overflow-y-auto px-4 space-y-3 text-sm">
+          <GlowingCard glow="green" className="flex-1 min-h-[200px] md:min-h-0 flex flex-col overflow-hidden">
+            <h3 className="font-bold text-white text-sm md:text-base mb-2 md:mb-3 px-2 md:px-4 pt-2 md:pt-4 flex-shrink-0">Chat</h3>
+            <div className="flex-1 min-h-0 overflow-y-auto px-2 md:px-4 space-y-2 md:space-y-3 text-xs md:text-sm">
               {messages.map((msg) => (
                 <div key={msg.id} className="flex gap-2">
                   <Avatar name={msg.user?.name || 'User'} size="sm" />
@@ -442,7 +442,7 @@ export default function SessionPage() {
               ))}
               <div ref={messageEndRef} />
             </div>
-            <div className="px-4 py-3 border-t border-gray-700/30 flex-shrink-0">
+            <div className="px-2 md:px-4 py-2 md:py-3 border-t border-gray-700/30 flex-shrink-0">
               <input
                 type="text"
                 placeholder="Send a message..."
@@ -461,9 +461,9 @@ export default function SessionPage() {
 
       {/* Code Execution Output - Compact fixed size at bottom */}
       {executionOutput && (
-        <div className="border-t border-gray-700/30 bg-dark-900/40 p-4 h-24 overflow-y-auto flex-shrink-0">
+        <div className="border-t border-gray-700/30 bg-dark-900/40 p-2 md:p-3 lg:p-4 max-h-[120px] md:max-h-[140px] lg:h-24 overflow-y-auto flex-shrink-0">
           <p className="text-sm font-semibold text-gray-400 mb-2">Output:</p>
-          <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap break-words">{executionOutput}</pre>
+          <pre className="text-xs md:text-sm text-green-400 font-mono whitespace-pre-wrap break-words">{executionOutput}</pre>
         </div>
       )}
     </div>

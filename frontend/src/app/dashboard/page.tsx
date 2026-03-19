@@ -48,26 +48,26 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
       {/* Header */}
       <header className="border-b border-gray-700/30 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold gradient-text">Mentor Sessions</h1>
-          <div className="flex items-center gap-4">
-            <Avatar name={user?.name || 'User'} />
-            <div>
-              <p className="font-semibold text-white">{user?.name}</p>
-              <p className="text-sm text-gray-400 capitalize">{user?.role}</p>
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-3 md:py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 md:gap-4">
+          <h1 className="text-xl md:text-2xl font-bold gradient-text">Sessions</h1>
+          <div className="flex items-center gap-2 md:gap-4 w-full sm:w-auto">
+            <Avatar name={user?.name || 'User'} size="sm" />
+            <div className="flex-1 sm:flex-none">
+              <p className="font-semibold text-white text-sm md:text-base">{user?.name}</p>
+              <p className="text-xs md:text-sm text-gray-400 capitalize">{user?.role}</p>
             </div>
-            <GlowingButton variant="outline" onClick={() => logout()} className="ml-4">
+            <GlowingButton variant="outline" onClick={() => logout()} className="ml-auto sm:ml-4 text-xs md:text-sm py-1 md:py-2">
               Logout
             </GlowingButton>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 md:py-8">
         {/* Welcome */}
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-white mb-2">Welcome back, {user?.name}! 👋</h2>
-          <p className="text-gray-400">
+        <div className="mb-6 md:mb-8">
+          <h2 className="text-2xl md:text-3xl font-bold text-white mb-1 md:mb-2">Welcome, {user?.name}! 👋</h2>
+          <p className="text-gray-400 text-sm md:text-base">
             {user?.role === 'mentor'
               ? 'Create sessions and help students learn'
               : 'Find a mentor and start learning'}
@@ -75,7 +75,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 lg:gap-6 mb-6 md:mb-8">
           {user?.role === 'mentor' && (
             <GlowingCard glow="purple">
               <h3 className="text-xl font-bold text-white mb-4">Create New Session</h3>
@@ -104,8 +104,8 @@ export default function DashboardPage() {
         </div>
 
         {/* Sessions */}
-        <div className="mb-8">
-          <h3 className="text-2xl font-bold text-white mb-4">My Sessions</h3>
+        <div className="mb-6 md:mb-8">
+          <h3 className="text-xl md:text-2xl font-bold text-white mb-3 md:mb-4">My Sessions</h3>
           {loading ? (
             <div className="flex justify-center py-8">
               <LoadingSpinner />
@@ -115,7 +115,7 @@ export default function DashboardPage() {
               <p className="text-gray-400">No sessions yet</p>
             </GlowingCard>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-6">
               {sessions.map((session) => (
                 <GlowingCard key={session.id} glow="purple">
                   <div className="flex justify-between items-start mb-4">
