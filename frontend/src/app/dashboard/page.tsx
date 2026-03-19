@@ -147,9 +147,11 @@ export default function DashboardPage() {
                     <Avatar name={mentor.name} size="lg" />
                     <h4 className="text-lg font-bold text-white mt-4">{mentor.name}</h4>
                     <p className="text-gray-400 text-sm mt-1">{mentor.bio}</p>
-                    <GlowingButton variant="secondary" className="w-full mt-6 text-sm">
-                      Learn from {mentor.name.split(' ')[0]}
-                    </GlowingButton>
+                    <Link href={`/mentor/${mentor.id}`} className="w-full mt-6">
+                      <GlowingButton variant="secondary" className="w-full text-sm">
+                        Learn from {mentor.name.split(' ')[0]}
+                      </GlowingButton>
+                    </Link>
                   </div>
                 </GlowingCard>
               ))}

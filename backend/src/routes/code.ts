@@ -6,48 +6,7 @@ import { config } from '@/config';
 
 const router = Router();
 
-// Get code snapshot
-router.get('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
-  try {
-    const snapshot = await queryOne(
-      'SELECT * FROM code_snapshots WHERE session_id = $1 ORDER BY saved_at DESC LIMIT 1',
-      [req.params.sessionId]
-    );
-
-    res.json({
-      success: true,
-      data: snapshot,
-    });
-  } catch (err) {
-    console.error('Get code snapshot error:', err);
-    res.status(500).json({ error: 'Failed to get code snapshot' });
-  }
-});
-
-// Save code snapshot
-router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
-  try {
-    const { code, language } = req.body;
-    const now = new Date().toISOString();
-
-    const result = await queryOne(
-      `INSERT INTO code_snapshots (session_id, code, language, user_id, saved_at)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [req.params.sessionId, code, language, req.user?.id, now]
-    );
-
-    res.json({
-      success: true,
-      data: result,
-    });
-  } catch (err) {
-    console.error('Save code snapshot error:', err);
-    res.status(500).json({ error: 'Failed to save code' });
-  }
-});
-
-// Execute code - using Judge0 API
+// Execute code - using Judge0 API (must come before /:sessionId routes)
 router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { code, language } = req.body;
@@ -176,6 +135,47 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       message: err.message || 'Unknown error occurred',
       tip: 'Make sure you have internet connectivity. Judge0 API is used for code execution.',
     });
+  }
+});
+
+// Get code snapshot
+router.get('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const snapshot = await queryOne(
+      'SELECT * FROM code_snapshots WHERE session_id = $1 ORDER BY saved_at DESC LIMIT 1',
+      [req.params.sessionId]
+    );
+
+    res.json({
+      success: true,
+      data: snapshot,
+    });
+  } catch (err) {
+    console.error('Get code snapshot error:', err);
+    res.status(500).json({ error: 'Failed to get code snapshot' });
+  }
+});
+
+// Save code snapshot
+router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { code, language } = req.body;
+    const now = new Date().toISOString();
+
+    const result = await queryOne(
+      `INSERT INTO code_snapshots (session_id, code, language, user_id, saved_at)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [req.params.sessionId, code, language, req.user?.id, now]
+    );
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    console.error('Save code snapshot error:', err);
+    res.status(500).json({ error: 'Failed to save code' });
   }
 });
 
