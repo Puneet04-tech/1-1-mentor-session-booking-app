@@ -13,6 +13,8 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     const sessionId = uuidv4();
     const now = new Date().toISOString();
+    // Use provided scheduled_at or default to now if not provided
+    const sessionScheduledAt = scheduled_at || now;
 
     await query(
       `INSERT INTO sessions (id, mentor_id, title, description, topic, status, scheduled_at, duration_minutes, language, code_language, created_at, updated_at)
@@ -23,7 +25,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
         title,
         description,
         topic,
-        scheduled_at,
+        sessionScheduledAt,
         duration_minutes || 60,
         language || 'javascript',
         code_language || 'javascript',
