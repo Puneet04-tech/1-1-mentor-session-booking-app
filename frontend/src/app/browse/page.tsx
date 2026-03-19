@@ -29,11 +29,12 @@ export default function BrowsePage() {
       try {
         const [mentorsRes, sessionsRes] = await Promise.all([
           apiClient.getMentors(),
-          apiClient.getActiveSessions(),
+          apiClient.getAvailableSessions(),
         ]);
 
         setMentors(mentorsRes.data || []);
         setSessions(sessionsRes.data || []);
+        console.log('Loaded sessions:', sessionsRes.data?.length || 0);
       } catch (err) {
         console.error('Error fetching data:', err);
       } finally {

@@ -64,6 +64,27 @@ router.get('/active', authMiddleware, async (req: AuthRequest, res: Response) =>
   }
 });
 
+// Get available sessions (scheduled sessions that students can join) (MUST come before /:id)
+router.get('/available', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    // Return all scheduled sessions (no student_id yet) regardless of who created them
+    const sessions = await query(
+      'SELECT * FROM sessions WHERE status = $1 AND student_id IS NULL ORDER BY created_at DESC LIMIT 100',
+      ['scheduled']
+    );
+
+    console.log('Available sessions:', sessions.length);
+
+    res.json({
+      success: true,
+      data: sessions,
+    });
+  } catch (err) {
+    console.error('Get available sessions error:', err);
+    res.status(500).json({ error: 'Failed to get sessions' });
+  }
+});
+
 // Get user sessions (MUST come before /:id)
 router.get('/user', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {

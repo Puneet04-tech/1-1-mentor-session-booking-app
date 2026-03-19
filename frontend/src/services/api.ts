@@ -85,6 +85,10 @@ class ApiClient {
     return this.client.get('/api/sessions/active');
   }
 
+  async getAvailableSessions(): Promise<ApiResponse<Session[]>> {
+    return this.client.get('/api/sessions/available');
+  }
+
   async getUserSessions(): Promise<ApiResponse<Session[]>> {
     return this.client.get('/api/sessions/user');
   }

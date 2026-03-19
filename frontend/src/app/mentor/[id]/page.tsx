@@ -34,17 +34,17 @@ export default function MentorProfilePage() {
           setMentor(mentorRes.data);
         }
 
-        // Fetch all active sessions
+        // Fetch all available sessions
         try {
-          const sessionsRes = await apiClient.getActiveSessions();
-          // Filter to only show this mentor's sessions that are scheduled
+          const sessionsRes = await apiClient.getAvailableSessions();
+          // Filter to only show this mentor's available sessions
           const mentorSessions = (sessionsRes.data || []).filter(
-            (session: any) =>
-              session.mentor_id === mentorId && session.status === 'scheduled'
+            (session: any) => session.mentor_id === mentorId
           );
           setSessions(mentorSessions);
+          console.log('Mentor sessions:', mentorSessions.length);
         } catch (err) {
-          console.warn('Could not fetch active sessions:', err);
+          console.warn('Could not fetch available sessions:', err);
           setSessions([]);
         }
       } catch (err) {
