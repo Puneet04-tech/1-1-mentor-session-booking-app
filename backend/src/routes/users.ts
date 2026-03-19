@@ -8,9 +8,11 @@ const router = Router();
 router.get('/mentors', async (req: AuthRequest, res: Response) => {
   try {
     const mentors = await query(
-      'SELECT id, email, name, avatar_url, bio FROM users WHERE role = $1 LIMIT 50',
+      'SELECT id, email, name, avatar_url, bio, role FROM users WHERE role = $1 ORDER BY created_at DESC LIMIT 100',
       ['mentor']
     );
+
+    console.log('Fetching mentors:', mentors.length);
 
     res.json({
       success: true,

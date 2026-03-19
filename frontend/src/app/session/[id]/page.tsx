@@ -72,11 +72,13 @@ export default function SessionPage() {
 
     socketService.joinSession(sessionId);
 
-    // Handler for code updates
+    // Handler for code updates from other user
     const handleCodeUpdate = (data: any) => {
-      if (data.user_id !== useSessionStore.getState().currentSession?.mentor_id) {
+      // Update code from other user
+      if (data.code && data.language) {
         setCode(data.code);
         setLanguage(data.language);
+        console.log('Code updated from other user:', data);
       }
     };
 
@@ -155,7 +157,9 @@ export default function SessionPage() {
       return;
     }
     setCode(value);
+    // Send code update through socket with all necessary info
     socketService.sendCode(value, language, sessionId);
+    console.log('Code change sent:', { code: value, language, sessionId });
   };
 
   const handleLanguageChange = (newLanguage: string) => {
