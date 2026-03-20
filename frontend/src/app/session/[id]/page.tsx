@@ -111,15 +111,29 @@ export default function SessionPage() {
       }
     };
 
+    // Handler for code execution results from mentor or other users
+    const handleExecutionResult = (result: any) => {
+      const { setExecutionOutput } = useEditorStore.getState();
+      console.log('Code execution result received:', result);
+      
+      if (result.status === 'Success') {
+        setExecutionOutput(result.output || 'Code executed successfully (no output)');
+      } else {
+        setExecutionOutput(`${result.status}:\n${result.output || result.error || 'Unknown error'}`);
+      }
+    };
+
     // Register listeners
     socketService.on('code:update', handleCodeUpdate);
     socketService.on('message:receive', handleMessageReceive);
+    socketService.on('code:execution:result', handleExecutionResult);
 
     // Store cleanup function
     listenerRef.current = {
       cleanup: () => {
         socketService.off('code:update', handleCodeUpdate);
         socketService.off('message:receive', handleMessageReceive);
+        socketService.off('code:execution:result', handleExecutionResult);
       },
     };
 
@@ -301,8 +315,8 @@ export default function SessionPage() {
     setExecutionOutput('Executing code...');
 
     try {
-      // Call backend endpoint for code execution
-      const response = await apiClient.executeCode(code, language);
+      // Call backend endpoint for code execution with sessionId
+      const response = await apiClient.executeCode(code, language, sessionId);
 
       if (response?.data?.output) {
         setExecutionOutput(response.data.output);
@@ -318,6 +332,10 @@ export default function SessionPage() {
                        err?.message || 
                        'Failed to execute code. Make sure your backend is running.';
       setExecutionOutput(`Error: ${errorMsg}`);
+    } finally {
+      setIsExecuting(false);
+    }
+  };
     } finally {
       setIsExecuting(false);
     }

@@ -10,7 +10,7 @@ import authRoutes from './routes/auth';
 import sessionRoutes from './routes/sessions';
 import userRoutes from './routes/users';
 import messageRoutes from './routes/messages';
-import codeRoutes from './routes/code';
+import codeRoutes, { setSocketIO as setCodeSocketIO } from './routes/code';
 import profileRoutes from './routes/profile';
 import ratingsRoutes from './routes/ratings';
 import sessionHistoryRoutes from './routes/sessionHistory';
@@ -33,6 +33,9 @@ const io = new SocketIOServer(httpServer, {
     credentials: true,
   },
 });
+
+// Set Socket.io instance for code routes
+setCodeSocketIO(io);
 
 // Middleware
 app.use(helmet());

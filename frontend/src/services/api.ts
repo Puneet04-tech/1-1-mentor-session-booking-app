@@ -128,8 +128,8 @@ class ApiClient {
   }
 
   // Code Execution
-  async executeCode(code: string, language: string): Promise<ApiResponse<{ output: string; error?: string }>> {
-    return this.client.post('/api/code/execute', { code, language });
+  async executeCode(code: string, language: string, sessionId?: string): Promise<ApiResponse<{ output: string; error?: string }>> {
+    return this.client.post('/api/code/execute', { code, language, sessionId });
   }
 
   // Profile endpoints

@@ -8,8 +8,16 @@ import { runInNewContext } from 'vm';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { Server as SocketIOServer } from 'socket.io';
 
 const router = Router();
+
+// Store io instance reference (will be set by index.ts)
+let io: SocketIOServer | null = null;
+
+export function setSocketIO(socketIO: SocketIOServer) {
+  io = socketIO;
+}
 
 const TEMP_DIR = path.join(os.tmpdir(), 'code-execution');
 
@@ -21,13 +29,13 @@ if (!fs.existsSync(TEMP_DIR)) {
 // Execute code - Local execution without external dependencies
 router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { code, language } = req.body;
+    const { code, language, sessionId } = req.body;
 
     if (!code || !language) {
       return res.status(400).json({ error: 'Code and language required' });
     }
 
-    console.log(`Executing ${language} code locally...`);
+    console.log(`Executing ${language} code locally in session ${sessionId}...`);
 
     let output = '';
     let error = null;
@@ -55,13 +63,24 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       status = 'Error';
     }
 
+    const result = {
+      output: output.trim(),
+      error: error,
+      status: status,
+      language: language,
+      timestamp: new Date().toISOString(),
+      executedBy: req.user?.id,
+    };
+
+    // Broadcast execution result to all users in the session via Socket.io
+    if (io && sessionId) {
+      io.to(`session:${sessionId}`).emit('code:execution:result', result);
+      console.log(`Broadcaster execution result to session:${sessionId}`);
+    }
+
     res.json({
       success: true,
-      data: {
-        output: output.trim(),
-        error: error,
-        status: status,
-      },
+      data: result,
     });
   } catch (err: any) {
     console.error('Code execution error:', err.message);
@@ -405,3 +424,4 @@ router.get('/health', async (req: AuthRequest, res: Response) => {
 });
 
 export default router;
+export { setSocketIO };

@@ -102,6 +102,7 @@ export interface SocketEvents {
 
   // Code Events
   'code:update': { code: string; language: string; user_id: string };
+  'code:execution:result': { output: string; status: string; language: string; error?: string };
   'language:change': { language: string };
   'cursor:move': { line: number; column: number; user_id: string };
   'selection:change': { start: { line: number; column: number }; end: { line: number; column: number } };
