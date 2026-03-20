@@ -18,13 +18,13 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
     // Use Piston API - completely free and reliable
     const pistonUrl = 'https://emkc.org/api/v2';
 
-    // Map language to Piston Runtime ID
+    // Map language to Piston Runtime name
     const languageMap: { [key: string]: string } = {
-      javascript: 'node',
-      python: 'python3',
+      javascript: 'javascript',
+      python: 'python',
       java: 'java',
       cpp: 'cpp',
-      typescript: 'node', // TypeScript via node
+      typescript: 'javascript', // TypeScript compiled to JavaScript
     };
 
     const runtime = languageMap[language];
@@ -46,6 +46,12 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 
     // Step 1: Execute code via Piston API
     console.log(`Executing ${language} code via Piston API...`);
+    console.log('Request payload:', {
+      language: runtime,
+      version: '*',
+      codeLength: codeToExecute.length,
+    });
+
     const executeResponse = await axios.post(
       `${pistonUrl}/execute`,
       {
@@ -58,14 +64,14 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
         ],
       },
       {
-        timeout: 15000,
+        timeout: 20000,
         headers: {
           'Content-Type': 'application/json',
         },
       }
     );
 
-    console.log('Piston API response:', executeResponse.status);
+    console.log('Piston API response status:', executeResponse.status);
     const result = executeResponse.data;
 
     // Format response
@@ -96,22 +102,40 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
     });
   } catch (err: any) {
     console.error('Code execution error:', err.message);
-    console.error('Error details:', err.response?.data || err.response?.status);
+    console.error('Error response status:', err.response?.status);
+    console.error('Error response data:', err.response?.data);
+    console.error('Error code:', err.code);
     
     // Provide helpful error message
     let errorMsg = err.message;
+    let tip = 'Using Piston API for code execution. Ensure you have internet connectivity.';
+    
     if (err.code === 'ECONNREFUSED') {
       errorMsg = 'Could not connect to code execution service. Check your internet connection.';
+      tip = 'Piston API might be temporarily unavailable.';
+    } else if (err.code === 'ENOTFOUND') {
+      errorMsg = 'Code execution service endpoint not found.';
+      tip = 'Check your internet connection or Piston API status.';
     } else if (err.response?.status === 404) {
       errorMsg = 'Code execution service endpoint not found.';
+      tip = 'The Piston API endpoint might have changed. Check https://emkc.org/api/v2/runtimes';
     } else if (err.response?.status === 429) {
       errorMsg = 'Too many requests. Please wait a moment and try again.';
+      tip = 'Piston API has rate limiting. Wait before trying again.';
+    } else if (err.response?.status === 400) {
+      errorMsg = `Invalid request: ${err.response?.data?.message || 'Bad parameters'}`;
+      tip = 'Check your code syntax and language selection.';
     }
     
     res.status(500).json({
       error: 'Code execution failed',
       message: errorMsg,
-      tip: 'Using Piston API for code execution. Ensure you have internet connectivity.',
+      tip: tip,
+      debug: process.env.NODE_ENV === 'development' ? {
+        apiUrl: `https://emkc.org/api/v2/execute`,
+        language: err.config?.data ? JSON.parse(err.config.data).language : 'unknown',
+        status: err.response?.status,
+      } : undefined,
     });
   }
 });
