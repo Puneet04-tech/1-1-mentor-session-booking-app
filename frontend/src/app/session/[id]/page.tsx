@@ -336,10 +336,6 @@ export default function SessionPage() {
       setIsExecuting(false);
     }
   };
-    } finally {
-      setIsExecuting(false);
-    }
-  };
 
   const getFileExtension = (lang: string): string => {
     const extensions: { [key: string]: string } = {
