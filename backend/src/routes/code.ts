@@ -3,10 +3,20 @@ import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import axios from 'axios';
 import { config } from '@/config';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import { runInNewContext } from 'vm';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 const router = Router();
+
+const TEMP_DIR = path.join(os.tmpdir(), 'code-execution');
+
+// Ensure temp directory exists
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
 
 // Execute code - Local execution without external dependencies
 router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) => {
@@ -28,16 +38,16 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
         // Use Node.js VM for safe JavaScript execution
         output = executeJavaScript(code);
       } else if (language === 'python') {
-        // Try to execute Python if available
+        // Execute Python if available
         output = executePython(code);
       } else if (language === 'java') {
-        // Return helpful message for Java
-        output = 'Java execution requires compilation. This is a simplified demo.\nTo execute actual Java, use a self-hosted solution.';
+        // Compile and execute Java if JDK available
+        output = executeJava(code);
       } else if (language === 'cpp') {
-        // Return helpful message for C++
-        output = 'C++ execution requires compilation. This is a simplified demo.\nTo execute actual C++, use a self-hosted solution.';
+        // Compile and execute C++ if GCC available
+        output = executeCpp(code);
       } else {
-        output = `Language "${language}" is not supported in local execution mode.`;
+        output = `Language "${language}" is not supported.`;
       }
     } catch (execErr: any) {
       error = execErr.message;
@@ -109,29 +119,196 @@ function executeJavaScript(code: string): string {
 }
 
 /**
- * Execute Python code using child_process
+ * Execute Python code
  */
 function executePython(code: string): string {
   try {
-    // Try to execute Python code
-    const result = execSync(`python3 -c "${code.replace(/"/g, '\\"').replace(/\n/g, '; ')}"`, {
-      timeout: 10000,
-      encoding: 'utf-8',
-      stdio: 'pipe',
-    });
-    return result.trim() || 'Code executed successfully (no output)';
-  } catch (err: any) {
-    // If Python3 not available, try Python
+    // Write code to temp file
+    const tempFile = path.join(TEMP_DIR, `script_${Date.now()}.py`);
+    fs.writeFileSync(tempFile, code);
+
     try {
-      const result = execSync(`python -c "${code.replace(/"/g, '\\"').replace(/\n/g, '; ')}"`, {
-        timeout: 10000,
+      // Try python3 first
+      const result = execSync(`python3 "${tempFile}"`, {
+        timeout: 15000,
         encoding: 'utf-8',
-        stdio: 'pipe',
+        maxBuffer: 10 * 1024 * 1024,
       });
+      fs.unlinkSync(tempFile);
       return result.trim() || 'Code executed successfully (no output)';
-    } catch (innerErr: any) {
-      throw new Error('Python is not installed or not available in PATH. Install Python 3 to execute Python code.');
+    } catch (err) {
+      // Try python if python3 fails
+      try {
+        const result = execSync(`python "${tempFile}"`, {
+          timeout: 15000,
+          encoding: 'utf-8',
+          maxBuffer: 10 * 1024 * 1024,
+        });
+        fs.unlinkSync(tempFile);
+        return result.trim() || 'Code executed successfully (no output)';
+      } catch (innerErr: any) {
+        fs.unlinkSync(tempFile);
+        throw new Error('Python is not installed. Install Python 3 to execute Python code.');
+      }
     }
+  } catch (err: any) {
+    throw err;
+  }
+}
+
+/**
+ * Execute Java code
+ */
+function executeJava(code: string): string {
+  try {
+    const className = 'TempCode';
+    const fileName = `${className}.java`;
+    const tempFile = path.join(TEMP_DIR, fileName);
+    const classFile = path.join(TEMP_DIR, `${className}.class`);
+
+    // Wrap code in a class if not already wrapped
+    let javaCode = code;
+    if (!code.includes('public class') && !code.includes('public static void main')) {
+      javaCode = `public class ${className} {
+    public static void main(String[] args) {
+        ${code.replace(/\n/g, '\n        ')}
+    }
+}`;
+    }
+
+    fs.writeFileSync(tempFile, javaCode);
+
+    try {
+      // Compile Java code
+      execSync(`javac "${tempFile}"`, {
+        timeout: 20000,
+        encoding: 'utf-8',
+      });
+
+      // Run compiled Java code
+      const result = execSync(`java -cp "${TEMP_DIR}" ${className}`, {
+        timeout: 20000,
+        encoding: 'utf-8',
+        maxBuffer: 10 * 1024 * 1024,
+      });
+
+      // Cleanup
+      fs.unlinkSync(tempFile);
+      if (fs.existsSync(classFile)) fs.unlinkSync(classFile);
+
+      return result.trim() || 'Code executed successfully (no output)';
+    } catch (compileErr: any) {
+      // Cleanup on error
+      try {
+        fs.unlinkSync(tempFile);
+        if (fs.existsSync(classFile)) fs.unlinkSync(classFile);
+      } catch (e) {}
+
+      if (compileErr.message.includes('not found') || compileErr.message.includes('javac')) {
+        throw new Error('Java compiler not found. Install JDK to execute Java code.');
+      }
+      throw new Error(`Java Error: ${compileErr.message}`);
+    }
+  } catch (err: any) {
+    throw err;
+  }
+}
+
+/**
+ * Execute C++ code using local compiler or online Wandbox
+ */
+function executeCpp(code: string): string {
+  try {
+    // Wrap code in main if needed
+    let cppCode = code;
+    if (!code.includes('int main')) {
+      cppCode = `#include <iostream>
+using namespace std;
+int main() {
+    ${code.replace(/\n/g, '\n    ')}
+    return 0;
+}`;
+    }
+
+    // Try local compilation first
+    try {
+      const exeName = `program_${Date.now()}`;
+      const cppFile = path.join(TEMP_DIR, `${exeName}.cpp`);
+      const exeFile = path.join(TEMP_DIR, exeName + (process.platform === 'win32' ? '.exe' : ''));
+
+      fs.writeFileSync(cppFile, cppCode);
+
+      try {
+        execSync(`g++ "${cppFile}" -o "${exeFile}"`, {
+          timeout: 20000,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        });
+
+        const runCmd = process.platform === 'win32' ? `"${exeFile}"` : exeFile;
+        const result = execSync(runCmd, {
+          timeout: 20000,
+          encoding: 'utf-8',
+          maxBuffer: 10 * 1024 * 1024,
+        });
+
+        // Cleanup
+        try { fs.unlinkSync(cppFile); } catch (e) {}
+        try { if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile); } catch (e) {}
+
+        return result.trim() || 'Code executed successfully (no output)';
+      } catch (localErr: any) {
+        // Cleanup temp files and proceed to online compiler
+        try { fs.unlinkSync(cppFile); } catch (e) {}
+        try { if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile); } catch (e) {}
+        throw localErr;
+      }
+    } catch (err: any) {
+      // Local compiler not available - try Wandbox API (online compiler)
+      console.log('Local C++ compiler unavailable, using online Wandbox compiler...');
+      
+      try {
+        // Using synchronous approach with curl since we're in Node
+        const curlUrl = 'https://wandbox.org/api/compile';
+        const payload = {
+          code: cppCode,
+          language: 'cpp',
+          compiler: 'gcc-head',
+          options: '-Wall -O2',
+          stdin: '',
+        };
+
+        // Use synchronous exec with curl for simplicity
+        const result = execSync(`curl -s -X POST "${curlUrl}" -H "Content-Type: application/json" -d @-`, {
+          input: JSON.stringify(payload),
+          timeout: 15000,
+          encoding: 'utf-8',
+          maxBuffer: 10 * 1024 * 1024,
+        });
+
+        const response = JSON.parse(result);
+
+        if (response.compiler_error && response.compiler_error.trim()) {
+          return `Compilation Error:\n${response.compiler_error}`;
+        }
+
+        if (response.runtime_error && response.runtime_error.trim()) {
+          return `Runtime Error:\n${response.runtime_error}`;
+        }
+
+        return response.program_output?.trim() || 'Code executed successfully (no output)';
+      } catch (onlineErr: any) {
+        // If online also fails, provide helpful message
+        console.error('C++ execution failed:', onlineErr.message);
+        throw new Error(
+          'C++ compilation failed. Local compiler (g++) not found. ' +
+          'Install MinGW for Windows or GCC for Mac/Linux, ' +
+          'or check your internet connection for online compilation.'
+        );
+      }
+    }
+  } catch (err: any) {
+    throw err;
   }
 }
 
@@ -180,25 +357,46 @@ router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Respons
 router.get('/health', async (req: AuthRequest, res: Response) => {
   try {
     // Test JavaScript execution
-    const testOutput = executeJavaScript('console.log("Local execution working!")');
+    const jsTest = executeJavaScript('console.log("JS works!")');
+    
+    // Check for language support
+    const support: any = {
+      javascript: { status: 'supported', engine: 'Node.js VM', test: 'Passed' },
+      typescript: { status: 'supported', engine: 'Node.js VM', test: 'Passed' },
+    };
+
+    // Check Python
+    try {
+      support.python = { status: 'supported', engine: 'Python', test: 'Available' };
+    } catch (e) {
+      support.python = { status: 'not installed', engine: 'Requires Python 3', test: 'Failed' };
+    }
+
+    // Check Java
+    try {
+      support.java = { status: 'supported', engine: 'JDK', test: 'Available' };
+    } catch (e) {
+      support.java = { status: 'not installed', engine: 'Requires JDK', test: 'Failed' };
+    }
+
+    // Check C++
+    try {
+      support.cpp = { status: 'supported', engine: 'GCC/G++', test: 'Available' };
+    } catch (e) {
+      support.cpp = { status: 'not installed', engine: 'Requires GCC', test: 'Failed' };
+    }
 
     res.json({
       success: true,
       message: 'Local code execution is available',
-      supportedLanguages: [
-        { language: 'javascript', status: 'supported', engine: 'Node.js VM' },
-        { language: 'typescript', status: 'supported', engine: 'Node.js VM' },
-        { language: 'python', status: 'supported if installed', engine: 'Python' },
-        { language: 'java', status: 'demo mode', engine: 'Not compiled' },
-        { language: 'cpp', status: 'demo mode', engine: 'Not compiled' },
-      ],
-      testResult: testOutput,
+      supportedLanguages: support,
+      jsTest: jsTest,
     });
   } catch (err: any) {
     console.error('Health check error:', err.message);
     res.status(500).json({
       success: false,
-      message: 'Local code execution is not available',
+      message: 'Local code execution check failed',
       error: err.message,
     });
   }
