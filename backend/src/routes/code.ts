@@ -15,6 +15,22 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       return res.status(400).json({ error: 'Code and language required' });
     }
 
+    // Check if Judge0 API is configured
+    const judge0Url = process.env.JUDGE0_API_URL || 'https://judge0-ce.com';
+    
+    // For development, return a mock response if Judge0 is unavailable
+    if (!judge0Url || judge0Url === 'https://judge0-ce.com') {
+      console.warn('⚠️  Judge0 API not configured or unavailable. Returning mock response.');
+      return res.json({
+        success: true,
+        data: {
+          output: `Mock Execution Output:\n\nCode executed successfully!\n\nNote: Code execution is mocked in this environment. Judge0 API is not available.\n\nCode:\n${code.substring(0, 100)}${code.length > 100 ? '...' : ''}`,
+          error: null,
+          status: 'Success (Mocked)',
+        },
+      });
+    }
+
     // Map language to Judge0 language ID
     const languageMap: { [key: string]: number } = {
       javascript: 63,
@@ -44,7 +60,7 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
     // Step 1: Submit code to Judge0
     console.log(`Submitting ${language} code to Judge0...`);
     const submitResponse = await axios.post(
-      'https://judge0-ce.com/api/submissions',
+      `${judge0Url}/api/submissions`,
       {
         source_code: codeToExecute,
         language_id: languageId,
@@ -72,7 +88,7 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 
       try {
         const statusResponse = await axios.get(
-          `https://judge0-ce.com/api/submissions/${submissionToken}`,
+          `${judge0Url}/api/submissions/${submissionToken}`,
           {
             headers: {
               'Content-Type': 'application/json',

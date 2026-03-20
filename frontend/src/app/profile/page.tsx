@@ -180,7 +180,7 @@ export default function ProfilePage() {
               <div className="bg-dark-800/50 rounded-lg p-4">
                 <p className="text-gray-400 text-sm">Rating</p>
                 <p className="text-2xl font-bold text-yellow-400">
-                  {profile?.avg_rating?.toFixed(1) || 'N/A'}
+                  {(profile?.avg_rating && typeof profile.avg_rating === 'number') ? profile.avg_rating.toFixed(1) : '0.0'}
                 </p>
               </div>
               {profile?.role === 'mentor' && (
