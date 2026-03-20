@@ -16,7 +16,7 @@ router.get('/mentors', async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      data: mentors,
+      data: mentors.rows,
     });
   } catch (err) {
     console.error('Get mentors error:', err);
@@ -96,7 +96,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      data: mentors,
+      data: mentors.rows,
     });
   } catch (err) {
     console.error('Get users error:', err);

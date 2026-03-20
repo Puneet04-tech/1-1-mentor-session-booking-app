@@ -56,7 +56,7 @@ router.get('/active', authMiddleware, async (req: AuthRequest, res: Response) =>
 
     res.json({
       success: true,
-      data: sessions,
+      data: sessions.rows,
     });
   } catch (err) {
     console.error('Get active sessions error:', err);
@@ -77,7 +77,7 @@ router.get('/available', authMiddleware, async (req: AuthRequest, res: Response)
 
     res.json({
       success: true,
-      data: sessions,
+      data: sessions.rows,
     });
   } catch (err) {
     console.error('Get available sessions error:', err);
@@ -95,7 +95,7 @@ router.get('/user', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      data: sessions,
+      data: sessions.rows,
     });
   } catch (err) {
     console.error('Get user sessions error:', err);
