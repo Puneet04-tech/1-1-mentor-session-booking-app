@@ -1,0 +1,135 @@
+import { Router, Response } from 'express';
+import { query, queryOne } from '@/database';
+import authMiddleware, { AuthRequest } from '@/middleware/auth';
+import { v4 as uuidv4 } from 'uuid';
+
+const router = Router();
+
+// Get unread notifications for user
+router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+
+    const notifications = await query(
+      `SELECT * FROM notifications 
+       WHERE user_id = $1 
+       ORDER BY created_at DESC 
+       LIMIT 50`,
+      [userId]
+    );
+
+    res.json({
+      success: true,
+      data: notifications,
+    });
+  } catch (err) {
+    console.error('Get notifications error:', err);
+    res.status(500).json({ error: 'Failed to get notifications' });
+  }
+});
+
+// Get unread count
+router.get('/unread/count', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+
+    const result = await queryOne(
+      'SELECT COUNT(*) as unread_count FROM notifications WHERE user_id = $1 AND is_read = FALSE',
+      [userId]
+    );
+
+    res.json({
+      success: true,
+      data: { unread_count: result?.unread_count || 0 },
+    });
+  } catch (err) {
+    console.error('Get unread count error:', err);
+    res.status(500).json({ error: 'Failed to get unread count' });
+  }
+});
+
+// Mark notification as read
+router.put('/:notification_id/read', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const notificationId = req.params.notification_id;
+
+    await query(
+      'UPDATE notifications SET is_read = TRUE WHERE id = $1',
+      [notificationId]
+    );
+
+    res.json({
+      success: true,
+      data: { message: 'Notification marked as read' },
+    });
+  } catch (err) {
+    console.error('Mark read error:', err);
+    res.status(500).json({ error: 'Failed to mark notification as read' });
+  }
+});
+
+// Mark all as read
+router.put('/mark-all/read', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+
+    await query(
+      'UPDATE notifications SET is_read = TRUE WHERE user_id = $1 AND is_read = FALSE',
+      [userId]
+    );
+
+    res.json({
+      success: true,
+      data: { message: 'All notifications marked as read' },
+    });
+  } catch (err) {
+    console.error('Mark all read error:', err);
+    res.status(500).json({ error: 'Failed to mark all as read' });
+  }
+});
+
+// Delete notification
+router.delete('/:notification_id', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const notificationId = req.params.notification_id;
+
+    await query(
+      'DELETE FROM notifications WHERE id = $1',
+      [notificationId]
+    );
+
+    res.json({
+      success: true,
+      data: { message: 'Notification deleted' },
+    });
+  } catch (err) {
+    console.error('Delete notification error:', err);
+    res.status(500).json({ error: 'Failed to delete notification' });
+  }
+});
+
+// Create notification (internal use)
+export async function createNotification(
+  userId: string,
+  type: string,
+  title: string,
+  message: string,
+  relatedId?: string
+) {
+  try {
+    const notificationId = uuidv4();
+    const now = new Date().toISOString();
+
+    await query(
+      `INSERT INTO notifications (id, user_id, type, title, message, related_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [notificationId, userId, type, title, message, relatedId || null, now]
+    );
+
+    return notificationId;
+  } catch (err) {
+    console.error('Create notification error:', err);
+  }
+}
+
+export default router;

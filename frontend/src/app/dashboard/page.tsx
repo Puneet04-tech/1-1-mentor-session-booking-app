@@ -48,18 +48,43 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
       {/* Header */}
       <header className="border-b border-gray-700/30 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-3 md:py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 md:gap-4">
-          <h1 className="text-xl md:text-2xl font-bold gradient-text">Sessions</h1>
-          <div className="flex items-center gap-2 md:gap-4 w-full sm:w-auto">
-            <Avatar name={user?.name || 'User'} size="sm" />
-            <div className="flex-1 sm:flex-none">
-              <p className="font-semibold text-white text-sm md:text-base">{user?.name}</p>
-              <p className="text-xs md:text-sm text-gray-400 capitalize">{user?.role}</p>
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-3 md:py-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 md:gap-4 mb-3">
+            <h1 className="text-xl md:text-2xl font-bold gradient-text">Sessions</h1>
+            <div className="flex items-center gap-2 md:gap-4 w-full sm:w-auto">
+              <Avatar name={user?.name || 'User'} size="sm" />
+              <div className="flex-1 sm:flex-none">
+                <p className="font-semibold text-white text-sm md:text-base">{user?.name}</p>
+                <p className="text-xs md:text-sm text-gray-400 capitalize">{user?.role}</p>
+              </div>
+              <GlowingButton variant="outline" onClick={() => logout()} className="ml-auto sm:ml-4 text-xs md:text-sm py-1 md:py-2">
+                Logout
+              </GlowingButton>
             </div>
-            <GlowingButton variant="outline" onClick={() => logout()} className="ml-auto sm:ml-4 text-xs md:text-sm py-1 md:py-2">
-              Logout
-            </GlowingButton>
           </div>
+          {/* Navigation Links */}
+          <nav className="flex flex-wrap gap-2 md:gap-3">
+            <Link href="/dashboard">
+              <GlowingButton variant="outline" className="text-xs md:text-sm py-1.5 md:py-2">
+                Dashboard
+              </GlowingButton>
+            </Link>
+            <Link href="/profile">
+              <GlowingButton variant="outline" className="text-xs md:text-sm py-1.5 md:py-2">
+                Profile
+              </GlowingButton>
+            </Link>
+            <Link href="/sessions/history">
+              <GlowingButton variant="outline" className="text-xs md:text-sm py-1.5 md:py-2">
+                History
+              </GlowingButton>
+            </Link>
+            <Link href="/search">
+              <GlowingButton variant="outline" className="text-xs md:text-sm py-1.5 md:py-2">
+                Search Mentors
+              </GlowingButton>
+            </Link>
+          </nav>
         </div>
       </header>
 

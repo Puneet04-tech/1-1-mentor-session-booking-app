@@ -98,10 +98,6 @@ class ApiClient {
     return this.client.get(`/api/users/${id}`);
   }
 
-  async updateProfile(data: Partial<User>): Promise<ApiResponse<User>> {
-    return this.client.put('/api/users/profile', data);
-  }
-
   async getMentors(): Promise<ApiResponse<User[]>> {
     return this.client.get('/api/users/mentors');
   }
@@ -134,6 +130,90 @@ class ApiClient {
   // Code Execution
   async executeCode(code: string, language: string): Promise<ApiResponse<{ output: string; error?: string }>> {
     return this.client.post('/api/code/execute', { code, language });
+  }
+
+  // Profile endpoints
+  async getProfile(): Promise<ApiResponse<any>> {
+    return this.client.get('/api/profile');
+  }
+
+  async updateProfile(data: { bio?: string; avatar_url?: string; skills?: string[] }): Promise<ApiResponse<any>> {
+    return this.client.put('/api/profile', data);
+  }
+
+  async getPublicProfile(userId: string): Promise<ApiResponse<any>> {
+    return this.client.get(`/api/profile/${userId}`);
+  }
+
+  async addSkill(skill: string): Promise<ApiResponse<any>> {
+    return this.client.post('/api/profile/skills', { name: skill });
+  }
+
+  async removeSkill(skillId: string): Promise<ApiResponse<any>> {
+    return this.client.delete(`/api/profile/skills/${skillId}`);
+  }
+
+  // Ratings endpoints
+  async submitRating(sessionId: string, data: { rating: number; comment?: string }): Promise<ApiResponse<any>> {
+    return this.client.post('/api/ratings', { session_id: sessionId, ...data });
+  }
+
+  async getRatings(userId: string): Promise<ApiResponse<any[]>> {
+    return this.client.get(`/api/ratings/user/${userId}`);
+  }
+
+  async getSessionRating(sessionId: string): Promise<ApiResponse<any>> {
+    return this.client.get(`/api/ratings/session/${sessionId}`);
+  }
+
+  async updateRating(ratingId: string, data: { rating?: number; comment?: string }): Promise<ApiResponse<any>> {
+    return this.client.put(`/api/ratings/${ratingId}`, data);
+  }
+
+  async deleteRating(ratingId: string): Promise<ApiResponse<any>> {
+    return this.client.delete(`/api/ratings/${ratingId}`);
+  }
+
+  // Session History endpoints
+  async getSessionHistory(): Promise<ApiResponse<any[]>> {
+    return this.client.get('/api/sessions/history');
+  }
+
+  async getMentorSessions(mentorId: string): Promise<ApiResponse<any[]>> {
+    return this.client.get(`/api/sessions/history/mentor/${mentorId}`);
+  }
+
+  async completeSession(sessionId: string): Promise<ApiResponse<any>> {
+    return this.client.patch(`/api/sessions/history/${sessionId}/complete`);
+  }
+
+  async getSessionFeedback(sessionId: string): Promise<ApiResponse<any>> {
+    return this.client.get(`/api/sessions/history/${sessionId}/feedback`);
+  }
+
+  // Notifications endpoints
+  async getNotifications(): Promise<ApiResponse<any[]>> {
+    return this.client.get('/api/notifications');
+  }
+
+  async createNotification(data: { user_id: string; type: string; title: string; message: string }): Promise<ApiResponse<any>> {
+    return this.client.post('/api/notifications', data);
+  }
+
+  async markNotificationAsRead(notificationId: string): Promise<ApiResponse<any>> {
+    return this.client.patch(`/api/notifications/${notificationId}/read`);
+  }
+
+  async deleteNotification(notificationId: string): Promise<ApiResponse<any>> {
+    return this.client.delete(`/api/notifications/${notificationId}`);
+  }
+
+  // Search endpoints
+  async searchMentors(query: string, filters?: { minRating?: number; skills?: string[] }): Promise<ApiResponse<any[]>> {
+    const params = new URLSearchParams({ q: query });
+    if (filters?.minRating) params.set('minRating', filters.minRating.toString());
+    if (filters?.skills?.length) params.set('skills', filters.skills.join(','));
+    return this.client.get(`/api/users/mentors?${params.toString()}`);
   }
 }
 

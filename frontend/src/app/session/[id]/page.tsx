@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { useParams } from 'next/navigation';
-import { Editor } from '@monaco-editor/react';
 import { apiClient } from '@/services/api';
 import { socketService } from '@/services/socket';
 import { Session, Message } from '@/types';
@@ -14,6 +14,26 @@ import {
   LoadingSpinner,
 } from '@/components/ui/GlowingComponents';
 import { useSessionStore, useEditorStore, useVideoStore } from '@/store';
+
+// Configure Monaco Editor - disable workers to avoid network errors
+if (typeof window !== 'undefined') {
+  window.MonacoEnvironment = {
+    getWorkerUrl: () => {
+      // Return a simple worker that doesn't require network access
+      const blob = new Blob(['self.onmessage = () => {}'], { type: 'application/javascript' });
+      return URL.createObjectURL(blob);
+    }
+  };
+}
+
+// Dynamically import Monaco Editor to avoid SSR issues
+const Editor = dynamic(
+  () => import('@monaco-editor/react').then(mod => mod.Editor),
+  { 
+    ssr: false,
+    loading: () => <div className="w-full h-full flex items-center justify-center bg-black">Loading editor...</div>
+  }
+);
 
 export default function SessionPage() {
   const params = useParams();
@@ -342,9 +362,9 @@ export default function SessionPage() {
       </header>
 
       {/* Main Content - Flex layout to manage space */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-2 md:gap-3 lg:gap-4 p-2 md:p-3 lg:p-4 overflow-hidden">
-        {/* Code Editor - takes 2/3 on large screens */}
-        <div className="lg:col-span-2 md:col-span-1 flex flex-col bg-dark-900/40 rounded-lg border border-gray-700/30 overflow-hidden min-h-[300px] md:min-h-[400px] lg:min-h-0">
+      <div className="flex-1 min-h-0 flex flex-col lg:grid lg:grid-cols-3 gap-2 md:gap-3 lg:gap-4 p-2 md:p-3 lg:p-4 overflow-y-auto lg:overflow-hidden">
+        {/* Code Editor - Full height on mobile, 2/3 on large screens */}
+        <div className="lg:col-span-2 flex flex-col bg-dark-900/40 rounded-lg border border-gray-700/30 overflow-hidden h-[50vh] lg:h-auto lg:flex-none lg:min-h-0">
           <div className="px-2 md:px-4 py-2 md:py-3 border-b border-gray-700/30 flex flex-col md:flex-row justify-between items-start md:items-center gap-2 flex-shrink-0">
             <h2 className="text-base md:text-lg font-bold text-white">Code Editor</h2>
             <div className="flex items-center gap-1 md:gap-2 w-full md:w-auto">
@@ -379,17 +399,25 @@ export default function SessionPage() {
                 minimap: { enabled: false },
                 fontSize: 14,
                 lineNumbers: 'on',
-                folding: true,
+                folding: false,
+                automaticLayout: true,
+                formatOnPaste: false,
+                formatOnType: false,
+                wordWrap: 'on',
+              }}
+              onMount={(editor, monaco) => {
+                editor?.layout();
+                console.log('Editor mounted');
               }}
             />
           </div>
         </div>
 
-        {/* Right Panel - Video + Chat */}
-        <div className="flex flex-col gap-2 md:gap-3 lg:gap-4 min-h-0 overflow-hidden">
+        {/* Right Panel - Video + Chat - Visible on all screens */}
+        <div className="flex flex-col gap-2 md:gap-3 lg:gap-4 lg:min-h-0 lg:overflow-hidden lg:col-span-1">
           {/* Video Panel */}
-          <GlowingCard glow="purple" className="flex-shrink-0 h-40 md:h-48 lg:h-56 flex flex-col">
-            <h3 className="font-bold text-white text-sm md:text-base mb-2 md:mb-3 px-2 md:px-4 pt-2 md:pt-4 flex-shrink-0">Video Call</h3>
+          <GlowingCard glow="purple" className="flex-shrink-0 h-32 md:h-40 lg:h-56 flex flex-col">
+            <h3 className="font-bold text-white text-xs md:text-base mb-1 md:mb-3 px-2 md:px-4 pt-2 md:pt-4 flex-shrink-0">Video Call</h3>
             <div className="flex-1 min-h-0 bg-black rounded flex flex-col items-center justify-center overflow-hidden relative">
               {isCameraOn && localStreamRef.current ? (
                 <video
@@ -401,42 +429,42 @@ export default function SessionPage() {
                 />
               ) : (
                 <div className="text-center flex flex-col items-center justify-center h-full">
-                  <p className="text-gray-400 text-sm mb-4">📹 Camera is OFF</p>
+                  <p className="text-gray-400 text-xs md:text-sm mb-2 md:mb-4">📹 Camera is OFF</p>
                   {cameraError && <p className="text-red-400 text-xs mb-2">{cameraError}</p>}
-                  <p className="text-gray-500 text-xs mb-4">
-                    {isMicOn ? '🎤 Microphone ON' : '🔇 Microphone OFF'}
+                  <p className="text-gray-500 text-xs mb-2 md:mb-4">
+                    {isMicOn ? '🎤 ON' : '🔇 OFF'}
                   </p>
                 </div>
               )}
-              <div className="w-full px-2 md:px-4 py-2 md:py-3 border-t border-gray-700/30 gap-1 md:gap-2 flex flex-shrink-0 bg-dark-950/80">
+              <div className="w-full px-2 md:px-4 py-1 md:py-3 border-t border-gray-700/30 gap-1 md:gap-2 flex flex-shrink-0 bg-dark-950/80">
                 <GlowingButton 
                   variant="secondary" 
                   className="text-xs flex-1 py-1 md:py-2"
                   onClick={handleToggleCamera}
                 >
-                  {isCameraOn ? '✓ Cam' : '✗ Cam'}
+                  {isCameraOn ? '✓' : '✗'} Cam
                 </GlowingButton>
                 <GlowingButton 
                   variant="secondary" 
                   className="text-xs flex-1 py-1 md:py-2"
                   onClick={handleToggleMic}
                 >
-                  {isMicOn ? '✓ 🎤' : '✗ 🎤'}
+                  {isMicOn ? '✓' : '✗'} 🎤
                 </GlowingButton>
               </div>
             </div>
           </GlowingCard>
 
           {/* Chat Panel */}
-          <GlowingCard glow="green" className="flex-1 min-h-[200px] md:min-h-0 flex flex-col overflow-hidden">
-            <h3 className="font-bold text-white text-sm md:text-base mb-2 md:mb-3 px-2 md:px-4 pt-2 md:pt-4 flex-shrink-0">Chat</h3>
+          <GlowingCard glow="green" className="flex-1 min-h-[120px] md:min-h-0 flex flex-col overflow-hidden">
+            <h3 className="font-bold text-white text-xs md:text-base mb-1 md:mb-3 px-2 md:px-4 pt-2 md:pt-4 flex-shrink-0">Chat</h3>
             <div className="flex-1 min-h-0 overflow-y-auto px-2 md:px-4 space-y-2 md:space-y-3 text-xs md:text-sm">
               {messages.map((msg) => (
                 <div key={msg.id} className="flex gap-2">
                   <Avatar name={msg.user?.name || 'User'} size="sm" />
                   <div>
                     <p className="font-semibold text-white text-xs">{msg.user?.name}</p>
-                    <p className="text-gray-300 break-words text-sm">{msg.content}</p>
+                    <p className="text-gray-300 break-words text-xs md:text-sm">{msg.content}</p>
                   </div>
                 </div>
               ))}

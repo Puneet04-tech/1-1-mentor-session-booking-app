@@ -11,6 +11,10 @@ import sessionRoutes from './routes/sessions';
 import userRoutes from './routes/users';
 import messageRoutes from './routes/messages';
 import codeRoutes from './routes/code';
+import profileRoutes from './routes/profile';
+import ratingsRoutes from './routes/ratings';
+import sessionHistoryRoutes from './routes/sessionHistory';
+import notificationsRoutes from './routes/notifications';
 import { setupSocketHandlers } from './socket/handlers';
 
 const app: Express = express();
@@ -47,6 +51,10 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/code', codeRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/ratings', ratingsRoutes);
+app.use('/api/sessions/history', sessionHistoryRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 // Health check
 app.get('/health', async (req: Request, res: Response) => {
