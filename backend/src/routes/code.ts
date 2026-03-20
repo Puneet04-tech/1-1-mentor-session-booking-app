@@ -215,7 +215,7 @@ function executeJava(code: string): string {
 }
 
 /**
- * Execute C++ code using local compiler or online Wandbox
+ * Execute C++ code using local compiler (with helpful fallback message)
  */
 function executeCpp(code: string): string {
   try {
@@ -230,85 +230,87 @@ int main() {
 }`;
     }
 
-    // Try local compilation first
+    const exeName = `program_${Date.now()}`;
+    const cppFile = path.join(TEMP_DIR, `${exeName}.cpp`);
+    const exeFile = path.join(TEMP_DIR, exeName + (process.platform === 'win32' ? '.exe' : ''));
+
+    fs.writeFileSync(cppFile, cppCode);
+
     try {
-      const exeName = `program_${Date.now()}`;
-      const cppFile = path.join(TEMP_DIR, `${exeName}.cpp`);
-      const exeFile = path.join(TEMP_DIR, exeName + (process.platform === 'win32' ? '.exe' : ''));
+      // Try to compile with g++
+      const compileResult = spawnSync('g++', [`"${cppFile}"`, '-o', `"${exeFile}"`], {
+        timeout: 20000,
+        encoding: 'utf-8',
+        shell: true,
+        maxBuffer: 10 * 1024 * 1024,
+      });
 
-      fs.writeFileSync(cppFile, cppCode);
-
-      try {
-        execSync(`g++ "${cppFile}" -o "${exeFile}"`, {
-          timeout: 20000,
-          encoding: 'utf-8',
-          stdio: 'pipe',
-        });
-
-        const runCmd = process.platform === 'win32' ? `"${exeFile}"` : exeFile;
-        const result = execSync(runCmd, {
-          timeout: 20000,
-          encoding: 'utf-8',
-          maxBuffer: 10 * 1024 * 1024,
-        });
-
-        // Cleanup
+      // Check for compilation errors
+      if (compileResult.error || compileResult.status !== 0) {
+        const errorMsg = compileResult.stderr || compileResult.error?.message || 'Unknown compilation error';
+        
+        // Cleanup and provide helpful message
         try { fs.unlinkSync(cppFile); } catch (e) {}
         try { if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile); } catch (e) {}
-
-        return result.trim() || 'Code executed successfully (no output)';
-      } catch (localErr: any) {
-        // Cleanup temp files and proceed to online compiler
-        try { fs.unlinkSync(cppFile); } catch (e) {}
-        try { if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile); } catch (e) {}
-        throw localErr;
+        
+        if (errorMsg.includes('not found') || errorMsg.includes('ENOENT')) {
+          return `❌ C++ Compiler Not Found\n\n` +
+                 `Install a C++ compiler to execute C++ code:\n\n` +
+                 `📦 Windows (MinGW):\n` +
+                 `   1. Download: https://www.mingw-w64.org/\n` +
+                 `   2. Run the installer and add to PATH\n` +
+                 `   3. Verify: Open Command Prompt and type "g++ --version"\n\n` +
+                 `🍎 macOS:\n` +
+                 `   brew install gcc\n\n` +
+                 `🐧 Linux:\n` +
+                 `   sudo apt install g++     # Ubuntu/Debian\n` +
+                 `   sudo yum install gcc-c++ # RedHat/CentOS`;
+        }
+        
+        return `Compilation Error:\n${errorMsg}`;
       }
+
+      // Run the compiled executable
+      const runResult = spawnSync(exeFile, [], {
+        timeout: 20000,
+        encoding: 'utf-8',
+        maxBuffer: 10 * 1024 * 1024,
+      });
+
+      // Cleanup
+      try { fs.unlinkSync(cppFile); } catch (e) {}
+      try { if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile); } catch (e) {}
+
+      if (runResult.error) {
+        return `Runtime Error: ${runResult.error.message}`;
+      }
+
+      const output = (runResult.stdout || '').trim();
+      if (runResult.stderr) {
+        return output + (output ? '\n' : '') + runResult.stderr;
+      }
+
+      return output || 'Code executed successfully (no output)';
     } catch (err: any) {
-      // Local compiler not available - try Wandbox API (online compiler)
-      console.log('Local C++ compiler unavailable, using online Wandbox compiler...');
+      // Cleanup temp files
+      try { fs.unlinkSync(cppFile); } catch (e) {}
+      try { if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile); } catch (e) {}
       
-      try {
-        // Using synchronous approach with curl since we're in Node
-        const curlUrl = 'https://wandbox.org/api/compile';
-        const payload = {
-          code: cppCode,
-          language: 'cpp',
-          compiler: 'gcc-head',
-          options: '-Wall -O2',
-          stdin: '',
-        };
-
-        // Use synchronous exec with curl for simplicity
-        const result = execSync(`curl -s -X POST "${curlUrl}" -H "Content-Type: application/json" -d @-`, {
-          input: JSON.stringify(payload),
-          timeout: 15000,
-          encoding: 'utf-8',
-          maxBuffer: 10 * 1024 * 1024,
-        });
-
-        const response = JSON.parse(result);
-
-        if (response.compiler_error && response.compiler_error.trim()) {
-          return `Compilation Error:\n${response.compiler_error}`;
-        }
-
-        if (response.runtime_error && response.runtime_error.trim()) {
-          return `Runtime Error:\n${response.runtime_error}`;
-        }
-
-        return response.program_output?.trim() || 'Code executed successfully (no output)';
-      } catch (onlineErr: any) {
-        // If online also fails, provide helpful message
-        console.error('C++ execution failed:', onlineErr.message);
-        throw new Error(
-          'C++ compilation failed. Local compiler (g++) not found. ' +
-          'Install MinGW for Windows or GCC for Mac/Linux, ' +
-          'or check your internet connection for online compilation.'
-        );
-      }
+      throw err;
     }
   } catch (err: any) {
-    throw err;
+    return `❌ C++ Compilation Failed\n\n` +
+           `Install a C++ compiler to execute C++ code:\n\n` +
+           `📦 Windows (MinGW):\n` +
+           `   1. Download: https://www.mingw-w64.org/\n` +
+           `   2. Run the installer and add to PATH\n` +
+           `   3. Verify: Open Command Prompt and type "g++ --version"\n\n` +
+           `🍎 macOS:\n` +
+           `   brew install gcc\n\n` +
+           `🐧 Linux:\n` +
+           `   sudo apt install g++     # Ubuntu/Debian\n` +
+           `   sudo yum install gcc-c++ # RedHat/CentOS\n\n` +
+           `Error Details: ${err.message}`;
   }
 }
 
