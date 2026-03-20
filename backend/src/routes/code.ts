@@ -181,4 +181,32 @@ router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Respons
   }
 });
 
+// Health check - Get available runtimes from Piston API
+router.get('/health', async (req: AuthRequest, res: Response) => {
+  try {
+    const response = await axios.get('https://emkc.org/api/v2/runtimes', {
+      timeout: 5000,
+    });
+
+    const runtimes = response.data;
+    
+    res.json({
+      success: true,
+      message: 'Piston API is available',
+      availableRuntimes: runtimes.map((r: any) => ({
+        language: r.language,
+        version: r.version,
+      })),
+      count: runtimes.length,
+    });
+  } catch (err: any) {
+    console.error('Health check error:', err.message);
+    res.status(500).json({
+      success: false,
+      message: 'Piston API is not available',
+      error: err.message,
+    });
+  }
+});
+
 export default router;
