@@ -18,7 +18,7 @@ router.get('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response
     );
 
     // Transform the result to include user object properly
-    const messages = result.map((msg: any) => ({
+    const messages = result.rows.map((msg: any) => ({
       id: msg.id,
       session_id: msg.session_id,
       user_id: msg.user_id,

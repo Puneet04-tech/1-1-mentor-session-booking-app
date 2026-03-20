@@ -12,7 +12,7 @@ router.get('/mentors', async (req: AuthRequest, res: Response) => {
       ['mentor']
     );
 
-    console.log('Fetching mentors:', mentors.length);
+    console.log('Fetching mentors:', mentors.rows.length);
 
     res.json({
       success: true,

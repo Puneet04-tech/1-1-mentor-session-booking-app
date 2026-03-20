@@ -36,7 +36,7 @@ router.get('/user/history', authMiddleware, async (req: AuthRequest, res: Respon
 
     // Fetch ratings and feedback for each session
     const sessionsWithDetails = await Promise.all(
-      sessions.map(async (session: any) => {
+      sessions.rows.map(async (session: any) => {
         const [rating, feedback] = await Promise.all([
           queryOne('SELECT * FROM ratings WHERE session_id = $1', [session.id]),
           queryOne('SELECT * FROM session_feedback WHERE session_id = $1 AND user_id = $2', [session.id, userId]),

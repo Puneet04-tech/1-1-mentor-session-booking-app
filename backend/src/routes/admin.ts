@@ -1,11 +1,11 @@
 import express, { Request, Response } from 'express';
-import { db } from '../database';
-import { authenticateToken } from '../middleware/auth';
+import * as db from '../database';
+import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
 
 // Get all user sessions (for admin)
-router.get('/users', authenticateToken, async (req: Request, res: Response) => {
+router.get('/users', authMiddleware, async (req: Request, res: Response) => {
   try {
     // Check admin status
     const adminCheck = await db.query('SELECT role FROM users WHERE id = $1', [(req as any).user.id]);
@@ -38,7 +38,7 @@ router.get('/users', authenticateToken, async (req: Request, res: Response) => {
 });
 
 // Get dashboard statistics
-router.get('/stats', authenticateToken, async (req: Request, res: Response) => {
+router.get('/stats', authMiddleware, async (req: Request, res: Response) => {
   try {
     const adminCheck = await db.query('SELECT role FROM users WHERE id = $1', [(req as any).user.id]);
     if (adminCheck.rows[0]?.role !== 'admin') {
@@ -66,7 +66,7 @@ router.get('/stats', authenticateToken, async (req: Request, res: Response) => {
 });
 
 // Suspend/Unsuspend user
-router.patch('/users/:userId/suspend', authenticateToken, async (req: Request, res: Response) => {
+router.patch('/users/:userId/suspend', authMiddleware, async (req: Request, res: Response) => {
   try {
     const adminCheck = await db.query('SELECT role FROM users WHERE id = $1', [(req as any).user.id]);
     if (adminCheck.rows[0]?.role !== 'admin') {
@@ -90,7 +90,7 @@ router.patch('/users/:userId/suspend', authenticateToken, async (req: Request, r
 });
 
 // Get session moderation queue
-router.get('/moderation/queue', authenticateToken, async (req: Request, res: Response) => {
+router.get('/moderation/queue', authMiddleware, async (req: Request, res: Response) => {
   try {
     const adminCheck = await db.query('SELECT role FROM users WHERE id = $1', [(req as any).user.id]);
     if (adminCheck.rows[0]?.role !== 'admin') {
@@ -114,7 +114,7 @@ router.get('/moderation/queue', authenticateToken, async (req: Request, res: Res
 });
 
 // Flag session for review
-router.post('/moderation/flag/:sessionId', authenticateToken, async (req: Request, res: Response) => {
+router.post('/moderation/flag/:sessionId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { sessionId } = req.params;
     const { reason } = req.body;
@@ -133,7 +133,7 @@ router.post('/moderation/flag/:sessionId', authenticateToken, async (req: Reques
 });
 
 // Get reports
-router.get('/reports', authenticateToken, async (req: Request, res: Response) => {
+router.get('/reports', authMiddleware, async (req: Request, res: Response) => {
   try {
     const adminCheck = await db.query('SELECT role FROM users WHERE id = $1', [(req as any).user.id]);
     if (adminCheck.rows[0]?.role !== 'admin') {

@@ -73,7 +73,7 @@ router.get('/available', authMiddleware, async (req: AuthRequest, res: Response)
       ['scheduled']
     );
 
-    console.log('Available sessions:', sessions.length);
+    console.log('Available sessions:', sessions.rows.length);
 
     res.json({
       success: true,

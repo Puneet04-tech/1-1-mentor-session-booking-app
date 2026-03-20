@@ -13,10 +13,10 @@ pool.on('error', (err: Error) => {
   console.error('Unexpected error on idle client', err);
 });
 
-export async function query<T = any>(text: string, params?: any[]): Promise<T[]> {
+export async function query<T = any>(text: string, params?: any[]): Promise<{ rows: T[] }> {
   try {
     const res = await pool.query(text, params);
-    return res.rows;
+    return { rows: res.rows };
   } catch (err) {
     console.error('Database query error:', err);
     throw err;
@@ -25,7 +25,7 @@ export async function query<T = any>(text: string, params?: any[]): Promise<T[]>
 
 export async function queryOne<T = any>(text: string, params?: any[]): Promise<T | null> {
   const results = await query<T>(text, params);
-  return results[0] || null;
+  return results.rows[0] || null;
 }
 
 export async function getClient(): Promise<PoolClient> {

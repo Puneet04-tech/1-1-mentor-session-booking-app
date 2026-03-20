@@ -47,7 +47,7 @@ class ApiClient {
     email: string;
     password: string;
     name: string;
-    role: 'mentor' | 'student';
+    role: 'mentor' | 'student' | 'admin';
   }): Promise<ApiResponse<{ user: User; token: string }>> {
     return this.client.post('/api/auth/signup', data);
   }

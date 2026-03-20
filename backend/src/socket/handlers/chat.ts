@@ -18,7 +18,7 @@ export async function handleMessageSend(socket: Socket, io: SocketIOServer, data
 
     // Fetch user details
     const users = await query<any>('SELECT id, name, email, avatar_url FROM users WHERE id = $1', [userId]);
-    const user = users[0];
+    const user = users.rows[0];
 
     // Broadcast message to session (including full user details)
     io.to(`session:${sessionId}`).emit('message:receive', {

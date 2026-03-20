@@ -1,11 +1,11 @@
 import express, { Request, Response } from 'express';
-import { db } from '../database';
-import { authenticateToken } from '../middleware/auth';
+import * as db from '../database';
+import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
 
 // Start recording
-router.post('/start', authenticateToken, async (req: Request, res: Response) => {
+router.post('/start', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { sessionId } = req.body;
     const userId = (req as any).user.id;
@@ -40,7 +40,7 @@ router.post('/start', authenticateToken, async (req: Request, res: Response) => 
 });
 
 // Stop recording
-router.post('/stop/:recordingId', authenticateToken, async (req: Request, res: Response) => {
+router.post('/stop/:recordingId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { recordingId } = req.params;
 
@@ -68,7 +68,7 @@ router.post('/stop/:recordingId', authenticateToken, async (req: Request, res: R
 });
 
 // Get session recordings
-router.get('/session/:sessionId', authenticateToken, async (req: Request, res: Response) => {
+router.get('/session/:sessionId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { sessionId } = req.params;
     const userId = (req as any).user.id;
@@ -101,7 +101,7 @@ router.get('/session/:sessionId', authenticateToken, async (req: Request, res: R
 });
 
 // Get recording url (for playback)
-router.get('/:recordingId', authenticateToken, async (req: Request, res: Response) => {
+router.get('/:recordingId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { recordingId } = req.params;
     const userId = (req as any).user.id;
@@ -137,7 +137,7 @@ router.get('/:recordingId', authenticateToken, async (req: Request, res: Respons
 });
 
 // Delete recording
-router.delete('/:recordingId', authenticateToken, async (req: Request, res: Response) => {
+router.delete('/:recordingId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { recordingId } = req.params;
     const userId = (req as any).user.id;

@@ -121,7 +121,7 @@ export default function CalendarPage() {
                 <div className="grid grid-cols-7 gap-2">
                   {calendarDays.map((day, idx) => {
                     const sessionCount = day
-                      ? sessions.filter((s) => new Date(s.scheduled_at).getDate() === day).length
+                      ? sessions.filter((s) => s.scheduled_at && new Date(s.scheduled_at).getDate() === day).length
                       : 0;
 
                     return (
@@ -163,7 +163,7 @@ export default function CalendarPage() {
                       <div className="p-3 bg-dark-800 rounded hover:bg-dark-700 transition-all cursor-pointer">
                         <p className="text-white text-sm font-medium truncate">{session.title}</p>
                         <p className="text-gray-400 text-xs">
-                          {new Date(session.scheduled_at).toLocaleDateString()}
+                          {session.scheduled_at ? new Date(session.scheduled_at).toLocaleDateString() : 'No date'}
                         </p>
                       </div>
                     </Link>

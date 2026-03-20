@@ -1,11 +1,11 @@
 import express, { Request, Response } from 'express';
-import { db } from '../database';
-import { authenticateToken } from '../middleware/auth';
+import * as db from '../database';
+import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
 
 // Get mentor's availability
-router.get('/mentor/:mentorId', authenticateToken, async (req: Request, res: Response) => {
+router.get('/mentor/:mentorId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { mentorId } = req.params;
 
@@ -27,7 +27,7 @@ router.get('/mentor/:mentorId', authenticateToken, async (req: Request, res: Res
 });
 
 // Set availability slots
-router.post('/mentor/slots', authenticateToken, async (req: Request, res: Response) => {
+router.post('/mentor/slots', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { slots } = req.body;
     const userId = (req as any).user.id;
@@ -83,7 +83,7 @@ router.get('/available/:mentorId', async (req: Request, res: Response) => {
       [mentorId, date]
     );
 
-    const bookedTimes = bookedResult.rows.map((r) => new Date(r.scheduled_at));
+    const bookedTimes = bookedResult.rows.map((r: any) => new Date(r.scheduled_at));
     const availability = availabilityResult.rows[0];
 
     // Generate 1-hour time slots
@@ -92,7 +92,7 @@ router.get('/available/:mentorId', async (req: Request, res: Response) => {
     const end = new Date(`${date}T${availability.end_time}`);
 
     for (let time = new Date(start); time < end; time.setHours(time.getHours() + 1)) {
-      const isBooked = bookedTimes.some((bt) => bt.getTime() === time.getTime());
+      const isBooked = bookedTimes.some((bt: Date) => bt.getTime() === time.getTime());
       if (!isBooked) {
         slots.push(time.toISOString());
       }
@@ -120,7 +120,7 @@ router.get('/calendar/:mentorId', async (req: Request, res: Response) => {
       [mentorId, startDate, endDate]
     );
 
-    const events = result.rows.map((row) => ({
+    const events = result.rows.map((row: any) => ({
       id: row.id,
       title: row.title,
       start: row.scheduled_at,

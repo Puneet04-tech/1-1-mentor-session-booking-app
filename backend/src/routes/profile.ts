@@ -109,12 +109,12 @@ router.get('/mentors/all', async (req: AuthRequest, res: Response) => {
 
     // Fetch skills for each mentor
     const mentorsList = await Promise.all(
-      mentors.map(async (mentor: any) => {
+      mentors.rows.map(async (mentor: any) => {
         const skills = await query(
           `SELECT skill_name, proficiency_level, years_experience FROM user_skills WHERE user_id = $1`,
           [mentor.id]
         );
-        return { ...mentor, skills };
+        return { ...mentor, skills: skills.rows };
       })
     );
 

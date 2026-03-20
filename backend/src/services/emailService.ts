@@ -1,15 +1,22 @@
-import nodemailer from 'nodemailer';
+let transporter: any = null;
 
-// Configure email service
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.EMAIL_PORT || '587'),
-  secure: process.env.EMAIL_SECURE === 'true',
-  auth: {
-    user: process.env.EMAIL_USER || '',
-    pass: process.env.EMAIL_PASSWORD || '',
-  },
-});
+try {
+  // Try to import nodemailer if available
+  // In production, run: npm install nodemailer
+  const nodemailer = require('nodemailer');
+  transporter = nodemailer.createTransport({
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.EMAIL_PORT || '587'),
+    secure: process.env.EMAIL_SECURE === 'true',
+    auth: {
+      user: process.env.EMAIL_USER || '',
+      pass: process.env.EMAIL_PASSWORD || '',
+    },
+  });
+} catch (err) {
+  console.warn('⚠️  nodemailer not installed. Email features disabled. Run: npm install nodemailer');
+  transporter = null;
+}
 
 interface EmailOptions {
   to: string;
@@ -81,6 +88,11 @@ const emailTemplates: Record<string, (data: any) => string> = {
 
 export async function sendEmail(options: EmailOptions): Promise<boolean> {
   try {
+    if (!transporter) {
+      console.warn('Email service not initialized. Install nodemailer: npm install nodemailer');
+      return false;
+    }
+    
     // Get template
     const template = emailTemplates[options.template];
     if (!template) {

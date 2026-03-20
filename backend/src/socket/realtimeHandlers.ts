@@ -1,5 +1,5 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
-import { db } from '../database';
+import * as db from '../database';
 
 interface NotificationPayload {
   userId: string;

@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
-import { db } from '../database';
-import { authenticateToken } from '../middleware/auth';
+import * as db from '../database';
+import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
@@ -10,7 +10,7 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 // const stripe = new Stripe(STRIPE_SECRET_KEY);
 
 // Create payment intent for session
-router.post('/create-payment-intent', authenticateToken, async (req: Request, res: Response) => {
+router.post('/create-payment-intent', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { sessionId, amount } = req.body;
     const userId = (req as any).user.id;
@@ -55,7 +55,7 @@ router.post('/create-payment-intent', authenticateToken, async (req: Request, re
 });
 
 // Confirm payment
-router.post('/confirm', authenticateToken, async (req: Request, res: Response) => {
+router.post('/confirm', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { paymentId } = req.body;
     const userId = (req as any).user.id;
@@ -91,7 +91,7 @@ router.post('/confirm', authenticateToken, async (req: Request, res: Response) =
 });
 
 // Get payment history
-router.get('/history', authenticateToken, async (req: Request, res: Response) => {
+router.get('/history', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
 
@@ -115,7 +115,7 @@ router.get('/history', authenticateToken, async (req: Request, res: Response) =>
 });
 
 // Get earnings (for mentors)
-router.get('/earnings', authenticateToken, async (req: Request, res: Response) => {
+router.get('/earnings', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
 
