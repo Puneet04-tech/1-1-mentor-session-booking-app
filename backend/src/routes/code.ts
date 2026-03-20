@@ -15,21 +15,8 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       return res.status(400).json({ error: 'Code and language required' });
     }
 
-    // Check if Judge0 API is configured
-    const judge0Url = process.env.JUDGE0_API_URL || 'https://judge0-ce.com';
-    
-    // For development, return a mock response if Judge0 is unavailable
-    if (!judge0Url || judge0Url === 'https://judge0-ce.com') {
-      console.warn('⚠️  Judge0 API not configured or unavailable. Returning mock response.');
-      return res.json({
-        success: true,
-        data: {
-          output: `Mock Execution Output:\n\nCode executed successfully!\n\nNote: Code execution is mocked in this environment. Judge0 API is not available.\n\nCode:\n${code.substring(0, 100)}${code.length > 100 ? '...' : ''}`,
-          error: null,
-          status: 'Success (Mocked)',
-        },
-      });
-    }
+    // Use free public Judge0 API (or self-hosted)
+    const judge0Url = process.env.JUDGE0_API_URL || 'https://judge0.com';
 
     // Map language to Judge0 language ID
     const languageMap: { [key: string]: number } = {
@@ -60,7 +47,7 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
     // Step 1: Submit code to Judge0
     console.log(`Submitting ${language} code to Judge0...`);
     const submitResponse = await axios.post(
-      `${judge0Url}/api/submissions`,
+      `${judge0Url}/api/submissions?base64_encoded=false&wait=false`,
       {
         source_code: codeToExecute,
         language_id: languageId,
@@ -88,27 +75,27 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 
       try {
         const statusResponse = await axios.get(
-          `${judge0Url}/api/submissions/${submissionToken}`,
+          `${judge0Url}/api/submissions/${submissionToken}?base64_encoded=false`,
           {
             headers: {
               'Content-Type': 'application/json',
             },
-            timeout: 5000,
+            timeout: 10000,
           }
         );
 
         result = statusResponse.data;
 
         // Status 1 = In Queue, 2 = Processing, anything else = Done
-        if (result.status.id > 2) {
+        if (result.status && result.status.id > 2) {
           console.log(`Execution completed with status: ${result.status.description}`);
           break;
         }
 
         attempts++;
-        delayMs = Math.min(delayMs * 1.2, 2000);
-      } catch (pollErr) {
-        console.error('Poll error:', pollErr);
+        delayMs = Math.min(delayMs * 1.5, 3000);
+      } catch (pollErr: any) {
+        console.error('Poll error:', pollErr.message);
         attempts++;
       }
     }
