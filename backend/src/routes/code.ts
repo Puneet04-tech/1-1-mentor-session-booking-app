@@ -4,7 +4,7 @@ import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import axios from 'axios';
 import { config } from '@/config';
 import { execSync } from 'child_process';
-import { VM } from 'vm';
+import { runInNewContext } from 'vm';
 
 const router = Router();
 
@@ -68,15 +68,6 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
  * Execute JavaScript code safely using Node VM
  */
 function executeJavaScript(code: string): string {
-  const context = {
-    console: {
-      log: (...args: any[]) => {
-        console.log(...args);
-        return args.map(arg => String(arg)).join(' ');
-      },
-    },
-  };
-
   // Capture console.log output
   let output = '';
   const originalLog = console.log;
@@ -93,9 +84,23 @@ function executeJavaScript(code: string): string {
       originalLog(...args);
     };
 
+    // Create sandbox context with console
+    const context = {
+      console: {
+        log: (...args: any[]) => {
+          const line = args.map(arg => {
+            if (typeof arg === 'object') {
+              return JSON.stringify(arg, null, 2);
+            }
+            return String(arg);
+          }).join(' ');
+          output += line + '\n';
+        },
+      },
+    };
+
     // Execute code in a safe VM context
-    const vm = new VM(context);
-    vm.runInNewContext(code);
+    runInNewContext(code, context, { timeout: 10000 });
 
     return output.trim() || 'Code executed successfully (no output)';
   } finally {
