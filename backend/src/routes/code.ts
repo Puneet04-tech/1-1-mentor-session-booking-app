@@ -6,7 +6,7 @@ import { config } from '@/config';
 
 const router = Router();
 
-// Execute code - using Judge0 API (must come before /:sessionId routes)
+// Execute code - using Piston API (free, no authentication needed)
 router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { code, language } = req.body;
@@ -15,24 +15,24 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       return res.status(400).json({ error: 'Code and language required' });
     }
 
-    // Use free public Judge0 API (or self-hosted)
-    const judge0Url = process.env.JUDGE0_API_URL || 'https://judge0.com';
+    // Use Piston API - completely free and reliable
+    const pistonUrl = 'https://emkc.org/api/v2';
 
-    // Map language to Judge0 language ID
-    const languageMap: { [key: string]: number } = {
-      javascript: 63,
-      python: 71,
-      java: 62,
-      cpp: 54,
-      typescript: 63, // TypeScript uses JavaScript ID
+    // Map language to Piston Runtime ID
+    const languageMap: { [key: string]: string } = {
+      javascript: 'node',
+      python: 'python3',
+      java: 'java',
+      cpp: 'cpp',
+      typescript: 'node', // TypeScript via node
     };
 
-    const languageId = languageMap[language];
-    if (!languageId) {
+    const runtime = languageMap[language];
+    if (!runtime) {
       return res.status(400).json({ error: `Unsupported language: ${language}` });
     }
 
-    // Prepare code for Java (add main method if needed)
+    // Prepare code
     let codeToExecute = code;
     if (language === 'java') {
       if (!code.includes('class ') || !code.includes('public static void main')) {
@@ -44,83 +44,46 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       }
     }
 
-    // Step 1: Submit code to Judge0
-    console.log(`Submitting ${language} code to Judge0...`);
-    const submitResponse = await axios.post(
-      `${judge0Url}/api/submissions?base64_encoded=false&wait=false`,
+    // Step 1: Execute code via Piston API
+    console.log(`Executing ${language} code via Piston API...`);
+    const executeResponse = await axios.post(
+      `${pistonUrl}/execute`,
       {
-        source_code: codeToExecute,
-        language_id: languageId,
-        stdin: '',
+        language: runtime,
+        version: '*',
+        files: [
+          {
+            content: codeToExecute,
+          },
+        ],
       },
       {
+        timeout: 15000,
         headers: {
           'Content-Type': 'application/json',
         },
-        timeout: 5000,
       }
     );
 
-    const submissionToken = submitResponse.data.token;
-    console.log(`Code submitted with token: ${submissionToken}`);
+    console.log('Piston API response:', executeResponse.status);
+    const result = executeResponse.data;
 
-    // Step 2: Poll for result
-    let result = null;
-    let attempts = 0;
-    const maxAttempts = 20;
-    let delayMs = 500;
-
-    while (attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-
-      try {
-        const statusResponse = await axios.get(
-          `${judge0Url}/api/submissions/${submissionToken}?base64_encoded=false`,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            timeout: 10000,
-          }
-        );
-
-        result = statusResponse.data;
-
-        // Status 1 = In Queue, 2 = Processing, anything else = Done
-        if (result.status && result.status.id > 2) {
-          console.log(`Execution completed with status: ${result.status.description}`);
-          break;
-        }
-
-        attempts++;
-        delayMs = Math.min(delayMs * 1.5, 3000);
-      } catch (pollErr: any) {
-        console.error('Poll error:', pollErr.message);
-        attempts++;
-      }
-    }
-
-    if (!result) {
-      return res.status(504).json({
-        error: 'Code execution timeout',
-        message: 'The code took too long to execute',
-      });
-    }
-
-    // Step 3: Format and return output
+    // Format response
     let output = '';
     let error = null;
 
-    if (result.compile_output) {
-      error = result.compile_output;
-      output = `Compilation Error:\n${result.compile_output}`;
-    } else if (result.runtime_error) {
-      error = result.runtime_error;
-      output = `Runtime Error:\n${result.runtime_error}`;
-    } else if (result.stdout) {
-      output = result.stdout;
-    } else {
+    if (result.compile && result.compile.stderr) {
+      error = result.compile.stderr;
+      output = `Compilation Error:\n${result.compile.stderr}`;
+    } else if (result.runtime && result.runtime.stderr) {
+      error = result.runtime.stderr;
+      output = `Runtime Error:\n${result.runtime.stderr}`;
+    } else if (result.run && result.run.stdout) {
+      output = result.run.stdout;
+    } else if (result.run && !result.run.stdout && !result.run.stderr) {
       output = 'Code executed successfully (no output)';
+    } else {
+      output = 'Code executed successfully';
     }
 
     res.json({
@@ -128,15 +91,27 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       data: {
         output: output.trim(),
         error: error,
-        status: result.status.description,
+        status: 'Success',
       },
     });
   } catch (err: any) {
     console.error('Code execution error:', err.message);
+    console.error('Error details:', err.response?.data || err.response?.status);
+    
+    // Provide helpful error message
+    let errorMsg = err.message;
+    if (err.code === 'ECONNREFUSED') {
+      errorMsg = 'Could not connect to code execution service. Check your internet connection.';
+    } else if (err.response?.status === 404) {
+      errorMsg = 'Code execution service endpoint not found.';
+    } else if (err.response?.status === 429) {
+      errorMsg = 'Too many requests. Please wait a moment and try again.';
+    }
+    
     res.status(500).json({
       error: 'Code execution failed',
-      message: err.message || 'Unknown error occurred',
-      tip: 'Make sure you have internet connectivity. Judge0 API is used for code execution.',
+      message: errorMsg,
+      tip: 'Using Piston API for code execution. Ensure you have internet connectivity.',
     });
   }
 });
