@@ -172,14 +172,17 @@ export default function SessionPage() {
 
   const handleCodeChange = (value: string | undefined) => {
     if (value === undefined) return;
-    if (!socketService.isConnected()) {
-      console.error('Socket not connected');
-      return;
-    }
+    
+    // Always update local state, regardless of socket connection
     setCode(value);
-    // Send code update through socket with all necessary info
-    socketService.sendCode(value, language, sessionId);
-    console.log('Code change sent:', { code: value, language, sessionId });
+    
+    // Try to send through socket if connected
+    if (socketService.isConnected()) {
+      socketService.sendCode(value, language, sessionId);
+      console.log('Code change sent:', { code: value, language, sessionId });
+    } else {
+      console.warn('Socket not connected - code saved locally only');
+    }
   };
 
   const handleLanguageChange = (newLanguage: string) => {
