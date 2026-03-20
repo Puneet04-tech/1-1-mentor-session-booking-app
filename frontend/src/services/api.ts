@@ -215,6 +215,93 @@ class ApiClient {
     if (filters?.skills?.length) params.set('skills', filters.skills.join(','));
     return this.client.get(`/api/users/mentors?${params.toString()}`);
   }
+
+  // Availability endpoints
+  async getMentorAvailability(mentorId: string): Promise<ApiResponse<any[]>> {
+    return this.client.get(`/api/availability/mentor/${mentorId}`);
+  }
+
+  async setMentorAvailability(slots: any[]): Promise<ApiResponse<any>> {
+    return this.client.post('/api/availability/mentor/slots', { slots });
+  }
+
+  async getAvailableSlots(mentorId: string, date: string): Promise<ApiResponse<any>> {
+    return this.client.get(`/api/availability/available/${mentorId}?date=${date}`);
+  }
+
+  async getSessionCalendar(userId: string, startDate: string, endDate: string): Promise<ApiResponse<any[]>> {
+    return this.client.get(`/api/availability/calendar/${userId}?startDate=${startDate}&endDate=${endDate}`);
+  }
+
+  // Payment endpoints
+  async createPaymentIntent(sessionId: string, amount: number): Promise<ApiResponse<any>> {
+    return this.client.post('/api/payments/create-payment-intent', { sessionId, amount });
+  }
+
+  async confirmPayment(paymentId: string): Promise<ApiResponse<any>> {
+    return this.client.post('/api/payments/confirm', { paymentId });
+  }
+
+  async getPaymentHistory(): Promise<ApiResponse<any[]>> {
+    return this.client.get('/api/payments/history');
+  }
+
+  async getEarnings(): Promise<ApiResponse<any>> {
+    return this.client.get('/api/payments/earnings');
+  }
+
+  // Recording endpoints
+  async startRecording(sessionId: string): Promise<ApiResponse<any>> {
+    return this.client.post('/api/recordings/start', { sessionId });
+  }
+
+  async stopRecording(recordingId: string): Promise<ApiResponse<any>> {
+    return this.client.post(`/api/recordings/stop/${recordingId}`);
+  }
+
+  async getSessionRecordings(sessionId: string): Promise<ApiResponse<any[]>> {
+    return this.client.get(`/api/recordings/session/${sessionId}`);
+  }
+
+  async getRecordingUrl(recordingId: string): Promise<ApiResponse<any>> {
+    return this.client.get(`/api/recordings/${recordingId}`);
+  }
+
+  async deleteRecording(recordingId: string): Promise<ApiResponse<any>> {
+    return this.client.delete(`/api/recordings/${recordingId}`);
+  }
+
+  // Admin endpoints
+  async getAdminStats(): Promise<ApiResponse<any>> {
+    return this.client.get('/api/admin/stats');
+  }
+
+  async getAdminUsers(query?: string, role?: string): Promise<ApiResponse<any[]>> {
+    const params = new URLSearchParams();
+    if (query) params.set('search', query);
+    if (role) params.set('role', role);
+    return this.client.get(`/api/admin/users?${params.toString()}`);
+  }
+
+  async suspendUser(userId: string, reason: string): Promise<ApiResponse<any>> {
+    return this.client.patch(`/api/admin/users/${userId}/suspend`, { isSuspended: true, reason });
+  }
+
+  async unsuspendUser(userId: string): Promise<ApiResponse<any>> {
+    return this.client.patch(`/api/admin/users/${userId}/suspend`, { isSuspended: false });
+  }
+
+  async getModerationQueue(): Promise<ApiResponse<any[]>> {
+    return this.client.get('/api/admin/moderation/queue');
+  }
+
+  async flagSessionForReview(sessionId: string, reason: string): Promise<ApiResponse<any>> {
+    return this.client.post(`/api/admin/moderation/flag/${sessionId}`, { reason });
+  }
+
+  async getReports(): Promise<ApiResponse<any[]>> {
+    return this.client.get('/api/admin/reports');
+  }
 }
 
 export const apiClient = new ApiClient();

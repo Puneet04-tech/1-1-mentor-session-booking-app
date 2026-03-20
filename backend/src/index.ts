@@ -15,7 +15,12 @@ import profileRoutes from './routes/profile';
 import ratingsRoutes from './routes/ratings';
 import sessionHistoryRoutes from './routes/sessionHistory';
 import notificationsRoutes from './routes/notifications';
+import availabilityRoutes from './routes/availability';
+import paymentRoutes from './routes/payments';
+import recordingRoutes from './routes/recordings';
+import adminRoutes from './routes/admin';
 import { setupSocketHandlers } from './socket/handlers';
+import { setupRealtimeHandlers } from './socket/realtimeHandlers';
 
 const app: Express = express();
 const httpServer = createServer(app);
@@ -55,6 +60,10 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/ratings', ratingsRoutes);
 app.use('/api/sessions/history', sessionHistoryRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/availability', availabilityRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/recordings', recordingRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health check
 app.get('/health', async (req: Request, res: Response) => {
@@ -84,6 +93,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
 // Socket.io handlers
 setupSocketHandlers(io);
+setupRealtimeHandlers(io);
 
 // Start server
 const PORT = config.PORT;
