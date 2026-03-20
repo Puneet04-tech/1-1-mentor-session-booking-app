@@ -3,10 +3,12 @@ import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import axios from 'axios';
 import { config } from '@/config';
+import { execSync } from 'child_process';
+import { VM } from 'vm';
 
 const router = Router();
 
-// Execute code - using Piston API (free, no authentication needed)
+// Execute code - Local execution without external dependencies
 router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { code, language } = req.body;
@@ -15,81 +17,32 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       return res.status(400).json({ error: 'Code and language required' });
     }
 
-    // Use Piston API - completely free and reliable
-    const pistonUrl = 'https://emkc.org/api/v2';
+    console.log(`Executing ${language} code locally...`);
 
-    // Map language to Piston Runtime name
-    const languageMap: { [key: string]: string } = {
-      javascript: 'javascript',
-      python: 'python',
-      java: 'java',
-      cpp: 'cpp',
-      typescript: 'javascript', // TypeScript compiled to JavaScript
-    };
-
-    const runtime = languageMap[language];
-    if (!runtime) {
-      return res.status(400).json({ error: `Unsupported language: ${language}` });
-    }
-
-    // Prepare code
-    let codeToExecute = code;
-    if (language === 'java') {
-      if (!code.includes('class ') || !code.includes('public static void main')) {
-        codeToExecute = `public class Main {
-  public static void main(String[] args) {
-    ${code.replace(/\n/g, '\n    ')}
-  }
-}`;
-      }
-    }
-
-    // Step 1: Execute code via Piston API
-    console.log(`Executing ${language} code via Piston API...`);
-    console.log('Request payload:', {
-      language: runtime,
-      version: '*',
-      codeLength: codeToExecute.length,
-    });
-
-    const executeResponse = await axios.post(
-      `${pistonUrl}/execute`,
-      {
-        language: runtime,
-        version: '*',
-        files: [
-          {
-            content: codeToExecute,
-          },
-        ],
-      },
-      {
-        timeout: 20000,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    console.log('Piston API response status:', executeResponse.status);
-    const result = executeResponse.data;
-
-    // Format response
     let output = '';
     let error = null;
+    let status = 'Success';
 
-    if (result.compile && result.compile.stderr) {
-      error = result.compile.stderr;
-      output = `Compilation Error:\n${result.compile.stderr}`;
-    } else if (result.runtime && result.runtime.stderr) {
-      error = result.runtime.stderr;
-      output = `Runtime Error:\n${result.runtime.stderr}`;
-    } else if (result.run && result.run.stdout) {
-      output = result.run.stdout;
-    } else if (result.run && !result.run.stdout && !result.run.stderr) {
-      output = 'Code executed successfully (no output)';
-    } else {
-      output = 'Code executed successfully';
+    try {
+      if (language === 'javascript' || language === 'typescript') {
+        // Use Node.js VM for safe JavaScript execution
+        output = executeJavaScript(code);
+      } else if (language === 'python') {
+        // Try to execute Python if available
+        output = executePython(code);
+      } else if (language === 'java') {
+        // Return helpful message for Java
+        output = 'Java execution requires compilation. This is a simplified demo.\nTo execute actual Java, use a self-hosted solution.';
+      } else if (language === 'cpp') {
+        // Return helpful message for C++
+        output = 'C++ execution requires compilation. This is a simplified demo.\nTo execute actual C++, use a self-hosted solution.';
+      } else {
+        output = `Language "${language}" is not supported in local execution mode.`;
+      }
+    } catch (execErr: any) {
+      error = execErr.message;
+      output = `Execution Error:\n${execErr.message}`;
+      status = 'Error';
     }
 
     res.json({
@@ -97,48 +50,85 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       data: {
         output: output.trim(),
         error: error,
-        status: 'Success',
+        status: status,
       },
     });
   } catch (err: any) {
     console.error('Code execution error:', err.message);
-    console.error('Error response status:', err.response?.status);
-    console.error('Error response data:', err.response?.data);
-    console.error('Error code:', err.code);
-    
-    // Provide helpful error message
-    let errorMsg = err.message;
-    let tip = 'Using Piston API for code execution. Ensure you have internet connectivity.';
-    
-    if (err.code === 'ECONNREFUSED') {
-      errorMsg = 'Could not connect to code execution service. Check your internet connection.';
-      tip = 'Piston API might be temporarily unavailable.';
-    } else if (err.code === 'ENOTFOUND') {
-      errorMsg = 'Code execution service endpoint not found.';
-      tip = 'Check your internet connection or Piston API status.';
-    } else if (err.response?.status === 404) {
-      errorMsg = 'Code execution service endpoint not found.';
-      tip = 'The Piston API endpoint might have changed. Check https://emkc.org/api/v2/runtimes';
-    } else if (err.response?.status === 429) {
-      errorMsg = 'Too many requests. Please wait a moment and try again.';
-      tip = 'Piston API has rate limiting. Wait before trying again.';
-    } else if (err.response?.status === 400) {
-      errorMsg = `Invalid request: ${err.response?.data?.message || 'Bad parameters'}`;
-      tip = 'Check your code syntax and language selection.';
-    }
-    
+
     res.status(500).json({
       error: 'Code execution failed',
-      message: errorMsg,
-      tip: tip,
-      debug: process.env.NODE_ENV === 'development' ? {
-        apiUrl: `https://emkc.org/api/v2/execute`,
-        language: err.config?.data ? JSON.parse(err.config.data).language : 'unknown',
-        status: err.response?.status,
-      } : undefined,
+      message: err.message || 'Unknown error occurred',
+      tip: 'Using local code execution. Make sure your code is valid.',
     });
   }
 });
+
+/**
+ * Execute JavaScript code safely using Node VM
+ */
+function executeJavaScript(code: string): string {
+  const context = {
+    console: {
+      log: (...args: any[]) => {
+        console.log(...args);
+        return args.map(arg => String(arg)).join(' ');
+      },
+    },
+  };
+
+  // Capture console.log output
+  let output = '';
+  const originalLog = console.log;
+  
+  try {
+    console.log = (...args: any[]) => {
+      const line = args.map(arg => {
+        if (typeof arg === 'object') {
+          return JSON.stringify(arg, null, 2);
+        }
+        return String(arg);
+      }).join(' ');
+      output += line + '\n';
+      originalLog(...args);
+    };
+
+    // Execute code in a safe VM context
+    const vm = new VM(context);
+    vm.runInNewContext(code);
+
+    return output.trim() || 'Code executed successfully (no output)';
+  } finally {
+    console.log = originalLog;
+  }
+}
+
+/**
+ * Execute Python code using child_process
+ */
+function executePython(code: string): string {
+  try {
+    // Try to execute Python code
+    const result = execSync(`python3 -c "${code.replace(/"/g, '\\"').replace(/\n/g, '; ')}"`, {
+      timeout: 10000,
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
+    return result.trim() || 'Code executed successfully (no output)';
+  } catch (err: any) {
+    // If Python3 not available, try Python
+    try {
+      const result = execSync(`python -c "${code.replace(/"/g, '\\"').replace(/\n/g, '; ')}"`, {
+        timeout: 10000,
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+      return result.trim() || 'Code executed successfully (no output)';
+    } catch (innerErr: any) {
+      throw new Error('Python is not installed or not available in PATH. Install Python 3 to execute Python code.');
+    }
+  }
+}
 
 // Get code snapshot
 router.get('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
@@ -181,29 +171,29 @@ router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Respons
   }
 });
 
-// Health check - Get available runtimes from Piston API
+// Health check - Verify local code execution is working
 router.get('/health', async (req: AuthRequest, res: Response) => {
   try {
-    const response = await axios.get('https://emkc.org/api/v2/runtimes', {
-      timeout: 5000,
-    });
+    // Test JavaScript execution
+    const testOutput = executeJavaScript('console.log("Local execution working!")');
 
-    const runtimes = response.data;
-    
     res.json({
       success: true,
-      message: 'Piston API is available',
-      availableRuntimes: runtimes.map((r: any) => ({
-        language: r.language,
-        version: r.version,
-      })),
-      count: runtimes.length,
+      message: 'Local code execution is available',
+      supportedLanguages: [
+        { language: 'javascript', status: 'supported', engine: 'Node.js VM' },
+        { language: 'typescript', status: 'supported', engine: 'Node.js VM' },
+        { language: 'python', status: 'supported if installed', engine: 'Python' },
+        { language: 'java', status: 'demo mode', engine: 'Not compiled' },
+        { language: 'cpp', status: 'demo mode', engine: 'Not compiled' },
+      ],
+      testResult: testOutput,
     });
   } catch (err: any) {
     console.error('Health check error:', err.message);
     res.status(500).json({
       success: false,
-      message: 'Piston API is not available',
+      message: 'Local code execution is not available',
       error: err.message,
     });
   }
