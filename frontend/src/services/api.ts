@@ -302,6 +302,20 @@ class ApiClient {
   async getReports(): Promise<ApiResponse<any[]>> {
     return this.client.get('/api/admin/reports');
   }
+
+  // Video Conference endpoints
+  async generateVideoCode(sessionId: string): Promise<ApiResponse<{ code: string }>> {
+    return this.client.post(`/api/sessions/${sessionId}/video-code`, {});
+  }
+
+  async verifyVideoCode(sessionId: string, code: string): Promise<ApiResponse<any>> {
+    return this.client.post(`/api/sessions/${sessionId}/verify-video-code`, { code });
+  }
+
+  // Generic post method for other endpoints
+  async post<T = any>(endpoint: string, data: any): Promise<ApiResponse<T>> {
+    return this.client.post(endpoint, data);
+  }
 }
 
 export const apiClient = new ApiClient();
