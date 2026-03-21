@@ -115,12 +115,20 @@ export interface SocketEvents {
   'video:initiate': { initiator_id: string };
   'video:accept': { acceptor_id: string };
   'video:decline': { reason?: string };
-  'video:offer': { offer: VideoOffer };
-  'video:answer': { answer: VideoAnswer };
-  'video:ice-candidate': ICECandidate;
+  'video:offer': { sessionId: string; offer: RTCSessionDescriptionInit; remoteUserId?: string; initiatorId: string; peerId?: string };
+  'video:answer': { sessionId: string; answer: RTCSessionDescriptionInit; initiatorId?: string; peerId?: string };
+  'video:ice-candidate': { sessionId?: string; peerId?: string; initiatorId?: string; candidate: RTCIceCandidateInit };
   'video:end': void;
   'video:toggle-camera': { userId: string };
   'video:toggle-mic': { userId: string };
+  'video:stream-ended': { peerId?: string; userId?: string };
+
+  // Screen Sharing Events
+  'screen:offer': { sessionId: string; offer: RTCSessionDescriptionInit; peerId?: string; initiatorId?: string };
+  'screen:answer': { sessionId: string; answer: RTCSessionDescriptionInit; peerId?: string; initiatorId?: string };
+  'screen:ice-candidate': { sessionId?: string; peerId?: string; initiatorId?: string; candidate: RTCIceCandidateInit };
+  'screen:started': { userId: string; sessionId: string };
+  'screen:stopped': { userId: string; sessionId: string };
 
   // Presence Events
   'presence:update': { status: 'online' | 'away' | 'typing'; user_id: string };
