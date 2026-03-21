@@ -173,4 +173,70 @@ router.post('/:id/end', authMiddleware, async (req: AuthRequest, res: Response) 
   }
 });
 
+// Generate video conference code (4 digits)
+router.post('/:id/video-code', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const sessionId = req.params.id;
+    const code = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes expiry
+
+    // Store code in sessions table (we'll add a column for this)
+    await query(
+      'UPDATE sessions SET video_code = $1, video_code_expires_at = $2 WHERE id = $3',
+      [code, expiresAt, sessionId]
+    );
+
+    res.json({
+      success: true,
+      data: { code },
+    });
+  } catch (err) {
+    console.error('Generate video code error:', err);
+    res.status(500).json({ error: 'Failed to generate video code' });
+  }
+});
+
+// Verify video conference code
+router.post('/:id/verify-video-code', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { code } = req.body;
+    const sessionId = req.params.id;
+
+    const session = await queryOne(
+      'SELECT video_code, video_code_expires_at FROM sessions WHERE id = $1',
+      [sessionId]
+    );
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (!session.video_code) {
+      return res.status(400).json({ error: 'No video code generated for this session' });
+    }
+
+    if (new Date() > new Date(session.video_code_expires_at)) {
+      return res.status(400).json({ error: 'Video code has expired' });
+    }
+
+    if (session.video_code !== code) {
+      return res.status(400).json({ error: 'Invalid video code' });
+    }
+
+    // Code is valid - clear it and return success
+    await query(
+      'UPDATE sessions SET video_code = NULL, video_code_expires_at = NULL WHERE id = $1',
+      [sessionId]
+    );
+
+    res.json({
+      success: true,
+      message: 'Video code verified successfully',
+    });
+  } catch (err) {
+    console.error('Verify video code error:', err);
+    res.status(500).json({ error: 'Failed to verify video code' });
+  }
+});
+
 export default router;
