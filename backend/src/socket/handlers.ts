@@ -15,6 +15,9 @@ import {
   handleVideoAnswer,
   handleICECandidate,
   handleVideoEnd,
+  handleScreenOffer,
+  handleScreenAnswer,
+  handleScreenICECandidate,
 } from './handlers/video';
 import {
   handlePresenceUpdate,
@@ -40,6 +43,11 @@ export function setupSocketHandlers(io: SocketIOServer) {
     socket.on('video:answer', (data) => handleVideoAnswer(socket, io, data));
     socket.on('video:ice-candidate', (data) => handleICECandidate(socket, io, data));
     socket.on('video:end', () => handleVideoEnd(socket, io));
+
+    // Screen share events
+    socket.on('screen:offer', (data) => handleScreenOffer(socket, io, data));
+    socket.on('screen:answer', (data) => handleScreenAnswer(socket, io, data));
+    socket.on('screen:ice-candidate', (data) => handleScreenICECandidate(socket, io, data));
 
     // Presence events
     socket.on('presence:update', (data) => handlePresenceUpdate(socket, io, data));

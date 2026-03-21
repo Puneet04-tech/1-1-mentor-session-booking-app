@@ -16,12 +16,18 @@ export async function handleVideoInitiate(socket: Socket, io: SocketIOServer, da
 
 export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data: any) {
   try {
-    const { sessionId, offer } = data;
+    const { sessionId, peerId, offer, remoteUserId, initiatorId } = data;
     
+    // Broadcast offer to session, including sender ID so recipient knows who to answer
     socket.to(`session:${sessionId}`).emit('video:offer', {
+      peerId: socket.id, // Send socket ID so recipient knows who the offer is from
       offer,
+      remoteUserId,
+      initiatorId: initiatorId || socket.id,
       timestamp: Date.now(),
     });
+    
+    console.log(`📤 Video offer forwarded in session ${sessionId}`);
   } catch (err) {
     console.error('Video offer error:', err);
   }
@@ -29,12 +35,17 @@ export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data:
 
 export async function handleVideoAnswer(socket: Socket, io: SocketIOServer, data: any) {
   try {
-    const { sessionId, answer } = data;
+    const { sessionId, peerId, answer, initiatorId } = data;
     
+    // Broadcast answer to session, including sender ID
     socket.to(`session:${sessionId}`).emit('video:answer', {
+      peerId: socket.id, // Send socket ID so recipient knows who the answer is from
       answer,
+      initiatorId: initiatorId || socket.id,
       timestamp: Date.now(),
     });
+    
+    console.log(`📤 Video answer forwarded in session ${sessionId}`);
   } catch (err) {
     console.error('Video answer error:', err);
   }
@@ -42,9 +53,11 @@ export async function handleVideoAnswer(socket: Socket, io: SocketIOServer, data
 
 export async function handleICECandidate(socket: Socket, io: SocketIOServer, data: any) {
   try {
-    const { sessionId, candidate } = data;
+    const { sessionId, peerId, candidate } = data;
     
+    // Broadcast ICE candidate to session, including sender ID
     socket.to(`session:${sessionId}`).emit('video:ice-candidate', {
+      peerId: socket.id, // Send socket ID so recipient knows who the candidate is from
       candidate,
       timestamp: Date.now(),
     });
@@ -57,9 +70,62 @@ export async function handleVideoEnd(socket: Socket, io: SocketIOServer) {
   try {
     // Broadcast video end to all users in socket namespace
     socket.emit('video:ended', {
+      peerId: socket.id,
       timestamp: Date.now(),
     });
   } catch (err) {
     console.error('Video end error:', err);
+  }
+}
+
+export async function handleScreenOffer(socket: Socket, io: SocketIOServer, data: any) {
+  try {
+    const { sessionId, offer, initiatorId } = data;
+    
+    // Broadcast screen offer to session
+    socket.to(`session:${sessionId}`).emit('screen:offer', {
+      peerId: socket.id,
+      offer,
+      initiatorId: initiatorId || socket.id,
+      timestamp: Date.now(),
+    });
+    
+    console.log(`📤 Screen offer forwarded in session ${sessionId}`);
+  } catch (err) {
+    console.error('Screen offer error:', err);
+  }
+}
+
+export async function handleScreenAnswer(socket: Socket, io: SocketIOServer, data: any) {
+  try {
+    const { sessionId, answer, initiatorId } = data;
+    
+    // Broadcast screen answer to session
+    socket.to(`session:${sessionId}`).emit('screen:answer', {
+      peerId: socket.id,
+      answer,
+      initiatorId: initiatorId || socket.id,
+      timestamp: Date.now(),
+    });
+    
+    console.log(`📤 Screen answer forwarded in session ${sessionId}`);
+  } catch (err) {
+    console.error('Screen answer error:', err);
+  }
+}
+
+export async function handleScreenICECandidate(socket: Socket, io: SocketIOServer, data: any) {
+  try {
+    const { sessionId, candidate, initiatorId } = data;
+    
+    // Broadcast screen ICE candidate to session
+    socket.to(`session:${sessionId}`).emit('screen:ice-candidate', {
+      peerId: socket.id,
+      candidate,
+      initiatorId: initiatorId || socket.id,
+      timestamp: Date.now(),
+    });
+  } catch (err) {
+    console.error('Screen ICE candidate error:', err);
   }
 }
