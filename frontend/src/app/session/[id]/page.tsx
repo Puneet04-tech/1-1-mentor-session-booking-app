@@ -13,7 +13,8 @@ import {
   Badge,
   LoadingSpinner,
 } from '@/components/ui/GlowingComponents';
-import { useSessionStore, useEditorStore, useVideoStore } from '@/store';
+import { VideoConferenceWrapper } from '@/components/VideoConferenceWrapper';
+import { useSessionStore, useEditorStore, useVideoStore, useAuthStore } from '@/store';
 
 // Configure Monaco Editor - disable workers to avoid network errors
 if (typeof window !== 'undefined') {
@@ -41,6 +42,7 @@ export default function SessionPage() {
   const [loading, setLoading] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [cameraError, setCameraError] = useState<string>('');
+  const [isVideoConferenceOpen, setIsVideoConferenceOpen] = useState(false);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const listenerRef = useRef<{ cleanup: () => void } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -88,9 +90,25 @@ export default function SessionPage() {
 
   // Setup socket events
   useEffect(() => {
-    if (!socketService.isConnected()) return;
+    // Wait for socket to connect, then join session
+    const joinWithRetry = async () => {
+      let attempts = 0;
+      while (attempts < 10) {
+        if (socketService.isConnected()) {
+          console.log('Socket connected, joining session:', sessionId);
+          socketService.joinSession(sessionId);
+          break;
+        }
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms before retrying
+      }
+      
+      if (attempts >= 10) {
+        console.warn('Socket connection timeout');
+      }
+    };
 
-    socketService.joinSession(sessionId);
+    joinWithRetry();
 
     // Handler for code updates from other user
     const handleCodeUpdate = (data: any) => {
@@ -368,6 +386,13 @@ export default function SessionPage() {
           <div className="flex items-center gap-4">
             <Badge color="purple">{session?.status}</Badge>
             <GlowingButton 
+              variant="secondary" 
+              className="text-sm"
+              onClick={() => setIsVideoConferenceOpen(true)}
+            >
+              📞 Video Conference
+            </GlowingButton>
+            <GlowingButton 
               variant="outline" 
               className="text-sm"
               onClick={handleEndSession}
@@ -509,6 +534,24 @@ export default function SessionPage() {
         <div className="border-t border-gray-700/30 bg-dark-900/40 p-2 md:p-3 lg:p-4 max-h-[120px] md:max-h-[140px] lg:h-24 overflow-y-auto flex-shrink-0">
           <p className="text-sm font-semibold text-gray-400 mb-2">Output:</p>
           <pre className="text-xs md:text-sm text-green-400 font-mono whitespace-pre-wrap break-words">{executionOutput}</pre>
+        </div>
+      )}
+
+      {/* Video Conference Modal */}
+      {isVideoConferenceOpen && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setIsVideoConferenceOpen(false)}
+        >
+          <div 
+            className="w-full max-w-5xl h-[600px] rounded-lg overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <VideoConferenceWrapper
+              sessionId={sessionId}
+              onClose={() => setIsVideoConferenceOpen(false)}
+            />
+          </div>
         </div>
       )}
     </div>
