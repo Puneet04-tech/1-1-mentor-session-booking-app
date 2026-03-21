@@ -14,6 +14,7 @@ import {
   LoadingSpinner,
 } from '@/components/ui/GlowingComponents';
 import { VideoConferenceWrapper } from '@/components/VideoConferenceWrapper';
+import { VideoLinkGenerator } from '@/components/VideoLinkGenerator';
 import { useSessionStore, useEditorStore, useVideoStore, useAuthStore } from '@/store';
 
 // Configure Monaco Editor - disable workers to avoid network errors
@@ -90,6 +91,64 @@ export default function SessionPage() {
 
   // Setup socket events
   useEffect(() => {
+    // Handler for code updates from other user
+    const handleCodeUpdate = (data: any) => {
+      // Update code from other user
+      if (data.code && data.language) {
+        setCode(data.code);
+        setLanguage(data.language);
+        console.log('Code updated from other user:', data);
+      }
+    };
+
+    // Handler for incoming messages - with deduplication
+    const handleMessageReceive = (message: any) => {
+      // Prevent duplicate messages by checking if message ID already exists
+      // If it's a server message (not temp), check if we already have a temp version
+      const existingMessages = useSessionStore.getState().messages;
+      
+      // Check if exact message already exists
+      const exactMatch = existingMessages.find((m) => m.id === message.id);
+      if (exactMatch) {
+        return; // Already have this exact message
+      }
+      
+      // Check if we have a temp message from same user with same content
+      const tempMatch = existingMessages.find((m) =>
+        m.id.startsWith('temp-') &&
+        m.user_id === message.user_id &&
+        m.content === message.content
+      );
+      
+      if (tempMatch) {
+        // Replace temp message with real server message
+        const updatedMessages = existingMessages.map(m =>
+          m.id === tempMatch.id ? message : m
+        );
+        setMessages(updatedMessages);
+      } else {
+        // Add new message
+        addMessage(message);
+      }
+    };
+
+    // Handler for code execution results from mentor or other users
+    const handleExecutionResult = (result: any) => {
+      const { setExecutionOutput } = useEditorStore.getState();
+      console.log('Code execution result received:', result);
+      
+      if (result.status === 'Success') {
+        setExecutionOutput(result.output || 'Code executed successfully (no output)');
+      } else {
+        setExecutionOutput(`${result.status}:\n${result.output || result.error || 'Unknown error'}`);
+      }
+    };
+
+    // Register listeners FIRST before joining session
+    socketService.on('code:update', handleCodeUpdate);
+    socketService.on('message:receive', handleMessageReceive);
+    socketService.on('code:execution:result', handleExecutionResult);
+
     // Wait for socket to connect, then join session
     const joinWithRetry = async () => {
       let attempts = 0;
@@ -109,42 +168,6 @@ export default function SessionPage() {
     };
 
     joinWithRetry();
-
-    // Handler for code updates from other user
-    const handleCodeUpdate = (data: any) => {
-      // Update code from other user
-      if (data.code && data.language) {
-        setCode(data.code);
-        setLanguage(data.language);
-        console.log('Code updated from other user:', data);
-      }
-    };
-
-    // Handler for incoming messages - with deduplication
-    const handleMessageReceive = (message: any) => {
-      // Prevent duplicate messages by checking if message ID already exists
-      const existingMessages = useSessionStore.getState().messages;
-      if (!existingMessages.find((m) => m.id === message.id)) {
-        addMessage(message);
-      }
-    };
-
-    // Handler for code execution results from mentor or other users
-    const handleExecutionResult = (result: any) => {
-      const { setExecutionOutput } = useEditorStore.getState();
-      console.log('Code execution result received:', result);
-      
-      if (result.status === 'Success') {
-        setExecutionOutput(result.output || 'Code executed successfully (no output)');
-      } else {
-        setExecutionOutput(`${result.status}:\n${result.output || result.error || 'Unknown error'}`);
-      }
-    };
-
-    // Register listeners
-    socketService.on('code:update', handleCodeUpdate);
-    socketService.on('message:receive', handleMessageReceive);
-    socketService.on('code:execution:result', handleExecutionResult);
 
     // Store cleanup function
     listenerRef.current = {
@@ -199,6 +222,38 @@ export default function SessionPage() {
       console.error('Socket not connected');
       return;
     }
+
+    // Get current user
+    const currentUser = useAuthStore.getState().user;
+    if (!currentUser) {
+      console.error('User not authenticated');
+      return;
+    }
+
+    // Create message with temporary ID (will be replaced by server)
+    const tempMessage: Message = {
+      id: `temp-${Date.now()}`,
+      session_id: sessionId,
+      user_id: currentUser.id,
+      content,
+      type: 'text',
+      created_at: new Date().toISOString(),
+      user: {
+        id: currentUser.id,
+        name: currentUser.name,
+        email: currentUser.email,
+        avatar_url: currentUser.avatar_url,
+        role: currentUser.role,
+        verified: currentUser.verified,
+        created_at: currentUser.created_at,
+        updated_at: currentUser.updated_at,
+      },
+    };
+
+    // Add message immediately to UI
+    addMessage(tempMessage);
+
+    // Send message to server (deduplication will handle the server response)
     socketService.sendMessage(content);
   };
 

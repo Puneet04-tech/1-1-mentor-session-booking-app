@@ -5,9 +5,9 @@ import helmet from 'helmet';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { config } from './config';
-import { healthCheck } from './database';
+import { healthCheck, query } from './database';
 import authRoutes from './routes/auth';
-import sessionRoutes from './routes/sessions';
+import sessionRoutes, { setSocketIO as setSessionSocketIO } from './routes/sessions';
 import userRoutes from './routes/users';
 import messageRoutes from './routes/messages';
 import codeRoutes, { setSocketIO as setCodeSocketIO } from './routes/code';
@@ -34,7 +34,8 @@ const io = new SocketIOServer(httpServer, {
   },
 });
 
-// Set Socket.io instance for code routes
+// Set Socket.io instance for routes that need it
+setSessionSocketIO(io);
 setCodeSocketIO(io);
 
 // Middleware
@@ -98,12 +99,40 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 setupSocketHandlers(io);
 setupRealtimeHandlers(io);
 
+// Run migrations
+async function runMigrations() {
+  try {
+    console.log('🔧 Running database migrations...');
+    
+    // Add video_link_token column for link-based video conferencing
+    await query(`
+      ALTER TABLE sessions 
+      ADD COLUMN IF NOT EXISTS video_link_token VARCHAR(32) UNIQUE,
+      ADD COLUMN IF NOT EXISTS video_link_expires_at TIMESTAMP WITH TIME ZONE;
+    `);
+    
+    // Create index for quick lookup by link token
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_video_link_token ON sessions(video_link_token);
+    `);
+    
+    console.log('✅ Database migrations completed successfully');
+  } catch (err) {
+    console.error('❌ Migration failed:', err);
+    // Don't throw - allow server to start even if migration fails (might be redundant)
+    // This ensures backward compatibility when columns already exist
+  }
+}
+
 // Start server
 const PORT = config.PORT;
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, async () => {
   console.log(`🚀 Backend server running on port ${PORT}`);
   console.log(`Environment: ${config.NODE_ENV}`);
   console.log(`Client URL: ${config.CLIENT_URL}`);
+  
+  // Run migrations after server starts
+  await runMigrations();
 });
 
 export { app, httpServer, io };

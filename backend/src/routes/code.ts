@@ -424,4 +424,3 @@ router.get('/health', async (req: AuthRequest, res: Response) => {
 });
 
 export default router;
-export { setSocketIO };

@@ -1,9 +1,17 @@
 import { Router, Response } from 'express';
+import { Server as SocketIOServer } from 'socket.io';
 import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
+
+// Socket.io instance for emitting events
+let io: SocketIOServer | null = null;
+
+export function setSocketIO(socketIO: SocketIOServer) {
+  io = socketIO;
+}
 
 // Create session
 router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
@@ -177,22 +185,97 @@ router.post('/:id/end', authMiddleware, async (req: AuthRequest, res: Response) 
 router.post('/:id/video-code', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const sessionId = req.params.id;
-    const code = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes expiry
 
-    // Store code in sessions table (we'll add a column for this)
-    await query(
-      'UPDATE sessions SET video_code = $1, video_code_expires_at = $2 WHERE id = $3',
-      [code, expiresAt, sessionId]
+    console.log('\n============================================================');
+    console.log('📝 GENERATE CODE REQUEST');
+    console.log(`   Session ID: ${sessionId}`);
+    console.log('============================================================\n');
+
+    // First verify session exists
+    const sessionCheck = await queryOne('SELECT id, video_code FROM sessions WHERE id = $1', [sessionId]);
+    if (!sessionCheck) {
+      console.error('❌ Session not found');
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    console.log('✅ Session exists');
+
+    // Check if there's already an unexpired code
+    if (sessionCheck.video_code) {
+      const existingCode = await queryOne(
+        'SELECT video_code, video_code_expires_at FROM sessions WHERE id = $1 AND video_code IS NOT NULL AND video_code_expires_at > NOW()',
+        [sessionId]
+      );
+      
+      if (existingCode?.video_code) {
+        console.log(`♻️  Returning existing code: ${existingCode.video_code}`);
+        return res.json({
+          success: true,
+          data: { code: existingCode.video_code },
+        });
+      }
+    }
+
+    const code = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+    // Use Unix timestamp (milliseconds) to avoid timezone issues
+    const expiresAtMs = Date.now() + 10 * 60 * 1000;
+    // Convert to ISO string for storage (will be stored as UTC in TIMESTAMP WITH TIME ZONE)
+    const expiresAtISO = new Date(expiresAtMs).toISOString();
+
+    console.log(`   Generating Code: ${code}`);
+    console.log(`   Expires At (Unix MS): ${expiresAtMs}`);
+    console.log(`   Expires At (ISO): ${expiresAtISO}`);
+
+    // Store code in sessions table - ISO string will be stored as UTC in TIMESTAMP WITH TIME ZONE
+    try {
+      console.log('⏳ Storing code in database...');
+      await query(
+        'UPDATE sessions SET video_code = $1, video_code_expires_at = $2::timestamp with time zone WHERE id = $3',
+        [code, expiresAtISO, sessionId]
+      );
+      console.log('✅ Update query executed');
+    } catch (updateErr) {
+      console.error('❌ Update query failed:', updateErr);
+      throw updateErr;
+    }
+
+    // Verify it was actually stored (critical check)
+    console.log('⏳ Verifying code was stored...');
+    const verifyStore = await queryOne(
+      'SELECT video_code, video_code_expires_at FROM sessions WHERE id = $1',
+      [sessionId]
     );
+    
+    console.log('📊 Database verification:', {
+      storedCode: verifyStore?.video_code || '(NULL)',
+      expectedCode: code,
+      storedExpiryTimestamp: verifyStore?.video_code_expires_at,
+      match: verifyStore?.video_code === code
+    });
+
+    if (verifyStore?.video_code !== code) {
+      console.error('❌ CODE STORAGE FAILED!');
+      console.error(`   Expected: ${code}`);
+      console.error(`   Got: ${verifyStore?.video_code}`);
+      return res.status(500).json({ 
+        error: 'Failed to store code in database',
+        expected: code,
+        stored: verifyStore?.video_code
+      });
+    }
+
+    console.log('✅ Code verified in database');
+    console.log('✅ RESPONSE: Sending code back to frontend\n');
 
     res.json({
       success: true,
       data: { code },
     });
   } catch (err) {
-    console.error('Generate video code error:', err);
-    res.status(500).json({ error: 'Failed to generate video code' });
+    console.error('❌ Generate code error:', err);
+    res.status(500).json({ 
+      error: 'Failed to generate video code',
+      details: err instanceof Error ? err.message : String(err)
+    });
   }
 });
 
@@ -201,41 +284,248 @@ router.post('/:id/verify-video-code', authMiddleware, async (req: AuthRequest, r
   try {
     const { code } = req.body;
     const sessionId = req.params.id;
+    const nowMs = Date.now();
+
+    console.log('\n============================================================');
+    console.log('🔍 VERIFY CODE REQUEST');
+    console.log(`   Session ID: ${sessionId}`);
+    console.log(`   Provided Code: ${code}`);
+    console.log(`   Current Time MS: ${nowMs}`);
+    console.log('============================================================\n');
+
+    if (!code) {
+      console.warn('⚠️ Code is required but was not provided');
+      return res.status(400).json({ error: 'Code is required' });
+    }
 
     const session = await queryOne(
       'SELECT video_code, video_code_expires_at FROM sessions WHERE id = $1',
       [sessionId]
     );
 
+    console.log('📊 Database lookup:', {
+      sessionFound: !!session,
+      storedCode: session?.video_code || '(NULL)',
+      expiresAt: session?.video_code_expires_at || '(NULL)'
+    });
+
     if (!session) {
+      console.error('❌ Session not found');
       return res.status(404).json({ error: 'Session not found' });
     }
 
     if (!session.video_code) {
+      console.error('❌ No code generated for this session (stored code is NULL)');
       return res.status(400).json({ error: 'No video code generated for this session' });
     }
 
-    if (new Date() > new Date(session.video_code_expires_at)) {
-      return res.status(400).json({ error: 'Video code has expired' });
+    // Check expiry - convert ISO timestamp to Unix milliseconds
+    if (session.video_code_expires_at) {
+      // video_code_expires_at is stored as TIMESTAMP WITH TIME ZONE (always UTC)
+      // Convert to Date object which will handle timezone correctly from UTC
+      const expiryDate = new Date(String(session.video_code_expires_at));
+      const expiryMs = expiryDate.getTime();
+      const timeRemainingMs = expiryMs - nowMs;
+      
+      console.log('⏳ Checking expiry:', {
+        expiryMs,
+        nowMs,
+        timeRemainingMs,
+        expired: timeRemainingMs <= 0
+      });
+
+      if (timeRemainingMs <= 0) {
+        console.warn(`⚠️ Code has expired! (${Math.abs(timeRemainingMs)}ms ago)`);
+        return res.status(400).json({ error: 'Video code has expired' });
+      }
+      console.log(`✅ Code is still valid (${timeRemainingMs}ms remaining)`);
     }
 
-    if (session.video_code !== code) {
+    // Compare codes
+    const storedCode = String(session.video_code).trim();
+    const providedCode = String(code).trim();
+
+    console.log('🔎 Code comparison:', {
+      stored: storedCode,
+      provided: providedCode,
+      match: storedCode === providedCode
+    });
+
+    if (storedCode !== providedCode) {
+      console.error(`❌ Code mismatch!`);
+      console.error(`   Stored: "${storedCode}"`);
+      console.error(`   Provided: "${providedCode}"`);
       return res.status(400).json({ error: 'Invalid video code' });
     }
 
-    // Code is valid - clear it and return success
+    // Code is valid - clear it
+    console.log('⏳ Clearing code from database...');
     await query(
       'UPDATE sessions SET video_code = NULL, video_code_expires_at = NULL WHERE id = $1',
       [sessionId]
     );
+    console.log('✅ Code cleared from database');
 
+    console.log('✅ VERIFICATION SUCCESSFUL\n');
+    
+    // Emit socket event to notify both users that code verification succeeded
+    if (io) {
+      console.log(`📡 Emitting video:code-verified event for session ${sessionId}`);
+      io.to(`session:${sessionId}`).emit('video:code-verified', {
+        sessionId,
+        timestamp: Date.now(),
+      });
+    }
+    
     res.json({
       success: true,
       message: 'Video code verified successfully',
     });
   } catch (err) {
-    console.error('Verify video code error:', err);
-    res.status(500).json({ error: 'Failed to verify video code' });
+    console.error('❌ Verify code error:', err);
+    res.status(500).json({ 
+      error: 'Failed to verify video code', 
+      details: err instanceof Error ? err.message : String(err)
+    });
+  }
+});
+
+// Generate video conference link (NEW APPROACH - replaces codes)
+router.post('/:id/video-link', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const sessionId = req.params.id;
+    const userId = req.user?.id;
+
+    console.log('\n============================================================');
+    console.log('🔗 GENERATE VIDEO LINK REQUEST');
+    console.log(`   Session ID: ${sessionId}`);
+    console.log(`   Created By: ${userId}`);
+    console.log('============================================================\n');
+
+    // Verify session exists
+    const session = await queryOne('SELECT * FROM sessions WHERE id = $1', [sessionId]);
+    if (!session) {
+      console.error('❌ Session not found');
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    console.log('✅ Session exists');
+
+    // Check if user is mentor or can create link
+    if (session.mentor_id !== userId && session.student_id !== userId) {
+      console.error('❌ Unauthorized - user is not part of this session');
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Check if link already exists and is still valid
+    if (session.video_link_token && session.video_link_expires_at) {
+      const expiryDate = new Date(String(session.video_link_expires_at));
+      if (expiryDate > new Date()) {
+        console.log('ℹ️ Link already exists and is still valid, returning existing link');
+        const frontendUrl = process.env.CLIENT_URL || 'http://localhost:3001';
+        const videoLink = `${frontendUrl}/video-conference/${session.video_link_token}`;
+        
+        return res.json({
+          success: true,
+          data: {
+            linkToken: session.video_link_token,
+            linkUrl: videoLink,
+            expiresAt: session.video_link_expires_at,
+          },
+        });
+      }
+    }
+
+    // Generate new link token
+    const linkToken = uuidv4().replace(/-/g, '').substring(0, 32); // 32 char hex string
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+
+    console.log(`   Generated Token: ${linkToken}`);
+    console.log(`   Expires At: ${expiresAt}`);
+
+    // Store link in sessions table
+    try {
+      console.log('⏳ Storing link in database...');
+      await query(
+        `UPDATE sessions SET video_link_token = $1, video_link_expires_at = $2::timestamp with time zone WHERE id = $3`,
+        [linkToken, expiresAt, sessionId]
+      );
+      console.log('✅ Link stored in database');
+    } catch (err) {
+      console.error('❌ Failed to store link:', err);
+      throw err;
+    }
+
+    // Generate full URL
+    const frontendUrl = process.env.CLIENT_URL || 'http://localhost:3001';
+    const videoLink = `${frontendUrl}/video-conference/${linkToken}`;
+
+    console.log(`✅ Generated link: ${videoLink}\n`);
+
+    res.json({
+      success: true,
+      data: {
+        linkToken,
+        linkUrl: videoLink,
+        expiresAt,
+      },
+    });
+  } catch (err) {
+    console.error('❌ Generate video link error:', err);
+    res.status(500).json({ 
+      error: 'Failed to generate video link',
+      details: err instanceof Error ? err.message : String(err)
+    });
+  }
+});
+
+// Verify video conference link (get session details from link token)
+router.post('/verify-link/:linkToken', async (req: AuthRequest, res: Response) => {
+  try {
+    const linkToken = req.params.linkToken;
+    const userId = req.user?.id;
+
+    console.log('\n============================================================');
+    console.log('🔍 VERIFY VIDEO LINK REQUEST');
+    console.log(`   Link Token: ${linkToken}`);
+    console.log(`   User ID: ${userId}`);
+    console.log('============================================================\n');
+
+    if (!linkToken) {
+      return res.status(400).json({ error: 'Link token is required' });
+    }
+
+    // Find session by link token
+    const session = await queryOne(
+      `SELECT * FROM sessions WHERE video_link_token = $1 AND video_link_expires_at > NOW()`,
+      [linkToken]
+    );
+
+    if (!session) {
+      console.error('❌ Link not found or expired');
+      return res.status(404).json({ error: 'Video link not found or expired' });
+    }
+
+    console.log('✅ Link found and valid');
+    console.log('✅ Session found');
+
+    console.log('✅ Link verified\n');
+
+    res.json({
+      success: true,
+      data: {
+        sessionId: session.id,
+        mentorId: session.mentor_id,
+        studentId: session.student_id,
+        title: session.title,
+        topic: session.topic,
+      },
+    });
+  } catch (err) {
+    console.error('❌ Verify video link error:', err);
+    res.status(500).json({ 
+      error: 'Failed to verify video link',
+      details: err instanceof Error ? err.message : String(err)
+    });
   }
 });
 

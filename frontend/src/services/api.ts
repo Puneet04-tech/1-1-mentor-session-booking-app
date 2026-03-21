@@ -312,6 +312,15 @@ class ApiClient {
     return this.client.post(`/api/sessions/${sessionId}/verify-video-code`, { code });
   }
 
+  // Video Conference Link endpoints (NEW APPROACH)
+  async generateVideoLink(sessionId: string): Promise<ApiResponse<{ linkToken: string; linkUrl: string; expiresAt: string }>> {
+    return this.client.post(`/api/sessions/${sessionId}/video-link`, {});
+  }
+
+  async verifyVideoLink(linkToken: string): Promise<ApiResponse<{ sessionId: string; mentorId: string; studentId: string; title: string; topic: string }>> {
+    return this.client.post(`/api/sessions/verify-link/${linkToken}`, {});
+  }
+
   // Generic post method for other endpoints
   async post<T = any>(endpoint: string, data: any): Promise<ApiResponse<T>> {
     return this.client.post(endpoint, data);

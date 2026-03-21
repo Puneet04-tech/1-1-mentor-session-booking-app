@@ -22,16 +22,25 @@ export async function query<T = any>(text: string, params?: any[]): Promise<{ ro
   while (retries < maxRetries) {
     try {
       const res = await pool.query(text, params);
+      // Log UPDATE/INSERT/DELETE operations
+      if (!text.trim().toUpperCase().startsWith('SELECT')) {
+        console.log(`✅ Query executed: ${text.substring(0, 50)}... | Rows affected: ${res.rowCount}`);
+      }
       return { rows: res.rows };
     } catch (err: any) {
       retries++;
+      const errorMsg = err?.message || String(err);
+      console.error(`❌ Query error (attempt ${retries}/${maxRetries}):`, errorMsg);
+      console.error(`   SQL: ${text.substring(0, 100)}`);
+      console.error(`   Params:`, params);
+      
       if (retries >= maxRetries || !isRetryableError(err)) {
-        console.error('Database query error:', err);
+        console.error('❌ Query failed permanently:', err);
         throw err;
       }
       // Exponential backoff: 500ms, 1000ms, 2000ms
       const delay = Math.pow(2, retries - 1) * 500;
-      console.warn(`Query failed, retrying in ${delay}ms (attempt ${retries}/${maxRetries})...`);
+      console.warn(`⏳ Retrying in ${delay}ms (attempt ${retries}/${maxRetries})...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }

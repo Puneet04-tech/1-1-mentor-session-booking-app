@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { apiClient } from '@/services/api';
+import { socketService } from '@/services/socket';
 import { GlowingButton, GlowingCard } from './ui/GlowingComponents';
 
 interface VideoCodeModalProps {
@@ -23,6 +24,20 @@ export function VideoCodeModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Listen for code verification event from other user
+  useEffect(() => {
+    const handleCodeVerified = () => {
+      console.log('📡 Received video:code-verified event from socket');
+      onCodeVerified();
+    };
+
+    socketService.on('video:code-verified', handleCodeVerified);
+
+    return () => {
+      socketService.off('video:code-verified', handleCodeVerified);
+    };
+  }, [onCodeVerified]);
 
   const handleVerifyCode = async () => {
     if (inputCode.length !== 4) {

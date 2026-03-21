@@ -1,27 +1,35 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store';
 import { apiClient } from '@/services/api';
 import { VideoConferencing } from './VideoConferencing';
-import { VideoCodeModal } from './VideoCodeModal';
+import { VideoLinkModal } from './VideoLinkModal';
 
 interface VideoConferenceWrapperProps {
   sessionId: string;
   onClose?: () => void;
+  accessedViaLink?: boolean; // If true, skip link generation (accessed via shareable link)
 }
 
-export function VideoConferenceWrapper({ sessionId, onClose }: VideoConferenceWrapperProps) {
-  const [showVideoCode, setShowVideoCode] = useState(true);
-  const [videoCode, setVideoCode] = useState<string | null>(null);
-  const [isStudent, setIsStudent] = useState(false);
+export function VideoConferenceWrapper({ sessionId, onClose, accessedViaLink = false }: VideoConferenceWrapperProps) {
+  const [showVideoLink, setShowVideoLink] = useState(!accessedViaLink);
+  const [isConnected, setIsConnected] = useState(accessedViaLink);
+  const [isMentor, setIsMentor] = useState(false);
   const [loading, setLoading] = useState(true);
   const user = useAuthStore((state) => state.user);
+  const initializeRef = useRef(false);
 
   useEffect(() => {
+    // Only initialize once per session
+    if (initializeRef.current) return;
+    if (!user?.id) return; // Wait for user to be ready
+    
+    initializeRef.current = true;
+
     const initialize = async () => {
       try {
-        // Fetch session to determine if user is student or mentor
+        // Fetch session to determine role
         const response = await apiClient.getSession(sessionId);
         const session = response?.data;
 
@@ -29,21 +37,21 @@ export function VideoConferenceWrapper({ sessionId, onClose }: VideoConferenceWr
           throw new Error('Session not found');
         }
 
-        // Determine if current user is student
-        const isUserStudent = session.student_id === user?.id;
-        setIsStudent(isUserStudent);
+        console.log('📋 Session data:', { 
+          mentorId: session.mentor_id, 
+          studentId: session.student_id, 
+          userId: user?.id,
+          isMentor: session.mentor_id === user?.id,
+          accessedViaLink
+        });
 
-        // If student, generate code
-        if (isUserStudent) {
-          const codeResponse = await apiClient.generateVideoCode(sessionId);
-          if (codeResponse?.data?.code) {
-            setVideoCode(codeResponse.data.code);
-          }
-        }
+        // Determine if current user is mentor
+        const isUserMentor = session.mentor_id === user?.id;
+        setIsMentor(isUserMentor);
 
         setLoading(false);
       } catch (err) {
-        console.error('Error initializing video conference:', err);
+        console.error('❌ Error initializing video conference:', err);
         setLoading(false);
       }
     };
@@ -62,18 +70,21 @@ export function VideoConferenceWrapper({ sessionId, onClose }: VideoConferenceWr
     );
   }
 
-  if (showVideoCode) {
+  // Show link modal if not connected yet
+  if (showVideoLink && !isConnected) {
     return (
-      <VideoCodeModal
+      <VideoLinkModal
         sessionId={sessionId}
-        isStudent={isStudent}
-        code={videoCode || undefined}
-        onCodeVerified={() => setShowVideoCode(false)}
-        onCancel={onClose || (() => {})}
+        isMentor={isMentor}
+        onLinkGenerated={() => {
+          console.log('📱 Link generated and displayed to mentor');
+        }}
+        onClose={onClose}
       />
     );
   }
 
+  // Show video conferencing component once connected
   return (
     <VideoConferencing
       sessionId={sessionId}

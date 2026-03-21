@@ -118,6 +118,7 @@ export interface SocketEvents {
   'video:offer': { sessionId: string; offer: RTCSessionDescriptionInit; remoteUserId?: string; initiatorId: string; peerId?: string };
   'video:answer': { sessionId: string; answer: RTCSessionDescriptionInit; initiatorId?: string; peerId?: string };
   'video:ice-candidate': { sessionId?: string; peerId?: string; initiatorId?: string; candidate: RTCIceCandidateInit };
+  'video:code-verified': { sessionId: string; timestamp: number };
   'video:end': void;
   'video:toggle-camera': { userId: string };
   'video:toggle-mic': { userId: string };
