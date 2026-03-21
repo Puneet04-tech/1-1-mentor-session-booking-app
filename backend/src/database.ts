@@ -3,9 +3,11 @@ import { config } from './config';
 
 const pool = new Pool({
   connectionString: config.DATABASE_URL,
-  max: 20,
+  max: 10,
+  min: 2,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
+  connectionTimeoutMillis: 15000, // Increased from 5000ms to 15000ms
+  statement_timeout: 10000,
   ssl: { rejectUnauthorized: false },
 });
 
@@ -14,13 +16,35 @@ pool.on('error', (err: Error) => {
 });
 
 export async function query<T = any>(text: string, params?: any[]): Promise<{ rows: T[] }> {
-  try {
-    const res = await pool.query(text, params);
-    return { rows: res.rows };
-  } catch (err) {
-    console.error('Database query error:', err);
-    throw err;
+  let retries = 0;
+  const maxRetries = 3;
+  
+  while (retries < maxRetries) {
+    try {
+      const res = await pool.query(text, params);
+      return { rows: res.rows };
+    } catch (err: any) {
+      retries++;
+      if (retries >= maxRetries || !isRetryableError(err)) {
+        console.error('Database query error:', err);
+        throw err;
+      }
+      // Exponential backoff: 500ms, 1000ms, 2000ms
+      const delay = Math.pow(2, retries - 1) * 500;
+      console.warn(`Query failed, retrying in ${delay}ms (attempt ${retries}/${maxRetries})...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
+  
+  throw new Error('Max retries exceeded');
+}
+
+function isRetryableError(err: any): boolean {
+  const message = err?.message || '';
+  return message.includes('timeout') || 
+         message.includes('ECONNREFUSED') || 
+         message.includes('ENOTFOUND') ||
+         message.includes('Connection terminated');
 }
 
 export async function queryOne<T = any>(text: string, params?: any[]): Promise<T | null> {
