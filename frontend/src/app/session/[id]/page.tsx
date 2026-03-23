@@ -113,6 +113,7 @@ export default function SessionPage() {
         console.log('✅ Found remote user:', remoteUserId);
 
         // Set WebRTC callbacks
+        webrtcService.setUserRole(currentUser?.role === 'admin' ? 'student' : currentUser?.role || 'student');
         webrtcService.setOnLocalStream((stream: MediaStream) => {
           console.log('💾 Setting local stream to video element');
           if (localVideoRef.current) {

@@ -5,18 +5,19 @@ interface RTCConfig {
 }
 
 export class WebRTCService {
-  private peerConnections: Map<string, RTCPeerConnection> = new Map();
   private localStream: MediaStream | null = null;
   private screenStream: MediaStream | null = null;
+  private peerConnections: Map<string, RTCPeerConnection> = new Map();
+  private onLocalStream: ((stream: MediaStream) => void) | null = null;
+  private onRemoteStream: ((stream: MediaStream, peerId: string) => void) | null = null;
+  private onScreenShare: ((stream: MediaStream, peerId: string) => void) | null = null;
+  private onStreamEnded: ((peerId: string) => void) | null = null;
   private sessionId: string | null = null;
   private userId: string | null = null;
   private remoteUserId: string | null = null;
-  private onLocalStream?: (stream: MediaStream) => void;
-  private onRemoteStream?: (stream: MediaStream, peerId: string) => void;
-  private onScreenShare?: (stream: MediaStream, peerId: string) => void;
-  private onStreamEnded?: (peerId: string) => void;
-  private listenersSetup = false; // Flag to prevent duplicate listener registration
-  private initiateConnectionInProgress = false; // Prevent duplicate initiateConnection calls
+  private initiateConnectionInProgress = false;
+  private userRole: 'mentor' | 'student' | null = null;
+  private listenersSetup = false;
 
   private rtcConfig: RTCConfig = {
     iceServers: [
@@ -597,14 +598,23 @@ export class WebRTCService {
         
         // Check if this is a screen share track (usually has specific characteristics)
         const tracks = event.streams[0].getTracks();
-        const isScreenShareTrack = tracks.some(track => 
-          track.kind === 'video' && 
-          (track.label?.includes('screen') || track.label?.includes('display') || track.label?.includes('monitor'))
+        const videoTrack = tracks.find(t => t.kind === 'video');
+        
+        // Better screen share detection - check track settings and properties
+        const isScreenShareTrack = videoTrack && (
+          videoTrack.label?.includes('screen') || 
+          videoTrack.label?.includes('display') || 
+          videoTrack.label?.includes('monitor') ||
+          (videoTrack as any).settings?.displaySurface ||
+          videoTrack.label?.includes('Share') ||
+          videoTrack.label?.includes('Capture')
         );
         
-        console.log('🔍 Screen share detection:', {
+        console.log('🔍 Track analysis:', {
           isScreenShareTrack,
-          trackLabels: tracks.map(t => t.label),
+          trackLabel: videoTrack?.label,
+          trackSettings: (videoTrack as any)?.settings,
+          trackKind: videoTrack?.kind,
         });
         
         if (isScreenShareTrack && this.onScreenShare) {
@@ -683,6 +693,11 @@ export class WebRTCService {
     console.log('✅ External screen stream set for WebRTC');
   }
 
+  setUserRole(role: 'mentor' | 'student') {
+    this.userRole = role;
+    console.log('👤 User role set to:', role);
+  }
+
   isScreenSharing(): boolean {
     return this.screenStream !== null;
   }
@@ -730,11 +745,11 @@ export class WebRTCService {
       // Store remoteUserId for later matching
       this.remoteUserId = remoteUserId;
 
-      // Determine who should be the offerer - the one with lexicographically lower ID
-      // This ensures consistent behavior - only one side sends the offer
-      const shouldOffer = this.userId < remoteUserId;
+      // Only mentors should initiate connections to avoid race conditions
+      // Students wait for mentor offers
+      const shouldOffer = this.userRole === 'mentor';
       
-      console.log(`🤝 Should offer: ${shouldOffer} (comparing ${this.userId} < ${remoteUserId})`);
+      console.log(`🤝 Should offer: ${shouldOffer} (role: ${this.userRole}, userId: ${this.userId})`);
 
       if (!shouldOffer) {
         console.log('⏳ Waiting for offer from remote peer (higher ID)...');

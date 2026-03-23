@@ -3,16 +3,31 @@ import { config } from './config';
 
 const pool = new Pool({
   connectionString: config.DATABASE_URL,
-  max: 10,
-  min: 2,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 15000, // Increased from 5000ms to 15000ms
+  max: 20, // Increased max connections
+  min: 5,  // Increased min connections
+  idleTimeoutMillis: 60000, // Increased to 60 seconds
+  connectionTimeoutMillis: 30000, // Increased to 30 seconds
   statement_timeout: 10000,
   ssl: { rejectUnauthorized: false },
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 });
 
 pool.on('error', (err: Error) => {
   console.error('Unexpected error on idle client', err);
+  // Don't crash the app, just log the error
+});
+
+pool.on('connect', (client) => {
+  console.log('🔗 New database client connected');
+});
+
+pool.on('acquire', (client) => {
+  console.log('📤 Database client acquired from pool');
+});
+
+pool.on('remove', (client) => {
+  console.log('🗑️ Database client removed from pool');
 });
 
 export async function query<T = any>(text: string, params?: any[]): Promise<{ rows: T[] }> {
