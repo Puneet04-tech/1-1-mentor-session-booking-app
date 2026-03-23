@@ -11,6 +11,8 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
   keepAlive: true,
   keepAliveInitialDelayMillis: 10000,
+  // Add connection retry settings
+  application_name: 'mentor_session_app',
 });
 
 pool.on('error', (err: Error) => {

@@ -205,9 +205,14 @@ export class WebRTCService {
       };
 
       // Notify peers
+      console.log('🔍 About to emit screen:started with:', {
+        sessionId: this.sessionId,
+        userId: this.userId,
+      });
+      
       socketService.emit('screen:started', {
-        sessionId,
-        userId,
+        sessionId: this.sessionId,
+        userId: this.userId,
       } as any);
 
       console.log('Screen sharing started');
