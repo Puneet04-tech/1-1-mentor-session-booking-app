@@ -5,13 +5,22 @@ export async function handleCodeUpdate(socket: Socket, io: SocketIOServer, data:
   try {
     const { sessionId, code, language, userId } = data;
     
+    console.log('📝 Code update received:', { sessionId, codeLength: code?.length, language, userId, socketId: socket.id });
+    
     // Broadcast to other users in the session
-    socket.to(`session:${sessionId}`).emit('code:update', {
+    const codeData = {
       code,
       language,
       userId,
       timestamp: Date.now(),
-    });
+    };
+    
+    console.log('📤 Broadcasting code to session:', `session:${sessionId}`, codeData);
+    socket.to(`session:${sessionId}`).emit('code:update', codeData);
+
+    // Log room members for debugging
+    const room = io.sockets.adapter.rooms.get(`session:${sessionId}`);
+    console.log('👥 Code room members:', room ? Array.from(room) : 'No members');
 
     // Save code snapshot (debounced in DB)
     try {

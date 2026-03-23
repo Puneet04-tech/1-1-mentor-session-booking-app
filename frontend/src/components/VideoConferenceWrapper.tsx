@@ -4,21 +4,20 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store';
 import { apiClient } from '@/services/api';
 import { VideoConferencing } from './VideoConferencing';
-import { VideoLinkModal } from './VideoLinkModal';
+import { VideoCodeModal } from './VideoCodeModal';
 
 interface VideoConferenceWrapperProps {
   sessionId: string;
   onClose?: () => void;
-  accessedViaLink?: boolean; // If true, skip link generation (accessed via shareable link)
 }
 
-export function VideoConferenceWrapper({ sessionId, onClose, accessedViaLink = false }: VideoConferenceWrapperProps) {
-  const [showVideoLink, setShowVideoLink] = useState(!accessedViaLink);
-  const [isConnected, setIsConnected] = useState(accessedViaLink);
-  const [isMentor, setIsMentor] = useState(false);
+export function VideoConferenceWrapper({ sessionId, onClose }: VideoConferenceWrapperProps) {
+  const [showVideoCode, setShowVideoCode] = useState(true);
+  const [videoCode, setVideoCode] = useState<string | null>(null);
+  const [isStudent, setIsStudent] = useState(false);
   const [loading, setLoading] = useState(true);
   const user = useAuthStore((state) => state.user);
-  const initializeRef = useRef(false);
+  const initializeRef = useRef(false); // Prevent multiple initializations
 
   useEffect(() => {
     // Only initialize once per session
@@ -29,7 +28,7 @@ export function VideoConferenceWrapper({ sessionId, onClose, accessedViaLink = f
 
     const initialize = async () => {
       try {
-        // Fetch session to determine role
+        // Fetch session to determine if user is student or mentor
         const response = await apiClient.getSession(sessionId);
         const session = response?.data;
 
@@ -41,13 +40,28 @@ export function VideoConferenceWrapper({ sessionId, onClose, accessedViaLink = f
           mentorId: session.mentor_id, 
           studentId: session.student_id, 
           userId: user?.id,
-          isMentor: session.mentor_id === user?.id,
-          accessedViaLink
+          isStudent: session.student_id === user?.id 
         });
 
-        // Determine if current user is mentor
-        const isUserMentor = session.mentor_id === user?.id;
-        setIsMentor(isUserMentor);
+        // Determine if current user is student
+        const isUserStudent = session.student_id === user?.id;
+        setIsStudent(isUserStudent);
+
+        // If student, generate code
+        if (isUserStudent) {
+          console.log('🎓 User is student, generating code...');
+          const codeResponse = await apiClient.generateVideoCode(sessionId);
+          console.log('💾 Code response:', codeResponse);
+          
+          if (codeResponse?.data?.code) {
+            console.log('✅ Code received:', codeResponse.data.code);
+            setVideoCode(codeResponse.data.code);
+          } else {
+            console.warn('⚠️ No code in response:', { codeResponse, data: codeResponse?.data });
+          }
+        } else {
+          console.log('👨‍🏫 User is mentor, waiting for code input');
+        }
 
         setLoading(false);
       } catch (err) {
@@ -57,7 +71,7 @@ export function VideoConferenceWrapper({ sessionId, onClose, accessedViaLink = f
     };
 
     initialize();
-  }, [sessionId, user?.id]);
+  }, [sessionId]); // Only depend on sessionId, not user?.id (user is checked inside)
 
   if (loading) {
     return (
@@ -70,21 +84,18 @@ export function VideoConferenceWrapper({ sessionId, onClose, accessedViaLink = f
     );
   }
 
-  // Show link modal if not connected yet
-  if (showVideoLink && !isConnected) {
+  if (showVideoCode) {
     return (
-      <VideoLinkModal
+      <VideoCodeModal
         sessionId={sessionId}
-        isMentor={isMentor}
-        onLinkGenerated={() => {
-          console.log('📱 Link generated and displayed to mentor');
-        }}
-        onClose={onClose}
+        isStudent={isStudent}
+        code={videoCode || undefined}
+        onCodeVerified={() => setShowVideoCode(false)}
+        onCancel={onClose || (() => {})}
       />
     );
   }
 
-  // Show video conferencing component once connected
   return (
     <VideoConferencing
       sessionId={sessionId}

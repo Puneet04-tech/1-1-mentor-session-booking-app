@@ -11,9 +11,11 @@ class SocketService {
 
   connect(token: string): Socket {
     if (this.socket?.connected) {
+      console.log('Socket already connected:', this.socket.id);
       return this.socket;
     }
 
+    console.log('🔌 Connecting to socket at:', SOCKET_URL);
     this.socket = io(SOCKET_URL, {
       auth: {
         token,
@@ -25,18 +27,34 @@ class SocketService {
     });
 
     this.socket.on('connect', () => {
-      console.log('Socket connected:', this.socket?.id);
+      console.log('✅ Socket connected:', this.socket?.id);
       this.emit('connected');
     });
 
     this.socket.on('disconnect', () => {
-      console.log('Socket disconnected');
+      console.log('❌ Socket disconnected');
       this.emit('disconnected');
     });
 
     this.socket.on('error', (error) => {
-      console.error('Socket error:', error);
+      console.error('❌ Socket error:', error);
       this.emit('error', error);
+    });
+
+    // Debug: Log all incoming events
+    this.socket.onAny((eventName, ...args) => {
+      console.log('🔔 Socket received event:', eventName, args);
+    });
+
+    // Screen share events
+    this.socket.on('screen:started', (data) => {
+      console.log('🖥️ Screen share started event received:', data);
+      this.emit('screen:started', data);
+    });
+
+    this.socket.on('screen:stopped', (data) => {
+      console.log('🛑 Screen share stopped event received:', data);
+      this.emit('screen:stopped', data);
     });
 
     return this.socket;
@@ -58,6 +76,8 @@ class SocketService {
       console.warn(`Socket not initialized for event: ${event}`);
       return;
     }
+    
+    console.log(`🎧 Registering listener for event: ${event}`);
     
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
@@ -119,13 +139,16 @@ class SocketService {
 
   // Chat
   sendMessage(content: string) {
+    console.log('📤 SocketService.sendMessage called:', content);
     const user = useAuthStore.getState().user;
-    this.emit('message:send', { 
+    const data = { 
       content, 
       sessionId: this.currentSessionId,
       userId: user?.id,
       type: 'text'
-    } as any);
+    };
+    console.log('📡 Emitting message:send event:', data);
+    this.emit('message:send', data as any);
   }
 
   // Code Editor
@@ -170,6 +193,19 @@ class SocketService {
 
   sendICECandidate(candidate: any) {
     this.emit('video:ice-candidate', candidate as any);
+  }
+
+  // Screen Share
+  startScreenShare() {
+    const user = useAuthStore.getState().user;
+    const data = { userId: user?.id, sessionId: this.currentSessionId } as any;
+    console.log('📡 SocketService.startScreenShare emitting:', data);
+    this.emit('screen:started', data);
+  }
+
+  stopScreenShare() {
+    const user = useAuthStore.getState().user;
+    this.emit('screen:stopped', { userId: user?.id, sessionId: this.currentSessionId } as any);
   }
 }
 

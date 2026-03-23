@@ -7,18 +7,13 @@ export const config = {
   PORT: process.env.PORT || 5000,
   NODE_ENV: process.env.NODE_ENV || 'development',
 
-  // Database
+  // Database (Neon PostgreSQL)
   DATABASE_URL: process.env.DATABASE_URL,
   DB_HOST: process.env.DB_HOST || 'localhost',
   DB_PORT: parseInt(process.env.DB_PORT || '5432'),
   DB_NAME: process.env.DB_NAME || 'mentor_db',
   DB_USER: process.env.DB_USER || 'postgres',
   DB_PASSWORD: process.env.DB_PASSWORD || 'password',
-
-  // Supabase
-  SUPABASE_URL: process.env.SUPABASE_URL,
-  SUPABASE_API_KEY: process.env.SUPABASE_API_KEY,
-  SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET,
 
   // JWT
   JWT_SECRET: process.env.JWT_SECRET || 'your-secret-key',
@@ -27,15 +22,13 @@ export const config = {
   // CORS
   CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:3000',
 
-  // Code Execution
-  PISTON_API: process.env.PISTON_API || 'https://emkc.org/api/v2',
-  ENABLE_CODE_EXECUTION: process.env.ENABLE_CODE_EXECUTION === 'true',
-
   // WebRTC
   STUN_SERVERS: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
   ],
 
   // Features

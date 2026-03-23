@@ -18,6 +18,19 @@ export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data:
   try {
     const { sessionId, peerId, offer, remoteUserId, initiatorId } = data;
     
+    console.log('📨 Video offer received:', {
+      sessionId,
+      peerId,
+      initiatorId,
+      remoteUserId,
+      socketId: socket.id,
+      offerType: offer?.type
+    });
+    
+    // Check room members
+    const room = io.sockets.adapter.rooms.get(`session:${sessionId}`);
+    console.log('👥 Room members when video offer received:', room ? Array.from(room) : 'No members');
+    
     // Broadcast offer to session, including sender ID so recipient knows who to answer
     socket.to(`session:${sessionId}`).emit('video:offer', {
       peerId: socket.id, // Send socket ID so recipient knows who the offer is from
@@ -27,7 +40,7 @@ export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data:
       timestamp: Date.now(),
     });
     
-    console.log(`📤 Video offer forwarded in session ${sessionId}`);
+    console.log(`📤 Video offer forwarded in session ${sessionId} to ${room ? room.size - 1 : 0} other users`);
   } catch (err) {
     console.error('Video offer error:', err);
   }
@@ -75,6 +88,48 @@ export async function handleVideoEnd(socket: Socket, io: SocketIOServer) {
     });
   } catch (err) {
     console.error('Video end error:', err);
+  }
+}
+
+export async function handleScreenStarted(socket: Socket, io: SocketIOServer, data: any) {
+  try {
+    const { sessionId, userId } = data;
+    
+    console.log('🖥️ Screen share started:', { sessionId, userId, socketId: socket.id });
+    
+    // Check if user is in the session room
+    const room = io.sockets.adapter.rooms.get(`session:${sessionId}`);
+    console.log('👥 Current room members for screen share:', room ? Array.from(room) : 'No members');
+    
+    // Broadcast screen share started event to session
+    socket.to(`session:${sessionId}`).emit('screen:started', {
+      userId,
+      socketId: socket.id,
+      timestamp: Date.now(),
+    });
+    
+    console.log(`📤 Screen share started event forwarded in session ${sessionId}`);
+  } catch (err) {
+    console.error('Screen share started error:', err);
+  }
+}
+
+export async function handleScreenStopped(socket: Socket, io: SocketIOServer, data: any) {
+  try {
+    const { sessionId, userId } = data;
+    
+    console.log('🛑 Screen share stopped:', { sessionId, userId, socketId: socket.id });
+    
+    // Broadcast screen share stopped event to session
+    socket.to(`session:${sessionId}`).emit('screen:stopped', {
+      userId,
+      socketId: socket.id,
+      timestamp: Date.now(),
+    });
+    
+    console.log(`📤 Screen share stopped event forwarded in session ${sessionId}`);
+  } catch (err) {
+    console.error('Screen share stopped error:', err);
   }
 }
 

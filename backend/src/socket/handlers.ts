@@ -15,6 +15,8 @@ import {
   handleVideoAnswer,
   handleICECandidate,
   handleVideoEnd,
+  handleScreenStarted,
+  handleScreenStopped,
   handleScreenOffer,
   handleScreenAnswer,
   handleScreenICECandidate,
@@ -45,6 +47,8 @@ export function setupSocketHandlers(io: SocketIOServer) {
     socket.on('video:end', () => handleVideoEnd(socket, io));
 
     // Screen share events
+    socket.on('screen:started', (data) => handleScreenStarted(socket, io, data));
+    socket.on('screen:stopped', (data) => handleScreenStopped(socket, io, data));
     socket.on('screen:offer', (data) => handleScreenOffer(socket, io, data));
     socket.on('screen:answer', (data) => handleScreenAnswer(socket, io, data));
     socket.on('screen:ice-candidate', (data) => handleScreenICECandidate(socket, io, data));

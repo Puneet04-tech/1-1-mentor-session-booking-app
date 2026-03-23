@@ -30,6 +30,10 @@ export function VideoConferencing({ sessionId, userId, userName, onClose }: Vide
     const initializeVideo = async () => {
       try {
         console.log('🎬 VideoConferencing component mounted');
+        console.log('📊 Session ID:', sessionId);
+        console.log('📊 User ID:', userId);
+        console.log('📊 User Name:', userName);
+        
         setLoading(true);
         setError(null);
 
@@ -46,7 +50,11 @@ export function VideoConferencing({ sessionId, userId, userName, onClose }: Vide
         if (!session) {
           throw new Error('Failed to fetch session data');
         }
-        console.log('✅ Got session data');
+        console.log('✅ Got session data:', {
+          mentorId: session.mentor_id,
+          studentId: session.student_id,
+          currentUserId: userId
+        });
         
         // Find remote user ID (mentor or student, whichever is not the current user)
         const remoteUserId = session.mentor_id === userId ? session.student_id : session.mentor_id;
@@ -70,6 +78,13 @@ export function VideoConferencing({ sessionId, userId, userName, onClose }: Vide
             remoteVideoRef.current.srcObject = stream;
             setRemoteUserName('Remote User');
             setWaitingTimeout(false);
+          }
+        });
+
+        webrtcService.setOnScreenShare((stream, peerId) => {
+          console.log('🖥️ Screen share stream ready, setting to screen element');
+          if (screenShareRef.current) {
+            screenShareRef.current.srcObject = stream;
           }
         });
 
@@ -144,26 +159,10 @@ export function VideoConferencing({ sessionId, userId, userName, onClose }: Vide
   };
 
   const handleScreenShare = async () => {
-    try {
-      if (isScreenSharing) {
-        await webrtcService.stopScreenShare();
-        if (screenShareRef.current) {
-          screenShareRef.current.srcObject = null;
-        }
-        setIsScreenSharing(false);
-      } else {
-        const screenStream = await webrtcService.startScreenShare(sessionId, userId);
-        if (screenShareRef.current) {
-          screenShareRef.current.srcObject = screenStream;
-        }
-        setIsScreenSharing(true);
-      }
-    } catch (err: any) {
-      console.error('Error toggling screen share:', err);
-      if (err.name !== 'NotAllowedError') {
-        setError('Failed to toggle screen share');
-      }
-    }
+    // Disable screen share in VideoConferencing component
+    // Screen share is now handled by the main session page
+    console.log('🚫 Screen share disabled in VideoConferencing component');
+    return;
   };
 
   const handleEndCall = () => {
@@ -279,7 +278,9 @@ export function VideoConferencing({ sessionId, userId, userName, onClose }: Vide
           {isVideoEnabled ? '📷' : '📹'} Camera
         </GlowingButton>
 
-        {/* Screen Share Toggle */}
+        {/* Screen Share Toggle - DISABLED */}
+        {/* Screen share is now handled by the main session page */}
+        {/* 
         <GlowingButton
           variant="secondary"
           className={`text-sm px-4 py-2 flex items-center gap-2 ${isScreenSharing ? 'ring-2 ring-yellow-500' : ''}`}
@@ -287,6 +288,7 @@ export function VideoConferencing({ sessionId, userId, userName, onClose }: Vide
         >
           {isScreenSharing ? '✓' : ''} 🖥️ Share
         </GlowingButton>
+        */}
 
         {/* End Call */}
         <GlowingButton

@@ -74,6 +74,14 @@ export class WebRTCService {
       console.log('📨 [LISTENER] screen:ice-candidate received');
       this.handleScreenICECandidate(data);
     });
+    socketService.on('screen:started', (data: any) => {
+      console.log('📨 [LISTENER] screen:started received');
+      this.handleScreenStarted(data);
+    });
+    socketService.on('screen:stopped', (data: any) => {
+      console.log('📨 [LISTENER] screen:stopped received');
+      this.handleScreenStopped(data);
+    });
     socketService.on('video:stream-ended', (data: any) => {
       console.log('📨 [LISTENER] video:stream-ended received');
       this.handleStreamEnded(data);
@@ -147,27 +155,41 @@ export class WebRTCService {
 
   async startScreenShare(sessionId: string, userId: string): Promise<MediaStream> {
     try {
+      console.log('🖥️ WebRTCService.startScreenShare called', { sessionId, userId });
+      
       if (!this.localStream) {
-        throw new Error('Local stream not initialized');
+        console.error('❌ Local stream not initialized. Call startLocalVideo first.');
+        throw new Error('Local stream not initialized. Call startLocalVideo first.');
       }
 
+      if (!this.sessionId || !this.userId) {
+        console.error('❌ Session ID or User ID not set');
+        throw new Error('Session ID or User ID not set');
+      }
+
+      console.log(`🖥️ Starting WebRTC screen share - Session: ${sessionId}, User: ${userId}`);
+
+      // Simple constraints without timeout
       const constraints: DisplayMediaStreamOptions = {
         audio: false,
-        video: {
-          cursor: 'always',
-          displaySurface: 'monitor',
-        } as any,
+        video: true,
       };
 
+      console.log('🎬 Getting display media with constraints:', constraints);
       this.screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
+      console.log('✅ Screen share stream obtained:', this.screenStream);
 
       // Replace video track in peer connections
       const videoTrack = this.screenStream.getVideoTracks()[0];
+      console.log('📹 Screen share video track:', videoTrack);
+      console.log('📊 Current peer connections:', Array.from(this.peerConnections.keys()));
       
       for (const [peerId, peerConnection] of this.peerConnections) {
+        console.log(`🔄 Processing peer connection: ${peerId}`);
         const sender = peerConnection.getSenders().find((s) => s.track?.kind === 'video');
         if (sender) {
           await sender.replaceTrack(videoTrack);
+          console.log(`📹 Replaced video track with screen share for peer: ${peerId}`);
         }
       }
 
@@ -186,13 +208,17 @@ export class WebRTCService {
       console.log('Screen sharing started');
       return this.screenStream;
     } catch (err: any) {
+      console.error('Screen share error:', err);
+      
       if (err.name === 'NotAllowedError') {
-        console.log('Screen capture cancelled');
+        throw new Error('Screen share permission denied. Please allow screen sharing in your browser.');
+      } else if (err.name === 'AbortError' && err.message?.includes('Timeout')) {
+        throw new Error('Screen share timed out. Please try again and ensure your browser allows screen sharing.');
+      } else if (err.name === 'AbortError') {
+        throw new Error('Screen share was cancelled or failed to start. Please try again.');
       } else {
-        console.error('Error starting screen share:', err);
-        throw new Error(`Failed to start screen share: ${err.message}`);
+        throw new Error(`Screen share failed: ${err.message || 'Unknown error'}`);
       }
-      throw err;
     }
   }
 
@@ -257,23 +283,24 @@ export class WebRTCService {
 
   async handleVideoOffer(data: any) {
     try {
-      const { peerId, offer, initiatorId }  = data;
+      const { offer, callerId, targetId, peerId } = data;
+      const fromUserId = callerId || targetId || peerId;
       console.log('📨 RECEIVED VIDEO OFFER', {
-        peerId,
-        initiatorId,
-        hasOffer: !!offer,
+        fromUserId,
+        offerExists: !!offer,
         currentRemoteUserId: this.remoteUserId,
+        payload: data,
       });
       console.log('📊 Current peer connections:', Array.from(this.peerConnections.keys()));
       
       // Store the remote user ID for later answer matching
-      if (initiatorId) {
-        this.remoteUserId = initiatorId;
+      if (fromUserId) {
+        this.remoteUserId = fromUserId;
         console.log('💾 Stored remote user ID:', this.remoteUserId);
       }
       
-      // Use initiatorId as the peer connection key since it's the actual user ID
-      const actualPeerId = initiatorId || peerId;
+      // Use callerId (offerer's user ID) as the peer connection key
+      const actualPeerId = callerId || targetId || peerId || 'unknown-peer';
       
       // Check if we already have a peer connection for this peer
       let peerConnection = this.peerConnections.get(actualPeerId);
@@ -309,8 +336,8 @@ export class WebRTCService {
 
       socketService.emit('video:answer', {
         sessionId: this.sessionId,
-        peerId: actualPeerId,
-        initiatorId: this.userId,
+        callerId: this.userId,
+        targetId: actualPeerId,
         answer,
       } as any);
       console.log('📤 Sent video answer');
@@ -321,12 +348,17 @@ export class WebRTCService {
 
   async handleVideoAnswer(data: any) {
     try {
-      const { peerId, answer, initiatorId } = data;
-      console.log('📨 Received video answer from peer:', peerId, 'initiatorId:', initiatorId);
+      const { answer, callerId, targetId, peerId } = data;
+      console.log('📨 Received video answer', {
+        callerId,
+        targetId,
+        peerId,
+        hasAnswer: !!answer,
+      });
       console.log('📊 Current peer connections:', Array.from(this.peerConnections.keys()));
       
-      // The answer is coming from the remote user, so use their user ID if we have it
-      const actualPeerId = this.remoteUserId || initiatorId || peerId;
+      // The answer is coming from the remote user (callerId)
+      const actualPeerId = callerId || this.remoteUserId || targetId || peerId;
       
       if (!actualPeerId) {
         console.warn('⚠️ Could not determine peer ID for answer');
@@ -366,11 +398,16 @@ export class WebRTCService {
 
   async handleICECandidate(data: any) {
     try {
-      const { peerId, candidate, initiatorId } = data;
-      console.log('📨 Received ICE candidate from peer:', peerId, 'initiatorId:', initiatorId);
+      const { candidate, callerId, targetId, peerId } = data;
+      console.log('📨 Received ICE candidate', {
+        callerId,
+        targetId,
+        peerId,
+        hasCandidate: !!candidate,
+      });
       
-      // Use remoteUserId if we have it, otherwise try initiatorId
-      let actualPeerId = this.remoteUserId || initiatorId || peerId;
+      // The candidate is from callerId (remote)
+      let actualPeerId = callerId || this.remoteUserId || targetId || peerId;
       
       if (!actualPeerId) {
         console.warn('⚠️ Could not determine peer ID for ICE candidate');
@@ -460,6 +497,30 @@ export class WebRTCService {
     }
   }
 
+  async handleScreenStarted(data: any) {
+    try {
+      const { userId, socketId } = data;
+      console.log('🖥️ Screen share started from user:', userId);
+      
+      // TODO: Handle remote screen share started
+      // This would typically trigger UI updates or create a new peer connection for screen share
+    } catch (err) {
+      console.error('Error handling screen share started:', err);
+    }
+  }
+
+  async handleScreenStopped(data: any) {
+    try {
+      const { userId, socketId } = data;
+      console.log('🛑 Screen share stopped from user:', userId);
+      
+      // TODO: Handle remote screen share stopped
+      // This would typically clean up screen share UI and peer connections
+    } catch (err) {
+      console.error('Error handling screen share stopped:', err);
+    }
+  }
+
   handleStreamEnded(data: any) {
     const { peerId } = data;
     this.closePeerConnection(peerId);
@@ -517,11 +578,36 @@ export class WebRTCService {
         kind: event.track.kind,
         enabled: event.track.enabled,
         streamCount: event.streams.length,
+        trackLabel: event.track?.label,
+        trackId: event.track?.id,
       });
       
       if (event.streams && event.streams.length > 0) {
         console.log(`✅ Remote stream has ${event.streams[0].getTracks().length} tracks`);
-        if (this.onRemoteStream) {
+        console.log('🔍 Stream tracks details:', event.streams[0].getTracks().map(t => ({
+          kind: t.kind,
+          label: t.label,
+          enabled: t.enabled,
+          id: t.id
+        })));
+        
+        // Check if this is a screen share track (usually has specific characteristics)
+        const tracks = event.streams[0].getTracks();
+        const isScreenShareTrack = tracks.some(track => 
+          track.kind === 'video' && 
+          (track.label?.includes('screen') || track.label?.includes('display') || track.label?.includes('monitor'))
+        );
+        
+        console.log('🔍 Screen share detection:', {
+          isScreenShareTrack,
+          trackLabels: tracks.map(t => t.label),
+        });
+        
+        if (isScreenShareTrack && this.onScreenShare) {
+          console.log('🖥️ Detected screen share track, calling onScreenShare callback');
+          this.onScreenShare(event.streams[0], peerId);
+        } else if (this.onRemoteStream) {
+          console.log('📹 Detected regular video track, calling onRemoteStream callback');
           this.onRemoteStream(event.streams[0], peerId);
         }
       } else {
@@ -618,6 +704,12 @@ export class WebRTCService {
       }
       this.initiateConnectionInProgress = true;
 
+      console.log(`🔗 Starting WebRTC connection initiation...`);
+      console.log(`📊 Current user: ${this.userId}, Remote user: ${remoteUserId}`);
+      console.log(`📊 Session ID: ${this.sessionId}`);
+      console.log(`📊 Local stream exists: ${!!this.localStream}`);
+      console.log(`📊 Socket connected: ${socketService.isConnected()}`);
+
       if (!this.localStream) {
         throw new Error('Local stream not initialized. Call startLocalVideo first.');
       }
@@ -626,8 +718,6 @@ export class WebRTCService {
         throw new Error('Session ID or User ID not set');
       }
 
-      console.log(`⚙️  Initiating connection - Current user: ${this.userId}, Remote user: ${remoteUserId}`);
-
       // Store remoteUserId for later matching
       this.remoteUserId = remoteUserId;
 
@@ -635,7 +725,7 @@ export class WebRTCService {
       // This ensures consistent behavior - only one side sends the offer
       const shouldOffer = this.userId < remoteUserId;
       
-      console.log(`Should offer: ${shouldOffer}`);
+      console.log(`🤝 Should offer: ${shouldOffer} (comparing ${this.userId} < ${remoteUserId})`);
 
       if (!shouldOffer) {
         console.log('⏳ Waiting for offer from remote peer (higher ID)...');
@@ -670,28 +760,40 @@ export class WebRTCService {
       const peerConnection = this.createPeerConnection(remoteUserId);
 
       // Create and send offer
+      console.log('📤 Creating WebRTC offer...');
       const offer = await peerConnection.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: true,
       });
 
       await peerConnection.setLocalDescription(offer);
-      console.log('✅ Created local offer');
+      console.log('✅ Local description set (offer)');
 
-      // Send offer via socket.io - INCLUDE remoteUserId so recipient knows sender
+      // Send offer via socket
       socketService.emit('video:offer', {
         sessionId: this.sessionId,
+        callerId: this.userId,
+        targetId: remoteUserId,
+        peerId: this.userId,
         offer,
-        remoteUserId: remoteUserId,
-        initiatorId: this.userId,
       } as any);
+      
+      console.log('📤 WebRTC offer sent to remote user');
+      console.log('📊 Offer data:', {
+        sessionId: this.sessionId,
+        callerId: this.userId,
+        targetId: remoteUserId,
+        peerId: this.userId,
+        offerType: offer.type,
+        offerSdp: offer.sdp?.substring(0, 100) + '...'
+      });
 
-      console.log('📤 Offer sent to session');
-    } catch (err) {
-      console.error('❌ Error initiating connection:', err);
-      throw err;
-    } finally {
       this.initiateConnectionInProgress = false;
+      console.log('✅ WebRTC connection initiation completed');
+    } catch (err: any) {
+      console.error('❌ Error initiating WebRTC connection:', err);
+      this.initiateConnectionInProgress = false;
+      throw err;
     }
   }
 }

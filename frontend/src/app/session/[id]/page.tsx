@@ -1,21 +1,13 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
-import dynamic from 'next/dynamic';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { webrtcService } from '@/services/webrtc';
 import { apiClient } from '@/services/api';
 import { socketService } from '@/services/socket';
-import { Session, Message } from '@/types';
-import {
-  GlowingButton,
-  GlowingCard,
-  Avatar,
-  Badge,
-  LoadingSpinner,
-} from '@/components/ui/GlowingComponents';
-import { VideoConferenceWrapper } from '@/components/VideoConferenceWrapper';
-import { VideoLinkGenerator } from '@/components/VideoLinkGenerator';
 import { useSessionStore, useEditorStore, useVideoStore, useAuthStore } from '@/store';
+import { GlowingButton, GlowingCard, Badge, Avatar } from '@/components/ui/GlowingComponents';
+import dynamic from 'next/dynamic';
 
 // Configure Monaco Editor - disable workers to avoid network errors
 if (typeof window !== 'undefined') {
@@ -37,17 +29,34 @@ const Editor = dynamic(
   }
 );
 
+interface Session {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  mentor_id: string;
+  student_id: string;
+}
+
+interface Message {
+  id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  user?: {
+    name: string;
+    email: string;
+  };
+}
+
 export default function SessionPage() {
   const params = useParams();
   const sessionId = params.id as string;
   const [loading, setLoading] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [cameraError, setCameraError] = useState<string>('');
-  const [isVideoConferenceOpen, setIsVideoConferenceOpen] = useState(false);
   const messageEndRef = useRef<HTMLDivElement>(null);
-  const listenerRef = useRef<{ cleanup: () => void } | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
+  const listenerRef = useRef<any>(null);
 
   const {
     messages,
@@ -57,7 +66,98 @@ export default function SessionPage() {
   } = useSessionStore();
 
   const { code, language, setCode, setLanguage, executionOutput } = useEditorStore();
-  const { isCameraOn, isMicOn } = useVideoStore();
+  const { isCameraOn, isMicOn } = useVideoStore(); // Remove screen share from global store
+  const currentUser = useAuthStore((state) => state.user);
+
+  // Ref for video elements
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const screenShareRef = useRef<HTMLVideoElement>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+
+  // Video states
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
+  const [isScreenSharingActive, setIsScreenSharingActive] = useState(false);
+  const [videoLoading, setVideoLoading] = useState(true);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [remoteUserName, setRemoteUserName] = useState<string | null>(null);
+
+  // Initialize video conferencing on mount
+  useEffect(() => {
+    const initializeVideo = async () => {
+      try {
+        console.log('🎬 Initializing video in session page...');
+        setVideoLoading(true);
+        setVideoError(null);
+
+        // Start local video
+        console.log('📹 Starting local video...');
+        const localStream = await webrtcService.startLocalVideo(sessionId, currentUser?.id || '');
+        console.log('✅ Local video started');
+
+        // Fetch session to find remote user
+        const response = await apiClient.getSession(sessionId);
+        const session = response?.data;
+        
+        if (!session) {
+          throw new Error('Failed to fetch session data');
+        }
+
+        // Find remote user ID
+        const remoteUserId = session.mentor_id === currentUser?.id ? session.student_id : session.mentor_id;
+        
+        if (!remoteUserId) {
+          throw new Error('Could not find remote participant');
+        }
+        console.log('✅ Found remote user:', remoteUserId);
+
+        // Set WebRTC callbacks
+        webrtcService.setOnLocalStream((stream: MediaStream) => {
+          console.log('💾 Setting local stream to video element');
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = stream;
+          }
+        });
+
+        webrtcService.setOnRemoteStream((stream: MediaStream, peerId: string) => {
+          console.log('💾 Setting remote stream to video element');
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = stream;
+            setRemoteUserName('Remote User');
+          }
+        });
+
+        webrtcService.setOnStreamEnded((peerId: string) => {
+          console.log('🏁 Stream ended');
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = null;
+            setRemoteUserName(null);
+          }
+        });
+
+        // Set initial local video
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = localStream;
+        }
+
+        // Initiate WebRTC connection
+        console.log('🔗 Initiating WebRTC connection...');
+        await webrtcService.initiateConnection(remoteUserId);
+
+        setVideoLoading(false);
+        console.log('✅ Video initialized in session page');
+      } catch (err: any) {
+        console.error('❌ Error initializing video:', err);
+        setVideoError(err.message || 'Failed to initialize video');
+        setVideoLoading(false);
+      }
+    };
+
+    if (currentUser && sessionId) {
+      initializeVideo();
+    }
+  }, [currentUser, sessionId]);
 
   useEffect(() => {
     const fetchSession = async () => {
@@ -93,16 +193,24 @@ export default function SessionPage() {
   useEffect(() => {
     // Handler for code updates from other user
     const handleCodeUpdate = (data: any) => {
+      console.log('📝 Code update received in frontend:', data);
+      
       // Update code from other user
       if (data.code && data.language) {
         setCode(data.code);
         setLanguage(data.language);
-        console.log('Code updated from other user:', data);
+        console.log('✅ Code updated from other user:', { 
+          codeLength: data.code.length, 
+          language: data.language,
+          userId: data.userId 
+        });
       }
     };
 
     // Handler for incoming messages - with deduplication
     const handleMessageReceive = (message: any) => {
+      console.log('📨 Message received in frontend:', message);
+      
       // Prevent duplicate messages by checking if message ID already exists
       // If it's a server message (not temp), check if we already have a temp version
       const existingMessages = useSessionStore.getState().messages;
@@ -110,6 +218,7 @@ export default function SessionPage() {
       // Check if exact message already exists
       const exactMatch = existingMessages.find((m) => m.id === message.id);
       if (exactMatch) {
+        console.log('⚠️ Duplicate message ignored:', message.id);
         return; // Already have this exact message
       }
       
@@ -121,12 +230,14 @@ export default function SessionPage() {
       );
       
       if (tempMatch) {
+        console.log('🔄 Replacing temp message with server message');
         // Replace temp message with real server message
         const updatedMessages = existingMessages.map(m =>
           m.id === tempMatch.id ? message : m
         );
         setMessages(updatedMessages);
       } else {
+        console.log('➕ Adding new message');
         // Add new message
         addMessage(message);
       }
@@ -144,26 +255,73 @@ export default function SessionPage() {
       }
     };
 
+    // Handler for screen share started from remote user
+    const handleScreenShareStarted = (data: any) => {
+      console.log('🖥️ Remote screen share started:', data);
+      
+      // Only show screen share if it's from another user (not our own)
+      if (data.userId !== currentUser?.id) {
+        console.log('📺 Showing remote screen share from user:', data.userId);
+        
+        // Create a simple video element to show remote screen share
+        if (screenShareRef.current) {
+          // For now, show a placeholder - in real implementation, this would receive actual stream
+          screenShareRef.current.style.background = 'linear-gradient(45deg, #1a1a2e, #2d3748)';
+          screenShareRef.current.style.display = 'flex';
+          screenShareRef.current.style.alignItems = 'center';
+          screenShareRef.current.style.justifyContent = 'center';
+          screenShareRef.current.innerHTML = `
+            <div style="color: white; text-align: center; padding: 20px;">
+              <div style="font-size: 48px; margin-bottom: 10px;">🖥️</div>
+              <div style="font-size: 18px; margin-bottom: 10px;">Screen Sharing Active</div>
+              <div style="font-size: 14px; opacity: 0.8;">From: ${data.userId === '550e8400-e29b-41d4-a716-446655440001' ? 'Mentor' : 'Student'}</div>
+            </div>
+          `;
+        }
+        
+        setIsScreenSharingActive(true);
+      }
+    };
+
+    // Handler for screen share stopped from remote user
+    const handleScreenShareStopped = (data: any) => {
+      console.log('🛑 Remote screen share stopped:', data);
+      
+      // Only clear if this is not our own screen share
+      if (data.userId !== currentUser?.id) {
+        if (screenShareRef.current) {
+          screenShareRef.current.style.background = '';
+          screenShareRef.current.style.display = '';
+          screenShareRef.current.innerHTML = '';
+        }
+        setIsScreenSharingActive(false);
+      }
+    };
+
     // Register listeners FIRST before joining session
     socketService.on('code:update', handleCodeUpdate);
     socketService.on('message:receive', handleMessageReceive);
     socketService.on('code:execution:result', handleExecutionResult);
+    socketService.on('screen:started', handleScreenShareStarted);
+    socketService.on('screen:stopped', handleScreenShareStopped);
 
     // Wait for socket to connect, then join session
     const joinWithRetry = async () => {
       let attempts = 0;
       while (attempts < 10) {
         if (socketService.isConnected()) {
-          console.log('Socket connected, joining session:', sessionId);
+          console.log('✅ Socket connected, joining session:', sessionId);
+          console.log('📊 Current user:', currentUser);
           socketService.joinSession(sessionId);
           break;
         }
         attempts++;
-        await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms before retrying
+        console.log(`⏳ Attempt ${attempts}/10: Socket not connected, waiting 500ms...`);
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
       
       if (attempts >= 10) {
-        console.warn('Socket connection timeout');
+        console.warn('❌ Socket connection timeout - could not join session');
       }
     };
 
@@ -175,6 +333,8 @@ export default function SessionPage() {
         socketService.off('code:update', handleCodeUpdate);
         socketService.off('message:receive', handleMessageReceive);
         socketService.off('code:execution:result', handleExecutionResult);
+        socketService.off('screen:started', handleScreenShareStarted);
+        socketService.off('screen:stopped', handleScreenShareStopped);
       },
     };
 
@@ -192,11 +352,11 @@ export default function SessionPage() {
 
   // Update video element when camera state changes
   useEffect(() => {
-    if (videoRef.current && localStreamRef.current) {
+    if (localVideoRef.current && localStreamRef.current) {
       if (isCameraOn) {
-        videoRef.current.srcObject = localStreamRef.current;
+        localVideoRef.current.srcObject = localStreamRef.current;
       } else {
-        videoRef.current.srcObject = null;
+        localVideoRef.current.srcObject = null;
       }
     }
   }, [isCameraOn]);
@@ -218,15 +378,17 @@ export default function SessionPage() {
   }, [messages]);
 
   const handleSendMessage = async (content: string) => {
+    console.log('📤 Sending message:', content);
+    
     if (!socketService.isConnected()) {
-      console.error('Socket not connected');
+      console.error('❌ Socket not connected');
       return;
     }
 
     // Get current user
     const currentUser = useAuthStore.getState().user;
     if (!currentUser) {
-      console.error('User not authenticated');
+      console.error('❌ User not authenticated');
       return;
     }
 
@@ -253,7 +415,8 @@ export default function SessionPage() {
     // Add message immediately to UI
     addMessage(tempMessage);
 
-    // Send message to server (deduplication will handle the server response)
+    // Send message to server (deduplication will handle server response)
+    console.log('📡 Calling socketService.sendMessage');
     socketService.sendMessage(content);
   };
 
@@ -266,9 +429,14 @@ export default function SessionPage() {
     // Try to send through socket if connected
     if (socketService.isConnected()) {
       socketService.sendCode(value, language, sessionId);
-      console.log('Code change sent:', { code: value, language, sessionId });
+      console.log('📤 Code change sent via socket:', { 
+        codeLength: value?.length, 
+        language, 
+        sessionId,
+        socketConnected: true 
+      });
     } else {
-      console.warn('Socket not connected - code saved locally only');
+      console.warn('⚠️ Socket not connected - code saved locally only');
     }
   };
 
@@ -290,8 +458,8 @@ export default function SessionPage() {
           audio: false
         });
         localStreamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
         }
         videoStore.toggleCamera();
         videoStore.setLocalStream(stream);
@@ -309,7 +477,9 @@ export default function SessionPage() {
       if (localStreamRef.current) {
         localStreamRef.current.getVideoTracks().forEach(track => track.stop());
       }
-      videoRef.current ? videoRef.current.srcObject = null : null;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null;
+      }
       videoStore.toggleCamera();
       videoStore.setLocalStream(null);
       setCameraError('');
@@ -351,6 +521,155 @@ export default function SessionPage() {
       if (socketService.isConnected()) {
         socketService.toggleMic();
       }
+    }
+  };
+
+  // Video control functions
+  const handleToggleVideo = async () => {
+    try {
+      if (isVideoEnabled) {
+        // Disable video
+        if (localVideoRef.current?.srcObject) {
+          const stream = localVideoRef.current.srcObject as MediaStream;
+          stream.getVideoTracks().forEach(track => track.stop());
+        }
+        setIsVideoEnabled(false);
+      } else {
+        // Enable video
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: true,
+          audio: isAudioEnabled 
+        });
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+        setIsVideoEnabled(true);
+      }
+    } catch (err) {
+      console.error('Error toggling video:', err);
+    }
+  };
+
+  const handleToggleAudio = () => {
+    if (localVideoRef.current?.srcObject) {
+      const stream = localVideoRef.current.srcObject as MediaStream;
+      stream.getAudioTracks().forEach(track => {
+        track.enabled = !track.enabled;
+      });
+      setIsAudioEnabled(!isAudioEnabled);
+    }
+  };
+
+  const handleToggleScreenShare = async () => {
+    console.log('🖥️ Toggle screen share, current state:', isScreenSharingActive);
+    
+    if (!isScreenSharingActive) {
+      try {
+        console.log('🎬 Starting embedded screen share...');
+        
+        // Get screen share stream with proper constraints
+        const stream = await navigator.mediaDevices.getDisplayMedia({ 
+          video: true,
+          audio: false 
+        });
+        
+        console.log('✅ Screen share stream obtained:', stream);
+        console.log('📹 Stream tracks:', stream.getTracks().length);
+        
+        // Set to local screen share element immediately
+        if (screenShareRef.current) {
+          screenShareRef.current.srcObject = stream;
+          console.log('✅ Stream set to screen share video element');
+          
+          // Ensure video plays inline (not in new tab)
+          screenShareRef.current.setAttribute('playsinline', 'true');
+          screenShareRef.current.setAttribute('webkit-playsinline', 'true');
+          screenShareRef.current.muted = true;
+          
+          // Force video to play inline
+          const playPromise = screenShareRef.current.play();
+          if (playPromise !== undefined) {
+            playPromise.then(() => {
+              console.log('✅ Video play successful');
+            }).catch((e: any) => {
+              console.log('⚠️ Video play failed:', e);
+              // Try to play with user interaction
+              screenShareRef.current?.play().catch(err => {
+                console.log('⚠️ Manual play failed:', err);
+              });
+            });
+          }
+        }
+        
+        // Set state to show overlay immediately
+        setIsScreenSharingActive(true);
+        console.log('✅ Screen share active state set');
+        
+        // Notify other users via socket
+        socketService.emit('screen:started', {
+          sessionId,
+          userId: currentUser?.id,
+        } as any);
+        
+        console.log('📡 Screen share started event sent:', { sessionId, userId: currentUser?.id });
+        
+        // Handle stream end when user clicks "Stop sharing" in browser dialog
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+          videoTrack.onended = () => {
+            console.log('🛑 User stopped screen sharing via browser dialog');
+            if (screenShareRef.current) {
+              screenShareRef.current.srcObject = null;
+            }
+            setIsScreenSharingActive(false);
+          };
+          
+          // Also listen for track mute/unmute
+          videoTrack.onmute = () => {
+            console.log('🔇 Screen share track muted');
+          };
+          
+          videoTrack.onunmute = () => {
+            console.log('🔊 Screen share track unmuted');
+          };
+        }
+        
+        console.log('✅ Embedded screen share started successfully');
+        
+      } catch (err: any) {
+        console.error('❌ Screen share failed:', err);
+        
+        // Provide specific error messages
+        if (err.name === 'NotAllowedError') {
+          alert('Screen share permission denied. Please allow screen sharing in your browser.');
+        } else if (err.name === 'AbortError') {
+          alert('Screen share was cancelled. Please try again and select a window/screen to share.');
+        } else if (err.name === 'NotFoundError') {
+          alert('No screen capture device found. Please check your system.');
+        } else {
+          alert(`Screen share failed: ${err.message || 'Unknown error'}`);
+        }
+      }
+    } else {
+      console.log('🛑 Stopping screen share...');
+      
+      // Clear screen share
+      if (screenShareRef.current?.srcObject) {
+        const stream = screenShareRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+        screenShareRef.current.srcObject = null;
+      }
+      
+      setIsScreenSharingActive(false);
+      console.log('✅ Screen share stopped');
+      
+      // Notify other users
+      socketService.emit('screen:stopped', {
+        sessionId,
+        userId: currentUser?.id,
+      } as any);
+      
+      console.log('📡 Screen share stopped event sent:', { sessionId, userId: currentUser?.id });
     }
   };
 
@@ -424,7 +743,10 @@ export default function SessionPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950 flex items-center justify-center">
-        <LoadingSpinner />
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-t-2 border-white mx-auto mb-4"></div>
+          <p className="text-white text-lg">Loading session...</p>
+        </div>
       </div>
     );
   }
@@ -441,13 +763,6 @@ export default function SessionPage() {
           <div className="flex items-center gap-4">
             <Badge color="purple">{session?.status}</Badge>
             <GlowingButton 
-              variant="secondary" 
-              className="text-sm"
-              onClick={() => setIsVideoConferenceOpen(true)}
-            >
-              📞 Video Conference
-            </GlowingButton>
-            <GlowingButton 
               variant="outline" 
               className="text-sm"
               onClick={handleEndSession}
@@ -458,10 +773,10 @@ export default function SessionPage() {
         </div>
       </header>
 
-      {/* Main Content - Flex layout to manage space */}
+      {/* Main Content - Responsive layout */}
       <div className="flex-1 min-h-0 flex flex-col lg:grid lg:grid-cols-3 gap-2 md:gap-3 lg:gap-4 p-2 md:p-3 lg:p-4 overflow-y-auto lg:overflow-hidden">
-        {/* Code Editor - Full height on mobile, 2/3 on large screens */}
-        <div className="lg:col-span-2 flex flex-col bg-dark-900/40 rounded-lg border border-gray-700/30 overflow-hidden h-[50vh] lg:h-auto lg:flex-none lg:min-h-0">
+        {/* Code Editor - Takes full height on mobile, 2/3 on large screens */}
+        <div className="lg:col-span-2 flex flex-col bg-dark-900/40 rounded-lg border border-gray-700/30 overflow-hidden min-h-[40vh] lg:min-h-0">
           <div className="px-2 md:px-4 py-2 md:py-3 border-b border-gray-700/30 flex flex-col md:flex-row justify-between items-start md:items-center gap-2 flex-shrink-0">
             <h2 className="text-base md:text-lg font-bold text-white">Code Editor</h2>
             <div className="flex items-center gap-1 md:gap-2 w-full md:w-auto">
@@ -502,7 +817,7 @@ export default function SessionPage() {
                 formatOnType: false,
                 wordWrap: 'on',
               }}
-              onMount={(editor, monaco) => {
+              onMount={(editor: any, monaco: any) => {
                 editor?.layout();
                 console.log('Editor mounted');
               }}
@@ -510,45 +825,120 @@ export default function SessionPage() {
           </div>
         </div>
 
-        {/* Right Panel - Video + Chat - Visible on all screens */}
+        {/* Right Panel - Video + Chat */}
         <div className="flex flex-col gap-2 md:gap-3 lg:gap-4 lg:min-h-0 lg:overflow-hidden lg:col-span-1">
-          {/* Video Panel */}
-          <GlowingCard glow="purple" className="flex-shrink-0 h-32 md:h-40 lg:h-56 flex flex-col">
+          {/* Video Panel - Integrated in session page */}
+          <GlowingCard glow="purple" className="flex-shrink-0 h-64 md:h-80 lg:h-96 flex flex-col">
             <h3 className="font-bold text-white text-xs md:text-base mb-1 md:mb-3 px-2 md:px-4 pt-2 md:pt-4 flex-shrink-0">Video Call</h3>
-            <div className="flex-1 min-h-0 bg-black rounded flex flex-col items-center justify-center overflow-hidden relative">
-              {isCameraOn && localStreamRef.current ? (
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
+            <div className="flex-1 min-h-0 bg-black rounded flex flex-col overflow-hidden">
+              {videoLoading ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-t-2 border-white mx-auto mb-2"></div>
+                    <p className="text-gray-400 text-xs md:text-sm">Connecting video...</p>
+                  </div>
+                </div>
+              ) : videoError ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <p className="text-red-400 text-xs md:text-sm mb-2">❌ {videoError}</p>
+                    <GlowingButton 
+                      variant="secondary" 
+                      className="text-xs"
+                      onClick={() => window.location.reload()}
+                    >
+                      Retry
+                    </GlowingButton>
+                  </div>
+                </div>
               ) : (
-                <div className="text-center flex flex-col items-center justify-center h-full">
-                  <p className="text-gray-400 text-xs md:text-sm mb-2 md:mb-4">📹 Camera is OFF</p>
-                  {cameraError && <p className="text-red-400 text-xs mb-2">{cameraError}</p>}
-                  <p className="text-gray-500 text-xs mb-2 md:mb-4">
-                    {isMicOn ? '🎤 ON' : '🔇 OFF'}
-                  </p>
+                <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-2 p-2">
+                  {/* Local Video */}
+                  <div className="relative bg-gray-900 rounded overflow-hidden">
+                    <video
+                      ref={localVideoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-white text-xs">
+                      You
+                    </div>
+                  </div>
+                  
+                  {/* Remote Video */}
+                  <div className="relative bg-gray-900 rounded overflow-hidden">
+                    {remoteVideoRef.current?.srcObject ? (
+                      <>
+                        <video
+                          ref={remoteVideoRef}
+                          autoPlay
+                          playsInline
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-white text-xs">
+                          {remoteUserName || 'Remote User'}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        <div className="text-center">
+                          <div className="animate-pulse mb-2">👥</div>
+                          <p className="text-gray-400 text-xs">Waiting for remote user...</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
-              <div className="w-full px-2 md:px-4 py-1 md:py-3 border-t border-gray-700/30 gap-1 md:gap-2 flex flex-shrink-0 bg-dark-950/80">
-                <GlowingButton 
-                  variant="secondary" 
-                  className="text-xs flex-1 py-1 md:py-2"
-                  onClick={handleToggleCamera}
-                >
-                  {isCameraOn ? '✓' : '✗'} Cam
-                </GlowingButton>
-                <GlowingButton 
-                  variant="secondary" 
-                  className="text-xs flex-1 py-1 md:py-2"
-                  onClick={handleToggleMic}
-                >
-                  {isMicOn ? '✓' : '✗'} 🎤
-                </GlowingButton>
-              </div>
+              
+              {/* Screen Share Overlay */}
+              {(isScreenSharingActive || screenShareRef.current?.innerHTML) && (
+                <div className="absolute inset-0 bg-black z-10 flex items-center justify-center">
+                  <video
+                    ref={screenShareRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    controls={false}
+                    className="w-full h-full object-contain"
+                    style={{
+                      WebkitPlaysInline: true,
+                      WebkitUserSelect: 'none',
+                      userSelect: 'none'
+                    }}
+                  />
+                  <div className="absolute top-4 left-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-semibold flex items-center gap-2">
+                    <span className="animate-pulse">●</span> Sharing Screen
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Video Controls */}
+            <div className="w-full px-2 md:px-4 py-2 md:py-3 border-t border-gray-700/30 gap-1 md:gap-2 flex flex-shrink-0 bg-dark-950/80">
+              <GlowingButton 
+                variant="secondary" 
+                className="text-xs flex-1 py-1 md:py-2"
+                onClick={handleToggleVideo}
+              >
+                {isVideoEnabled ? '📹' : '📹❌'} Video
+              </GlowingButton>
+              <GlowingButton 
+                variant="secondary" 
+                className="text-xs flex-1 py-1 md:py-2"
+                onClick={handleToggleAudio}
+              >
+                {isAudioEnabled ? '🎤' : '🔇'} Audio
+              </GlowingButton>
+              <GlowingButton 
+                variant="secondary" 
+                className="text-xs flex-1 py-1 md:py-2"
+                onClick={handleToggleScreenShare}
+              >
+                {isScreenSharingActive ? '🛑 Stop Share' : '🖥️ Share Screen'}
+              </GlowingButton>
             </div>
           </GlowingCard>
 
@@ -589,24 +979,6 @@ export default function SessionPage() {
         <div className="border-t border-gray-700/30 bg-dark-900/40 p-2 md:p-3 lg:p-4 max-h-[120px] md:max-h-[140px] lg:h-24 overflow-y-auto flex-shrink-0">
           <p className="text-sm font-semibold text-gray-400 mb-2">Output:</p>
           <pre className="text-xs md:text-sm text-green-400 font-mono whitespace-pre-wrap break-words">{executionOutput}</pre>
-        </div>
-      )}
-
-      {/* Video Conference Modal */}
-      {isVideoConferenceOpen && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setIsVideoConferenceOpen(false)}
-        >
-          <div 
-            className="w-full max-w-5xl h-[600px] rounded-lg overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <VideoConferenceWrapper
-              sessionId={sessionId}
-              onClose={() => setIsVideoConferenceOpen(false)}
-            />
-          </div>
         </div>
       )}
     </div>
