@@ -74,6 +74,10 @@ export class WebRTCService {
       console.log('📨 [LISTENER] screen:ice-candidate received');
       this.handleScreenICECandidate(data);
     });
+    socketService.on('video:connection-request', (data: any) => {
+      console.log('📨 [LISTENER] video:connection-request received');
+      this.handleConnectionRequest(data);
+    });
     socketService.on('screen:started', (data: any) => {
       console.log('📨 [LISTENER] screen:started received');
       this.handleScreenStarted(data);
@@ -674,6 +678,11 @@ export class WebRTCService {
     return this.screenStream;
   }
 
+  setScreenStream(stream: MediaStream) {
+    this.screenStream = stream;
+    console.log('✅ External screen stream set for WebRTC');
+  }
+
   isScreenSharing(): boolean {
     return this.screenStream !== null;
   }
@@ -794,6 +803,25 @@ export class WebRTCService {
       console.error('❌ Error initiating WebRTC connection:', err);
       this.initiateConnectionInProgress = false;
       throw err;
+    }
+  }
+
+  hasPeerConnection(peerId: string): boolean {
+    return this.peerConnections.has(peerId);
+  }
+
+  async handleConnectionRequest(data: any) {
+    try {
+      const { userId, targetUserId } = data;
+      console.log('🔄 Connection request received from:', userId);
+      
+      // Only mentors should respond to connection requests
+      if (this.userId === targetUserId) {
+        console.log('🎓 Mentor responding to connection request...');
+        await this.initiateConnection(userId);
+      }
+    } catch (error) {
+      console.error('❌ Error handling connection request:', error);
     }
   }
 }

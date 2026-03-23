@@ -123,6 +123,7 @@ export interface SocketEvents {
   'video:toggle-camera': { userId: string };
   'video:toggle-mic': { userId: string };
   'video:stream-ended': { peerId?: string; userId?: string };
+  'video:connection-request': { sessionId: string; userId: string; targetUserId: string };
 
   // Screen Sharing Events
   'screen:offer': { sessionId: string; offer: RTCSessionDescriptionInit; peerId?: string; initiatorId?: string };

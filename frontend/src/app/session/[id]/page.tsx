@@ -128,6 +128,16 @@ export default function SessionPage() {
           }
         });
 
+        webrtcService.setOnScreenShare((stream: MediaStream, peerId: string) => {
+          console.log('🖥️ Received remote screen share stream:', stream);
+          // Set screen share stream to screen share video element
+          if (screenShareRef.current) {
+            screenShareRef.current.srcObject = stream;
+            console.log('✅ Remote screen share stream set to video element');
+          }
+          setIsScreenSharingActive(true);
+        });
+
         webrtcService.setOnStreamEnded((peerId: string) => {
           console.log('🏁 Stream ended');
           if (remoteVideoRef.current) {
@@ -141,9 +151,37 @@ export default function SessionPage() {
           localVideoRef.current.srcObject = localStream;
         }
 
-        // Initiate WebRTC connection
-        console.log('🔗 Initiating WebRTC connection...');
-        await webrtcService.initiateConnection(remoteUserId);
+        // Initiate WebRTC connection - only mentor should initiate
+        console.log('🔗 Checking if should initiate WebRTC connection...');
+        console.log('👤 Current user role:', currentUser?.role);
+        console.log('👤 Current user ID:', currentUser?.id);
+        console.log('👤 Remote user ID:', remoteUserId);
+        
+        if (currentUser?.role === 'mentor') {
+          console.log('🎓 Mentor detected - initiating WebRTC connection...');
+          await webrtcService.initiateConnection(remoteUserId);
+        } else {
+          console.log('👨‍🎓 Student detected - waiting for mentor to initiate connection...');
+          
+          // Wait a moment for mentor's connection, then check if we need to request connection
+          setTimeout(async () => {
+            console.log('🔍 Checking if connection exists after delay...');
+            
+            // Check if we have any peer connections
+            const hasConnection = webrtcService.hasPeerConnection(remoteUserId);
+            console.log('🔗 Has peer connection:', hasConnection);
+            
+            if (!hasConnection) {
+              console.log('🔄 No connection found, requesting connection from mentor...');
+              // Student can send a signal to mentor to initiate connection
+              socketService.emit('video:connection-request', {
+                sessionId,
+                userId: currentUser?.id,
+                targetUserId: remoteUserId
+              } as any);
+            }
+          }, 2000); // Wait 2 seconds for mentor's connection
+        }
 
         setVideoLoading(false);
         console.log('✅ Video initialized in session page');
@@ -165,7 +203,7 @@ export default function SessionPage() {
       try {
         const res = await apiClient.getSession(sessionId);
         if (res.data) {
-          setSession(res.data);
+          setSession(res.data as Session);
           setCurrentSession(res.data);
         }
 
@@ -260,26 +298,21 @@ export default function SessionPage() {
       console.log('🖥️ Remote screen share started:', data);
       
       // Only show screen share if it's from another user (not our own)
-      if (data.userId !== currentUser?.id) {
+      if (data.userId !== currentUser?.id && data.sessionId === sessionId) {
         console.log('📺 Showing remote screen share from user:', data.userId);
         
-        // Create a simple video element to show remote screen share
+        // The screen share will be received via WebRTC remote stream
+        // We just need to show the screen share overlay
+        // The actual video content will come through the remote video stream
         if (screenShareRef.current) {
-          // For now, show a placeholder - in real implementation, this would receive actual stream
-          screenShareRef.current.style.background = 'linear-gradient(45deg, #1a1a2e, #2d3748)';
-          screenShareRef.current.style.display = 'flex';
-          screenShareRef.current.style.alignItems = 'center';
-          screenShareRef.current.style.justifyContent = 'center';
-          screenShareRef.current.innerHTML = `
-            <div style="color: white; text-align: center; padding: 20px;">
-              <div style="font-size: 48px; margin-bottom: 10px;">🖥️</div>
-              <div style="font-size: 18px; margin-bottom: 10px;">Screen Sharing Active</div>
-              <div style="font-size: 14px; opacity: 0.8;">From: ${data.userId === '550e8400-e29b-41d4-a716-446655440001' ? 'Mentor' : 'Student'}</div>
-            </div>
-          `;
+          // Clear any existing content
+          screenShareRef.current.style.background = '';
+          screenShareRef.current.style.display = '';
+          screenShareRef.current.innerHTML = '';
         }
         
         setIsScreenSharingActive(true);
+        console.log('✅ Remote screen share overlay activated');
       }
     };
 
@@ -287,8 +320,8 @@ export default function SessionPage() {
     const handleScreenShareStopped = (data: any) => {
       console.log('🛑 Remote screen share stopped:', data);
       
-      // Only clear if this is not our own screen share
-      if (data.userId !== currentUser?.id) {
+      // Only clear if this is not our own screen share and matches current session
+      if (data.userId !== currentUser?.id && data.sessionId === sessionId) {
         if (screenShareRef.current) {
           screenShareRef.current.style.background = '';
           screenShareRef.current.style.display = '';
@@ -393,23 +426,20 @@ export default function SessionPage() {
     }
 
     // Create message with temporary ID (will be replaced by server)
-    const tempMessage: Message = {
+    const tempMessage: any = {
       id: `temp-${Date.now()}`,
-      session_id: sessionId,
       user_id: currentUser.id,
       content,
       type: 'text',
       created_at: new Date().toISOString(),
       user: {
-        id: currentUser.id,
         name: currentUser.name,
         email: currentUser.email,
-        avatar_url: currentUser.avatar_url,
-        role: currentUser.role,
-        verified: currentUser.verified,
-        created_at: currentUser.created_at,
-        updated_at: currentUser.updated_at,
       },
+      avatar_url: currentUser.avatar_url,
+      role: currentUser.role,
+      verified: currentUser.verified,
+      updated_at: currentUser.updated_at,
     };
 
     // Add message immediately to UI
@@ -584,7 +614,7 @@ export default function SessionPage() {
           // Ensure video plays inline (not in new tab)
           screenShareRef.current.setAttribute('playsinline', 'true');
           screenShareRef.current.setAttribute('webkit-playsinline', 'true');
-          screenShareRef.current.muted = true;
+          screenShareRef.current.muted = false; // Unmute for mentor to hear
           
           // Force video to play inline
           const playPromise = screenShareRef.current.play();
@@ -604,6 +634,28 @@ export default function SessionPage() {
         // Set state to show overlay immediately
         setIsScreenSharingActive(true);
         console.log('✅ Screen share active state set');
+        
+        // Add screen share track to existing WebRTC peer connections
+        // This will transmit the existing screen share stream to remote users
+        if (webrtcService && stream) {
+          console.log('🔄 Adding existing screen share stream to WebRTC connections');
+          
+          try {
+            // Get the video track from our existing stream
+            const videoTrack = stream.getVideoTracks()[0];
+            console.log('📹 Screen share video track:', videoTrack);
+            
+            // Set the stream in WebRTC service first
+            webrtcService.setScreenStream(stream);
+            
+            // Then start screen share to handle track replacement
+            await webrtcService.startScreenShare(sessionId, currentUser?.id || '');
+            
+            console.log('✅ Screen share track added to WebRTC');
+          } catch (error) {
+            console.error('❌ Failed to add screen share track to WebRTC:', error);
+          }
+        }
         
         // Notify other users via socket
         socketService.emit('screen:started', {
@@ -662,6 +714,16 @@ export default function SessionPage() {
       
       setIsScreenSharingActive(false);
       console.log('✅ Screen share stopped');
+      
+      // Stop WebRTC screen share
+      if (webrtcService) {
+        try {
+          await webrtcService.stopScreenShare();
+          console.log('✅ WebRTC screen share stopped successfully');
+        } catch (error) {
+          console.error('❌ WebRTC screen share stop failed:', error);
+        }
+      }
       
       // Notify other users
       socketService.emit('screen:stopped', {
@@ -894,17 +956,16 @@ export default function SessionPage() {
               )}
               
               {/* Screen Share Overlay */}
-              {(isScreenSharingActive || screenShareRef.current?.innerHTML) && (
+              {(isScreenSharingActive || screenShareRef.current?.srcObject) && (
                 <div className="absolute inset-0 bg-black z-10 flex items-center justify-center">
                   <video
                     ref={screenShareRef}
                     autoPlay
                     playsInline
-                    muted
+                    muted={false}
                     controls={false}
                     className="w-full h-full object-contain"
                     style={{
-                      WebkitPlaysInline: true,
                       WebkitUserSelect: 'none',
                       userSelect: 'none'
                     }}

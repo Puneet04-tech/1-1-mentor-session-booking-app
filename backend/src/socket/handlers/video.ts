@@ -14,6 +14,22 @@ export async function handleVideoInitiate(socket: Socket, io: SocketIOServer, da
   }
 }
 
+export async function handleVideoConnectionRequest(socket: Socket, io: SocketIOServer, data: any) {
+  try {
+    const { sessionId, userId, targetUserId } = data;
+    console.log('🔄 Video connection request received:', { sessionId, userId, targetUserId });
+    
+    // Forward the connection request to the target user
+    io.to(`session:${sessionId}`).emit('video:connection-request', {
+      sessionId,
+      userId,
+      targetUserId,
+    });
+  } catch (err) {
+    console.error('Video connection request error:', err);
+  }
+}
+
 export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data: any) {
   try {
     const { sessionId, peerId, offer, remoteUserId, initiatorId } = data;
