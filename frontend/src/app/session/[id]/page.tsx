@@ -594,8 +594,8 @@ export default function SessionPage() {
   const handleToggleScreenShare = async () => {
     console.log('🖥️ Toggle screen share, current state:', isScreenSharingActive);
     
-    if (!isScreenSharingActive) {
-      try {
+    try {
+      if (!isScreenSharingActive) {
         console.log('🎬 Requesting screen share permission...');
         
         // Request screen share with user gesture - this is crucial for browser permissions
@@ -654,19 +654,19 @@ export default function SessionPage() {
             
             console.log('✅ Screen share track added to WebRTC');
           } catch (error: any) {
-        console.error('❌ Failed to add screen share track to WebRTC:', error);
-        
-        // Handle permission denied gracefully
-        if (error.name === 'NotAllowedError') {
-          alert('Screen sharing permission denied. Please allow screen sharing in your browser and try again.\n\nTo fix this:\n1. Click the Share Screen button again\n2. When prompted by browser, click "Allow" or "Share"\n3. Make sure you\'re not in incognito mode if that blocks screen sharing');
-        } else if (error.name === 'AbortError' && error.message?.includes('Timeout')) {
-          alert('Screen share timed out. Please try again and ensure your browser allows screen sharing.');
-        } else if (error.name === 'AbortError') {
-          alert('Screen share was cancelled or failed to start. Please try again.');
-        } else {
-          alert(`Screen share failed: ${error.message || 'Unknown error'}`);
-        }
-      }
+            console.error('❌ Failed to add screen share track to WebRTC:', error);
+            
+            // Handle permission denied gracefully
+            if (error.name === 'NotAllowedError') {
+              alert('Screen sharing permission denied. Please allow screen sharing in your browser and try again.\n\nTo fix this:\n1. Click the Share Screen button again\n2. When prompted by browser, click "Allow" or "Share"\n3. Make sure you\'re not in incognito mode if that blocks screen sharing');
+            } else if (error.name === 'AbortError' && error.message?.includes('Timeout')) {
+              alert('Screen share timed out. Please try again and ensure your browser allows screen sharing.');
+            } else if (error.name === 'AbortError') {
+              alert('Screen share was cancelled or failed to start. Please try again.');
+            } else {
+              alert(`Screen share failed: ${error.message || 'Unknown error'}`);
+            }
+          }
         }
         
         // Notify other users via socket
@@ -695,38 +695,38 @@ export default function SessionPage() {
           
           videoTrack.onunmute = () => {
             console.log('🔊 Screen share track unmuted');
-      }
-      
-      // Set state to show overlay immediately
-      setIsScreenSharingActive(true);
-      console.log('✅ Screen share active state set');
-      // Clear screen share
-      if (screenShareRef.current?.srcObject) {
-        const stream = screenShareRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
-        screenShareRef.current.srcObject = null;
-      }
-      
-      setIsScreenSharingActive(false);
-      console.log('✅ Screen share stopped');
-      
-      // Stop WebRTC screen share
-      if (webrtcService) {
-        try {
+          };
+        }
+      } else {
+        // Stop screen share
+        console.log('🛑 Stopping screen share...');
+        
+        // Clear screen share
+        if (screenShareRef.current?.srcObject) {
+          const stream = screenShareRef.current.srcObject as MediaStream;
+          stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+          screenShareRef.current.srcObject = null;
+        }
+        
+        setIsScreenSharingActive(false);
+        console.log('✅ Screen share stopped');
+        
+        // Stop WebRTC screen share
+        if (webrtcService) {
           await webrtcService.stopScreenShare();
           console.log('✅ WebRTC screen share stopped successfully');
-        } catch (error) {
-          console.error('❌ WebRTC screen share stop failed:', error);
         }
+        
+        // Notify other users
+        socketService.emit('screen:stopped', {
+          sessionId,
+          userId: currentUser?.id,
+        } as any);
+        
+        console.log('📡 Screen share stopped event sent:', { sessionId, userId: currentUser?.id });
       }
-      
-      // Notify other users
-      socketService.emit('screen:stopped', {
-        sessionId,
-        userId: currentUser?.id,
-      } as any);
-      
-      console.log('📡 Screen share stopped event sent:', { sessionId, userId: currentUser?.id });
+    } catch (err) {
+      console.error('Error toggling screen share:', err);
     }
   };
 
