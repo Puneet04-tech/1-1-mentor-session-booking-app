@@ -6,6 +6,7 @@ import { webrtcService } from '@/services/webrtc';
 import { apiClient } from '@/services/api';
 import { socketService } from '@/services/socket';
 import { setupVideoDebug } from '@/services/webrtcDebug';
+import { webrtcDiagnostics } from '@/services/webrtcDiagnostics';
 import { useSessionStore, useEditorStore, useVideoStore, useAuthStore } from '@/store';
 import { GlowingButton, GlowingCard, Badge, Avatar } from '@/components/ui/GlowingComponents';
 import dynamic from 'next/dynamic';
@@ -85,7 +86,17 @@ export default function SessionPage() {
   const [remoteUserName, setRemoteUserName] = useState<string | null>(null);
   const [showDebugInfo, setShowDebugInfo] = useState(false);
 
-  // Initialize video conferencing on mount
+  // Setup diagnostics command in console
+  useEffect(() => {
+    // Make diagnostics available globally
+    (window as any).webrtcDiag = {
+      summary: () => webrtcDiagnostics.printSummary(),
+      events: () => webrtcDiagnostics.getEvents(),
+      export: () => webrtcDiagnostics.export(),
+      clear: () => webrtcDiagnostics.clear(),
+    };
+    console.log('🔧 WebRTC Diagnostics available: window.webrtcDiag.summary(), .events(), .export(), .clear()');
+  }, []);
   useEffect(() => {
     const initializeVideo = async () => {
       try {
@@ -111,6 +122,12 @@ export default function SessionPage() {
 
         webrtcService.setOnRemoteStream((stream: MediaStream, peerId: string) => {
           console.log('💾 [CRITICAL] Setting remote stream to video element!');
+          webrtcDiagnostics.log('stream-set', 'onRemoteStream callback fired', {
+            streamId: stream.id,
+            trackCount: stream.getTracks().length,
+            peerId,
+          });
+          
           console.log('📊 Stream details:', {
             streamId: stream.id,
             audioTracks: stream.getAudioTracks().length,
@@ -132,6 +149,9 @@ export default function SessionPage() {
               hasVideoWidth: remoteVideoRef.current.videoWidth,
               hasVideoHeight: remoteVideoRef.current.videoHeight,
             });
+            webrtcDiagnostics.log('stream-set', 'Video element ref exists, assigning stream', {
+              refExists: true,
+            });
             
             remoteVideoRef.current.srcObject = stream;
             
@@ -139,10 +159,17 @@ export default function SessionPage() {
               hasSrcObject: !!remoteVideoRef.current.srcObject,
               streamId: (remoteVideoRef.current.srcObject as any)?.id,
             });
+            webrtcDiagnostics.log('stream-set', 'Stream assigned to video element', {
+              assigned: !!remoteVideoRef.current.srcObject,
+              refStreamId: (remoteVideoRef.current.srcObject as any)?.id,
+            });
             
             setRemoteUserName('Remote User');
           } else {
             console.error('❌ remoteVideoRef.current is NULL! Cannot set stream');
+            webrtcDiagnostics.log('error', 'remoteVideoRef is null when trying to set stream', {
+              refExists: false,
+            });
           }
         });
 

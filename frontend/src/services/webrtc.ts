@@ -1,4 +1,5 @@
 import { socketService } from './socket';
+import { webrtcDiagnostics } from './webrtcDiagnostics';
 
 interface RTCConfig {
   iceServers: RTCIceServer[];
@@ -583,6 +584,11 @@ export class WebRTCService {
     if (this.localStream) {
       const tracks = this.localStream.getTracks();
       console.log(`📋 Adding ${tracks.length} tracks to peer connection`);
+      webrtcDiagnostics.log('track-add', `Adding ${tracks.length} local tracks`, {
+        audioTracks: this.localStream.getAudioTracks().length,
+        videoTracks: this.localStream.getVideoTracks().length,
+        peerId,
+      });
       
       tracks.forEach((track) => {
         try {
@@ -593,12 +599,23 @@ export class WebRTCService {
           });
           console.log(`✅ Added ${track.kind} transceiver (enabled: ${track.enabled})`);
           console.log(`📊 Transceiver mid: ${transceiver.mid}, sender: ${transceiver.sender.track?.id}`);
+          webrtcDiagnostics.log('track-add', `${track.kind} transceiver added`, {
+            trackId: track.id,
+            transceiverId: transceiver.mid,
+            direction: 'sendrecv',
+          });
         } catch (err) {
           console.error(`❌ Error adding ${track.kind} transceiver:`, err);
+          webrtcDiagnostics.log('error', `Failed to add ${track.kind} transceiver`, {
+            error: (err as any).message,
+          });
         }
       });
     } else {
       console.warn('⚠️  No local stream available when creating peer connection!');
+      webrtcDiagnostics.log('error', 'No local stream available', {
+        peerId,
+      });
     }
 
     // Handle ICE candidates
@@ -617,6 +634,13 @@ export class WebRTCService {
     // Handle remote stream - THIS IS CRITICAL
     peerConnection.ontrack = (event) => {
       console.log('✅✅✅ ONTRACK FIRED! ✅✅✅');
+      webrtcDiagnostics.log('track-receive', 'Remote track received', {
+        kind: event.track.kind,
+        trackId: event.track.id,
+        streamCount: event.streams.length,
+        enabled: event.track.enabled,
+      });
+      
       console.log('📹 Received remote track:', {
         kind: event.track.kind,
         enabled: event.track.enabled,
@@ -628,6 +652,12 @@ export class WebRTCService {
       if (event.streams && event.streams.length > 0) {
         const remoteStream = event.streams[0];
         console.log(`✅ Remote stream has ${remoteStream.getTracks().length} tracks`);
+        webrtcDiagnostics.log('track-receive', `Remote stream received with ${remoteStream.getTracks().length} tracks`, {
+          streamId: remoteStream.id,
+          trackCount: remoteStream.getTracks().length,
+          peerId,
+        });
+        
         console.log('🔍 Stream tracks details:', remoteStream.getTracks().map(t => ({
           kind: t.kind,
           label: t.label,
@@ -654,20 +684,44 @@ export class WebRTCService {
           trackKind: videoTrack?.kind,
         });
         
+        // VERIFY CALLBACKS ARE SET BEFORE CALLING
+        console.log('🎯 Before callback check:', {
+          hasRemoteStreamCallback: !!this.onRemoteStream,
+          hasScreenShareCallback: !!this.onScreenShare,
+          isScreenShare: isScreenShareTrack,
+        });
+        webrtcDiagnostics.log('callback-fire', 'About to call callback', {
+          hasRemoteStreamCallback: !!this.onRemoteStream,
+          hasScreenShareCallback: !!this.onScreenShare,
+          isScreenShare: isScreenShareTrack,
+        });
+        
         if (isScreenShareTrack && this.onScreenShare) {
           console.log('🖥️ Detected screen share track, calling onScreenShare callback');
+          webrtcDiagnostics.log('callback-fire', 'Calling onScreenShare', { peerId });
           this.onScreenShare(remoteStream, peerId);
         } else if (this.onRemoteStream) {
           console.log('📹 Detected regular video track, calling onRemoteStream callback');
           console.log('🔍 Callback function exists:', !!this.onRemoteStream);
           console.log('🔍 Stream object:', { id: remoteStream.id, trackCount: remoteStream.getTracks().length });
+          webrtcDiagnostics.log('callback-fire', 'Calling onRemoteStream', {
+            streamId: remoteStream.id,
+            trackCount: remoteStream.getTracks().length,
+            peerId,
+          });
           this.onRemoteStream(remoteStream, peerId);
           console.log('✅ onRemoteStream callback called successfully');
+          webrtcDiagnostics.log('callback-fire', 'onRemoteStream callback executed', { peerId });
         } else {
           console.error('❌ NO CALLBACK SET! this.onRemoteStream is:', this.onRemoteStream);
+          webrtcDiagnostics.log('error', 'No onRemoteStream callback set', {
+            peerId,
+            hasCallback: !!this.onRemoteStream,
+          });
         }
       } else {
         console.warn('⚠️ Remote track received but no streams array');
+        webrtcDiagnostics.log('error', 'Remote track received but no streams', { peerId });
       }
     };
 
