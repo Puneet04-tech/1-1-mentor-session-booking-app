@@ -40,24 +40,28 @@ const LANGUAGE_MAP: { [key: string]: string } = {
   'haskell': 'haskell',
 };
 
-// Language to Judge0 language ID mapping
-// Reference: https://judge0.com/api/docs
-const JUDGE0_LANGUAGE_IDS: { [key: string]: number } = {
-  'python': 71,          // Python 3.8+
-  'java': 62,            // Java (OpenJDK)
-  'cpp': 54,             // C++ (GCC)
-  'c': 52,               // C (GCC)
-  'javascript': 63,      // JavaScript (Node.js)
-  'typescript': 67,      // TypeScript
-  'php': 68,             // PHP
-  'ruby': 72,            // Ruby
-  'go': 60,              // Go
-  'rust': 73,            // Rust
-  'csharp': 51,          // C#
-  'swift': 83,           // Swift
-  'kotlin': 78,          // Kotlin
-  'scala': 81,           // Scala
-  'haskell': 11,         // Haskell
+// Language to Glot.io language identifiers
+// Reference: https://glot.io/
+const GLOT_LANGUAGE_MAP: { [key: string]: string } = {
+  'python': 'python',
+  'java': 'java',
+  'cpp': 'cpp',
+  'c++': 'cpp',
+  'c': 'c',
+  'javascript': 'javascript',
+  'js': 'javascript',
+  'typescript': 'typescript',
+  'ts': 'typescript',
+  'php': 'php',
+  'ruby': 'ruby',
+  'go': 'go',
+  'rust': 'rust',
+  'csharp': 'csharp',
+  'cs': 'csharp',
+  'swift': 'swift',
+  'kotlin': 'kotlin',
+  'scala': 'scala',
+  'haskell': 'haskell',
 };
 
 
@@ -94,8 +98,8 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       if (normalizedLang === 'javascript' || normalizedLang === 'typescript') {
         output = executeJavaScriptLocal(code);
       } else {
-        // Use Judge0 API for all other languages (Python, Java, C++, etc.)
-        output = await executeViaJudge0(code, normalizedLang);
+        // Use Glot.io API for all other languages (Python, Java, C++, etc.)
+        output = await executeViaGlot(code, normalizedLang);
       }
     } catch (execErr: any) {
       error = execErr.message;
@@ -133,151 +137,103 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 });
 
 /**
- * Execute code via Judge0 API (free cloud code execution service)
+ * Execute code via Glot.io API (simpler, more reliable)
  * Supports: Python, Java, C++, C, C#, Ruby, PHP, Go, Rust, Swift, Kotlin, Scala, Haskell, etc.
- * API: https://ce.judge0.com - Free community edition, no authentication needed
+ * API: https://glot.io/api - No authentication needed, returns output immediately
  */
-async function executeViaJudge0(code: string, language: string): Promise<string> {
-  // Use free community edition Judge0 sandbox (no authentication required)
-  const JUDGE0_API = process.env.JUDGE0_API || 'https://ce.judge0.com';
+async function executeViaGlot(code: string, language: string): Promise<string> {
+  const GLOT_API = 'https://glot.io/api/run';
   
   try {
-    const langId = JUDGE0_LANGUAGE_IDS[language.toLowerCase()];
+    const glotLang = GLOT_LANGUAGE_MAP[language.toLowerCase()];
     
-    if (!langId) {
-      throw new Error(`Unsupported language: ${language}. Supported: ${Object.keys(JUDGE0_LANGUAGE_IDS).join(', ')}`);
+    if (!glotLang) {
+      throw new Error(`Unsupported language: ${language}. Supported: ${Object.keys(GLOT_LANGUAGE_MAP).join(', ')}`);
     }
 
-    console.log(`Calling Judge0 API for ${language} (ID: ${langId})...`);
+    console.log(`Calling Glot.io API for ${language}...`);
 
     const requestPayload = {
-      source_code: code,
-      language_id: langId,
+      language: glotLang,
+      version: '*',
+      files: [
+        {
+          name: 'main.' + (glotLang === 'javascript' ? 'js' : glotLang === 'python' ? 'py' : glotLang === 'java' ? 'java' : glotLang === 'cpp' ? 'cpp' : glotLang === 'csharp' ? 'cs' : glotLang === 'typescript' ? 'ts' : glotLang),
+          content: code,
+        }
+      ],
       stdin: '',
-      cpu_time_limit: 10,
-      memory_limit: 512000,  // 512MB
     };
 
-    console.log('Request payload:', { language_id: langId, code_length: code.length });
+    console.log('Glot.io request:', { language: glotLang, code_length: code.length });
 
-    // First, create a submission
-    const createResponse = await axios.post(
-      `${JUDGE0_API}/submissions?base64_encoded=false`,
-      requestPayload,
-      {
-        timeout: 30000,
+    const response = await axios.post(GLOT_API, requestPayload, {
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json',
       }
-    );
-
-    const submissionToken = createResponse.data.token;
-    console.log('Submission created:', { token: submissionToken, createResponse: JSON.stringify(createResponse.data, null, 2) });
-
-    // Then poll for results - wait until status is NOT 1 (queued) or 2 (processing)
-    let result = createResponse.data;
-    let attempts = 0;
-    const maxAttempts = 60;
-
-    while ((result.status_id === 1 || result.status_id === 2) && attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const statusResponse = await axios.get(
-        `${JUDGE0_API}/submissions/${submissionToken}?base64_encoded=false`,
-        {
-          timeout: 10000,
-        }
-      );
-      
-      result = statusResponse.data;
-      attempts++;
-      console.log(`Poll ${attempts}: status_id=${result.status_id}, has_stdout=${!!result.stdout}, stdout="${result.stdout?.substring?.(0, 50) || 'null'}"`);
-      
-      if (attempts === 1 || result.status_id > 2) {
-        console.log(`Full response on poll ${attempts}:`, JSON.stringify(result, null, 2));
-      }
-    }
-
-    console.log('Final Judge0 result after', attempts, 'polls:', {
-      status_id: result.status_id,
-      status_text: ({1: 'In Queue', 2: 'Processing', 3: 'Accepted', 4: 'Wrong Answer', 5: 'TLE', 6: 'Compile Error', 7: 'Runtime Error'} as any)[result.status_id] || 'Unknown',
-      stdout_length: result.stdout ? result.stdout.length : 0,
-      stderr_length: result.stderr ? result.stderr.length : 0,
-      compile_output_length: result.compile_output ? result.compile_output.length : 0,
     });
 
-    // Log full response for debugging
-    console.log('FULL Judge0 Response:', JSON.stringify(result, null, 2));
+    console.log('Glot.io response status:', response.status);
+    console.log('Glot.io response data:', JSON.stringify(response.data, null, 2));
 
-    // Helper function to extract output (already plain text since base64_encoded=false)
-    const extractOutput = (value: any): string => {
-      if (!value) return '';
-      if (typeof value === 'string') return value.trim();
-      return '';
-    };
+    const result = response.data;
 
-    // Extract output from the response
-    let output = '';
-    
-    // Get stdout - this is the main output from the program
-    if (result.stdout) {
-      const stdout = extractOutput(result.stdout);
-      if (stdout) {
-        output = stdout;
-        console.log('Got stdout:', { length: stdout.length, content: stdout.substring(0, 100) });
-      }
-    } else {
-      console.warn('No stdout in result');
-    }
-    
-    // Append stderr if present
-    if (result.stderr) {
-      const stderr = extractOutput(result.stderr);
-      if (stderr) {
-        output = output ? `${output}\n${stderr}` : stderr;
-        console.log('Got stderr:', { length: stderr.length, content: stderr.substring(0, 100) });
-      }
+    // Handle errors
+    if (result.error) {
+      throw new Error(`Glot.io Error: ${result.error}`);
     }
 
-    // Check for compilation errors ONLY if no output
-    if (result.compile_output && !output) {
-      const compileError = extractOutput(result.compile_output);
-      if (compileError) {
-        throw new Error(`Compilation Error:\n${compileError}`);
-      }
-    }
+    // Extract output
+    const output = result.stdout || result.output || '';
+    const stderr = result.stderr || '';
 
-    // Check for runtime errors ONLY if no output
-    if (result.runtime_error && !output) {
-      const runtimeErr = extractOutput(result.runtime_error);
-      if (runtimeErr) {
-        throw new Error(`Runtime Error:\n${runtimeErr}`);
-      }
-    }
-
-    // Return output or success message
     if (output) {
-      return output;
+      return output.trim();
+    }
+
+    if (stderr) {
+      throw new Error(`Runtime Error:\n${stderr.trim()}`);
     }
 
     return 'Code executed successfully (no output)';
   } catch (err: any) {
-    console.error('Judge0 API detailed error:', {
+    console.error('Glot.io API error:', {
       message: err.message,
       code: err.code,
       status: err.response?.status,
-      statusText: err.response?.statusText,
       data: err.response?.data,
     });
 
     // Handle network errors
     if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
-      throw new Error(`Judge0 API unavailable (${err.code})`);
+      throw new Error(`Glot.io API unavailable (${err.code})`);
     }
 
     // Handle HTTP errors
     if (err.response?.status) {
-      throw new Error(`Judge0 API error (${err.response.status}): ${err.response.statusText}`);
+      throw new Error(`Glot.io API error (${err.response.status}): ${err.response.statusText}`);
     }
 
+    throw new Error(`Code execution failed: ${err.message}`);
+  }
+}
+
+/**
+ * Execute code via Judge0 API (DEPRECATED - Left for reference)
+ */
+async function executeViaJudge0(code: string, language: string): Promise<string> {
+  const JUDGE0_API = process.env.JUDGE0_API || 'https://ce.judge0.com';
+
+  try {
+    const langId = GLOT_LANGUAGE_MAP[language.toLowerCase()];
+    
+    if (!langId) {
+      throw new Error(`Unsupported language: ${language}`);
+    }
+
+    throw new Error('Judge0 is deprecated, use Glot.io instead');
+  } catch (err: any) {
     throw new Error(`Code execution failed: ${err.message}`);
   }
 }
@@ -470,28 +426,20 @@ router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Respons
 
 
 /**
- * List available languages from Judge0 API (PUBLIC - no auth needed)
+ * List available languages from Glot.io API (PUBLIC - no auth needed)
  */
 router.get('/runtimes', async (req: any, res: Response) => {
   try {
-    const JUDGE0_API = process.env.JUDGE0_API || 'https://ce.judge0.com';
-
-    const languagesResponse = await axios.get(`${JUDGE0_API}/languages`, {
-      timeout: 5000,
-    });
-
-    const languages = languagesResponse.data || [];
-
     res.json({
       success: true,
-      totalLanguages: languages.length,
-      languages: languages.map((lang: any) => ({
-        id: lang.id,
-        name: lang.name,
+      totalLanguages: Object.keys(GLOT_LANGUAGE_MAP).length,
+      languages: Object.keys(GLOT_LANGUAGE_MAP).map(lang => ({
+        name: lang,
+        id: GLOT_LANGUAGE_MAP[lang],
       })),
     });
   } catch (err: any) {
-    console.error('Failed to fetch Judge0 languages:', err.message);
+    console.error('Failed to get languages:', err.message);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch available languages',
@@ -540,25 +488,22 @@ router.get('/runtimes-piston', async (req: any, res: Response) => {
 
 /**
  * Health check - Verify code execution service is available
- * Tests JavaScript locally and checks Judge0 API connectivity
+ * Tests JavaScript locally and checks Glot.io API connectivity
  */
 router.get('/health/check', async (req: AuthRequest, res: Response) => {
   try {
-    const JUDGE0_API = process.env.JUDGE0_API || 'https://ce.judge0.com';
-
     // Test JavaScript execution
     const jsTest = executeJavaScriptLocal('console.log("JS works!")');
 
-    // Get available languages from Judge0 API
-    let availableLanguages: any[] = [];
+    // Test Glot.io connectivity with Python
+    let glotioStatus = 'checking';
     try {
-      const languagesResponse = await axios.get(`${JUDGE0_API}/languages`, {
-        timeout: 5000,
-      });
-      availableLanguages = languagesResponse.data || [];
-      console.log('Available Judge0 languages:', availableLanguages.length);
-    } catch (e) {
-      console.warn('Failed to fetch Judge0 API languages');
+      const pythonTest = await executeViaGlot('print("Glot.io works!")', 'python');
+      glotioStatus = 'available';
+      console.log('Glot.io test passed:', pythonTest);
+    } catch (e: any) {
+      console.warn('Glot.io test failed:', e.message);
+      glotioStatus = 'error';
     }
 
     res.json({
@@ -569,12 +514,11 @@ router.get('/health/check', async (req: AuthRequest, res: Response) => {
         test: 'Passed',
         jsTest: jsTest,
       },
-      judge0API: {
-        endpoint: JUDGE0_API,
-        status: availableLanguages.length > 0 ? 'available' : 'checking',
-        totalLanguages: availableLanguages.length,
+      glotioAPI: {
+        endpoint: 'https://glot.io/api/run',
+        status: glotioStatus,
+        supportedLanguages: Object.keys(GLOT_LANGUAGE_MAP),
       },
-      supportedLanguages: availableLanguages.map((lang: any) => lang.name),
     });
   } catch (err: any) {
     console.error('Health check error:', err.message);
