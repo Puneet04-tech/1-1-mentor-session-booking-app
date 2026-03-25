@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon --exec ts-node -r tsconfig-paths/register src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node -r module-alias/register dist/index.js",
     "migrate": "ts-node -r tsconfig-paths/register src/migrations.ts",
     "seed": "ts-node -r tsconfig-paths/register src/seed.ts",
     "migrate:seed": "npm run migrate && npm run seed",
@@ -23,6 +23,7 @@
     "express-validator": "^7.0.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.0",
+    "module-alias": "^2.3.4",
     "pg": "^8.11.3",
     "socket.io": "^4.7.2",
     "uuid": "^9.0.1"
@@ -43,6 +44,9 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.3.0"
+  },
+  "_moduleAliases": {
+    "@": "dist"
   },
   "engines": {
     "node": ">=16.0.0"
