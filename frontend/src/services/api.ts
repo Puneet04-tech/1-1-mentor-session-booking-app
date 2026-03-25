@@ -86,126 +86,126 @@ class ApiClient {
   }
 
   async getAvailableSessions(): Promise<ApiResponse<Session[]>> {
-    return this.client.get('/api/sessions/available');
+    return this.client.get('/sessions/available');
   }
 
   async getUserSessions(): Promise<ApiResponse<Session[]>> {
-    return this.client.get('/api/sessions/user');
+    return this.client.get('/sessions/user');
   }
 
   // User endpoints
   async getUser(id: string): Promise<ApiResponse<User>> {
-    return this.client.get(`/api/users/${id}`);
+    return this.client.get(`/users/${id}`);
   }
 
   async getMentors(): Promise<ApiResponse<User[]>> {
-    return this.client.get('/api/users/mentors');
+    return this.client.get('/users/mentors');
   }
 
   async getStudents(): Promise<ApiResponse<User[]>> {
-    return this.client.get('/api/users/students');
+    return this.client.get('/users/students');
   }
 
   // Message endpoints
   async getMessages(sessionId: string): Promise<ApiResponse<Message[]>> {
-    return this.client.get(`/api/messages/${sessionId}`);
+    return this.client.get(`/messages/${sessionId}`);
   }
 
   async sendMessage(
     sessionId: string,
     data: { content: string; type: string }
   ): Promise<ApiResponse<Message>> {
-    return this.client.post(`/api/messages/${sessionId}`, data);
+    return this.client.post(`/messages/${sessionId}`, data);
   }
 
   // Code endpoints
   async getCodeSnapshot(sessionId: string): Promise<ApiResponse<any>> {
-    return this.client.get(`/api/code/${sessionId}`);
+    return this.client.get(`/code/${sessionId}`);
   }
 
   async saveCodeSnapshot(sessionId: string, code: string, language: string): Promise<ApiResponse<any>> {
-    return this.client.post(`/api/code/${sessionId}`, { code, language });
+    return this.client.post(`/code/${sessionId}`, { code, language });
   }
 
   // Code Execution
   async executeCode(code: string, language: string, sessionId?: string): Promise<ApiResponse<{ output: string; error?: string }>> {
-    return this.client.post('/api/code/execute', { code, language, sessionId });
+    return this.client.post('/code/execute', { code, language, sessionId });
   }
 
   // Profile endpoints
   async getProfile(): Promise<ApiResponse<any>> {
-    return this.client.get('/api/profile');
+    return this.client.get('/profile');
   }
 
   async updateProfile(data: { bio?: string; avatar_url?: string; skills?: string[] }): Promise<ApiResponse<any>> {
-    return this.client.put('/api/profile', data);
+    return this.client.put('/profile', data);
   }
 
   async getPublicProfile(userId: string): Promise<ApiResponse<any>> {
-    return this.client.get(`/api/profile/${userId}`);
+    return this.client.get(`/profile/${userId}`);
   }
 
   async addSkill(skill: string): Promise<ApiResponse<any>> {
-    return this.client.post('/api/profile/skills', { name: skill });
+    return this.client.post('/profile/skills', { name: skill });
   }
 
   async removeSkill(skillId: string): Promise<ApiResponse<any>> {
-    return this.client.delete(`/api/profile/skills/${skillId}`);
+    return this.client.delete(`/profile/skills/${skillId}`);
   }
 
   // Ratings endpoints
   async submitRating(sessionId: string, data: { rating: number; comment?: string }): Promise<ApiResponse<any>> {
-    return this.client.post('/api/ratings', { session_id: sessionId, ...data });
+    return this.client.post('/ratings', { session_id: sessionId, ...data });
   }
 
   async getRatings(userId: string): Promise<ApiResponse<any[]>> {
-    return this.client.get(`/api/ratings/user/${userId}`);
+    return this.client.get(`/ratings/user/${userId}`);
   }
 
   async getSessionRating(sessionId: string): Promise<ApiResponse<any>> {
-    return this.client.get(`/api/ratings/session/${sessionId}`);
+    return this.client.get(`/ratings/session/${sessionId}`);
   }
 
   async updateRating(ratingId: string, data: { rating?: number; comment?: string }): Promise<ApiResponse<any>> {
-    return this.client.put(`/api/ratings/${ratingId}`, data);
+    return this.client.put(`/ratings/${ratingId}`, data);
   }
 
   async deleteRating(ratingId: string): Promise<ApiResponse<any>> {
-    return this.client.delete(`/api/ratings/${ratingId}`);
+    return this.client.delete(`/ratings/${ratingId}`);
   }
 
   // Session History endpoints
   async getSessionHistory(): Promise<ApiResponse<any[]>> {
-    return this.client.get('/api/sessions/history');
+    return this.client.get('/sessions/history');
   }
 
   async getMentorSessions(mentorId: string): Promise<ApiResponse<any[]>> {
-    return this.client.get(`/api/sessions/history/mentor/${mentorId}`);
+    return this.client.get(`/sessions/history/mentor/${mentorId}`);
   }
 
   async completeSession(sessionId: string): Promise<ApiResponse<any>> {
-    return this.client.patch(`/api/sessions/history/${sessionId}/complete`);
+    return this.client.patch(`/sessions/history/${sessionId}/complete`);
   }
 
   async getSessionFeedback(sessionId: string): Promise<ApiResponse<any>> {
-    return this.client.get(`/api/sessions/history/${sessionId}/feedback`);
+    return this.client.get(`/sessions/history/${sessionId}/feedback`);
   }
 
   // Notifications endpoints
   async getNotifications(): Promise<ApiResponse<any[]>> {
-    return this.client.get('/api/notifications');
+    return this.client.get('/notifications');
   }
 
   async createNotification(data: { user_id: string; type: string; title: string; message: string }): Promise<ApiResponse<any>> {
-    return this.client.post('/api/notifications', data);
+    return this.client.post('/notifications', data);
   }
 
   async markNotificationAsRead(notificationId: string): Promise<ApiResponse<any>> {
-    return this.client.patch(`/api/notifications/${notificationId}/read`);
+    return this.client.patch(`/notifications/${notificationId}/read`);
   }
 
   async deleteNotification(notificationId: string): Promise<ApiResponse<any>> {
-    return this.client.delete(`/api/notifications/${notificationId}`);
+    return this.client.delete(`/notifications/${notificationId}`);
   }
 
   // Search endpoints
@@ -213,103 +213,103 @@ class ApiClient {
     const params = new URLSearchParams({ q: query });
     if (filters?.minRating) params.set('minRating', filters.minRating.toString());
     if (filters?.skills?.length) params.set('skills', filters.skills.join(','));
-    return this.client.get(`/api/users/mentors?${params.toString()}`);
+    return this.client.get(`/users/mentors?${params.toString()}`);
   }
 
   // Availability endpoints
   async getMentorAvailability(mentorId: string): Promise<ApiResponse<any[]>> {
-    return this.client.get(`/api/availability/mentor/${mentorId}`);
+    return this.client.get(`/availability/mentor/${mentorId}`);
   }
 
   async setMentorAvailability(slots: any[]): Promise<ApiResponse<any>> {
-    return this.client.post('/api/availability/mentor/slots', { slots });
+    return this.client.post('/availability/mentor/slots', { slots });
   }
 
   async getAvailableSlots(mentorId: string, date: string): Promise<ApiResponse<any>> {
-    return this.client.get(`/api/availability/available/${mentorId}?date=${date}`);
+    return this.client.get(`/availability/available/${mentorId}?date=${date}`);
   }
 
   async getSessionCalendar(userId: string, startDate: string, endDate: string): Promise<ApiResponse<any[]>> {
-    return this.client.get(`/api/availability/calendar/${userId}?startDate=${startDate}&endDate=${endDate}`);
+    return this.client.get(`/availability/calendar/${userId}?startDate=${startDate}&endDate=${endDate}`);
   }
 
   // Payment endpoints
   async createPaymentIntent(sessionId: string, amount: number): Promise<ApiResponse<any>> {
-    return this.client.post('/api/payments/create-payment-intent', { sessionId, amount });
+    return this.client.post('/payments/create-payment-intent', { sessionId, amount });
   }
 
   async confirmPayment(paymentId: string): Promise<ApiResponse<any>> {
-    return this.client.post('/api/payments/confirm', { paymentId });
+    return this.client.post('/payments/confirm', { paymentId });
   }
 
   async getPaymentHistory(): Promise<ApiResponse<any[]>> {
-    return this.client.get('/api/payments/history');
+    return this.client.get('/payments/history');
   }
 
   async getEarnings(): Promise<ApiResponse<any>> {
-    return this.client.get('/api/payments/earnings');
+    return this.client.get('/payments/earnings');
   }
 
   // Recording endpoints
   async startRecording(sessionId: string): Promise<ApiResponse<any>> {
-    return this.client.post('/api/recordings/start', { sessionId });
+    return this.client.post('/recordings/start', { sessionId });
   }
 
   async stopRecording(recordingId: string): Promise<ApiResponse<any>> {
-    return this.client.post(`/api/recordings/stop/${recordingId}`);
+    return this.client.post(`/recordings/stop/${recordingId}`);
   }
 
   async getSessionRecordings(sessionId: string): Promise<ApiResponse<any[]>> {
-    return this.client.get(`/api/recordings/session/${sessionId}`);
+    return this.client.get(`/recordings/session/${sessionId}`);
   }
 
   async getRecordingUrl(recordingId: string): Promise<ApiResponse<any>> {
-    return this.client.get(`/api/recordings/${recordingId}`);
+    return this.client.get(`/recordings/${recordingId}`);
   }
 
   async deleteRecording(recordingId: string): Promise<ApiResponse<any>> {
-    return this.client.delete(`/api/recordings/${recordingId}`);
+    return this.client.delete(`/recordings/${recordingId}`);
   }
 
   // Admin endpoints
   async getAdminStats(): Promise<ApiResponse<any>> {
-    return this.client.get('/api/admin/stats');
+    return this.client.get('/admin/stats');
   }
 
   async getAdminUsers(query?: string, role?: string): Promise<ApiResponse<any[]>> {
     const params = new URLSearchParams();
     if (query) params.set('search', query);
     if (role) params.set('role', role);
-    return this.client.get(`/api/admin/users?${params.toString()}`);
+    return this.client.get(`/admin/users?${params.toString()}`);
   }
 
   async suspendUser(userId: string, reason: string): Promise<ApiResponse<any>> {
-    return this.client.patch(`/api/admin/users/${userId}/suspend`, { isSuspended: true, reason });
+    return this.client.patch(`/admin/users/${userId}/suspend`, { isSuspended: true, reason });
   }
 
   async unsuspendUser(userId: string): Promise<ApiResponse<any>> {
-    return this.client.patch(`/api/admin/users/${userId}/suspend`, { isSuspended: false });
+    return this.client.patch(`/admin/users/${userId}/suspend`, { isSuspended: false });
   }
 
   async getModerationQueue(): Promise<ApiResponse<any[]>> {
-    return this.client.get('/api/admin/moderation/queue');
+    return this.client.get('/admin/moderation/queue');
   }
 
   async flagSessionForReview(sessionId: string, reason: string): Promise<ApiResponse<any>> {
-    return this.client.post(`/api/admin/moderation/flag/${sessionId}`, { reason });
+    return this.client.post(`/admin/moderation/flag/${sessionId}`, { reason });
   }
 
   async getReports(): Promise<ApiResponse<any[]>> {
-    return this.client.get('/api/admin/reports');
+    return this.client.get('/admin/reports');
   }
 
   // Video Conference endpoints
   async generateVideoCode(sessionId: string): Promise<ApiResponse<{ code: string }>> {
-    return this.client.post(`/api/sessions/${sessionId}/video-code`, {});
+    return this.client.post(`/sessions/${sessionId}/video-code`, {});
   }
 
   async verifyVideoCode(sessionId: string, code: string): Promise<ApiResponse<any>> {
-    return this.client.post(`/api/sessions/${sessionId}/verify-video-code`, { code });
+    return this.client.post(`/sessions/${sessionId}/verify-video-code`, { code });
   }
 
   // Generic post method for other endpoints
