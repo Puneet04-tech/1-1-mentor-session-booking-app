@@ -114,71 +114,79 @@ async function executeViaPiston(code: string, language: string): Promise<string>
   try {
     console.log(`Calling Piston API (${PISTON_API}) for ${language}...`);
 
-    const response = await axios.post(
-      `${PISTON_API}/execute`,
-      {
-        language: language,
-        source: code,
-        args: [],
-        stdin: '',
-        compile_timeout: 20000,
-        run_timeout: 20000,
-        compile_memory_limit: -1,
-        run_memory_limit: -1,
+    const requestPayload = {
+      language: language,
+      source: code,
+      args: [],
+      stdin: '',
+      compile_timeout: 20000,
+      run_timeout: 20000,
+      compile_memory_limit: -1,
+      run_memory_limit: -1,
+    };
+
+    console.log('Request payload:', JSON.stringify(requestPayload, null, 2));
+
+    const response = await axios.post(`${PISTON_API}/execute`, requestPayload, {
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json',
       },
-      {
-        timeout: 30000,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+    });
 
-    console.log(`Piston API response status: ${response.status}, has run: ${!!response.data.run}`);
+    console.log('Piston API response:', JSON.stringify(response.data, null, 2));
 
-    // Check for compilation errors
-    if (response.data.compile && response.data.compile.stderr) {
-      const compileError = response.data.compile.stderr.trim();
-      if (compileError) {
-        throw new Error(`Compilation Error:\n${compileError}`);
+    // Check for errors in response
+    if (response.data.error) {
+      throw new Error(`Piston Error: ${response.data.error}`);
+    }
+
+    // Handle compile stage errors
+    if (response.data.compile?.stderr) {
+      const stderr = response.data.compile.stderr.trim();
+      if (stderr && !response.data.run?.output) {
+        throw new Error(`Compilation Error:\n${stderr}`);
       }
     }
 
-    // Return runtime output (stdout + stderr if both exist)
+    // Return runtime output
     const stdout = response.data.run?.output?.trim() || '';
     const stderr = response.data.run?.stderr?.trim() || '';
     
-    if (stdout || stderr) {
-      return (stdout + (stdout && stderr ? '\n' : '') + stderr).trim() || 'Code executed successfully (no output)';
-    }
-
-    return 'Code executed successfully (no output)';
+    return (stdout + (stdout && stderr ? '\n' : '') + stderr).trim() || 'Code executed successfully (no output)';
   } catch (err: any) {
-    // Re-throw compilation errors as-is
-    if (err.message.includes('Compilation Error')) {
-      throw err;
-    }
-
-    console.error('Piston API error:', {
+    console.error('Piston API detailed error:', {
       message: err.message,
       code: err.code,
       status: err.response?.status,
       statusText: err.response?.statusText,
+      data: err.response?.data,
     });
+
+    // Re-throw compilation errors
+    if (err.message.includes('Compilation Error')) {
+      throw err;
+    }
 
     // Handle network errors
     if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
+      throw new Error(`Piston API unavailable (${err.code}). Endpoint: ${PISTON_API}`);
+    }
+
+    // Handle HTTP errors
+    if (err.response?.status === 404) {
       throw new Error(
-        `Piston API unavailable (${err.code}). Endpoint: ${PISTON_API}`
+        `Piston API Runtime Not Found (404). Language: ${language}. ` +
+        `Check supported runtimes at ${PISTON_API}/runtimes`
       );
     }
 
-    // Handle Axios errors with response
-    if (err.response) {
+    if (err.response?.status) {
+      console.error('Full error response:', err.response.data);
       throw new Error(`Piston API error (${err.response.status}): ${err.response.statusText}`);
     }
 
-    throw new Error(`Code execution failed: ${err.message || 'Unknown error'}`);
+    throw new Error(`Code execution failed: ${err.message}`);
   }
 }
 
