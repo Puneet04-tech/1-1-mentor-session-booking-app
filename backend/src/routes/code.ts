@@ -162,7 +162,7 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
 
     // First, create a submission
     const createResponse = await axios.post(
-      `${JUDGE0_API}/submissions?base64_encoded=false&fields=*`,
+      `${JUDGE0_API}/submissions?base64_encoded=false`,
       requestPayload,
       {
         timeout: 30000,
@@ -170,7 +170,7 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
     );
 
     const submissionToken = createResponse.data.token;
-    console.log('Submission token:', submissionToken);
+    console.log('Submission created:', { token: submissionToken, createResponse: JSON.stringify(createResponse.data, null, 2) });
 
     // Then poll for results - wait until status is NOT 1 (queued) or 2 (processing)
     let result = createResponse.data;
@@ -181,7 +181,7 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
       await new Promise(resolve => setTimeout(resolve, 500));
       
       const statusResponse = await axios.get(
-        `${JUDGE0_API}/submissions/${submissionToken}?base64_encoded=false&fields=*`,
+        `${JUDGE0_API}/submissions/${submissionToken}?base64_encoded=false`,
         {
           timeout: 10000,
         }
@@ -189,7 +189,11 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
       
       result = statusResponse.data;
       attempts++;
-      console.log(`Poll ${attempts}: status_id=${result.status_id}, stdout=${result.stdout ? 'present' : 'null'}`);
+      console.log(`Poll ${attempts}: status_id=${result.status_id}, has_stdout=${!!result.stdout}, stdout="${result.stdout?.substring?.(0, 50) || 'null'}"`);
+      
+      if (attempts === 1 || result.status_id > 2) {
+        console.log(`Full response on poll ${attempts}:`, JSON.stringify(result, null, 2));
+      }
     }
 
     console.log('Final Judge0 result after', attempts, 'polls:', {
@@ -199,6 +203,9 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
       stderr_length: result.stderr ? result.stderr.length : 0,
       compile_output_length: result.compile_output ? result.compile_output.length : 0,
     });
+
+    // Log full response for debugging
+    console.log('FULL Judge0 Response:', JSON.stringify(result, null, 2));
 
     // Helper function to extract output (already plain text since base64_encoded=false)
     const extractOutput = (value: any): string => {
@@ -210,10 +217,15 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
     // Extract output from the response
     let output = '';
     
-    // Get stdout
+    // Get stdout - this is the main output from the program
     if (result.stdout) {
       const stdout = extractOutput(result.stdout);
-      if (stdout) output = stdout;
+      if (stdout) {
+        output = stdout;
+        console.log('Got stdout:', { length: stdout.length, content: stdout.substring(0, 100) });
+      }
+    } else {
+      console.warn('No stdout in result');
     }
     
     // Append stderr if present
@@ -221,10 +233,9 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
       const stderr = extractOutput(result.stderr);
       if (stderr) {
         output = output ? `${output}\n${stderr}` : stderr;
+        console.log('Got stderr:', { length: stderr.length, content: stderr.substring(0, 100) });
       }
     }
-    
-    console.log('Extracted output:', { output, length: output.length });
 
     // Check for compilation errors ONLY if no output
     if (result.compile_output && !output) {
