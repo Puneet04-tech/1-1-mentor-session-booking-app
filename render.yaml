@@ -4,7 +4,7 @@ services:
     env: node
     plan: free
     rootDir: backend
-    buildCommand: npm ci --prefer-offline --no-audit && npm run build
+    buildCommand: npm install --no-optional --production=false && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
