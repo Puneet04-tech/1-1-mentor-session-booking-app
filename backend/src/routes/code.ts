@@ -15,14 +15,14 @@ export function setSocketIO(socketIO: SocketIOServer) {
   io = socketIO;
 }
 
-// Language mappings for Piston API
+// Language mappings to Piston API runtime identifiers
 const LANGUAGE_MAP: { [key: string]: string } = {
   'javascript': 'javascript',
   'js': 'javascript',
   'typescript': 'typescript',
-  'python': 'python',
-  'py': 'python',
-  'java': 'java',
+  'python': 'python3',
+  'py': 'python3',
+  'java': 'java17',
   'cpp': 'cpp',
   'c++': 'cpp',
   'c': 'c',
