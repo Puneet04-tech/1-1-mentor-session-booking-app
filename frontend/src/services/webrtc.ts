@@ -376,8 +376,7 @@ export class WebRTCService {
       });
       console.log('📊 Current peer connections:', Array.from(this.peerConnections.keys()));
       
-      // The answer is coming from a peer. Use callerId as the primary key (sender's user ID)
-      // This should match the peer connection we created in initiateConnection
+      // The answer is from callerId (answer sender). Match it with our initiated connection
       const actualPeerId = callerId || targetId || peerId || this.remoteUserId;
       
       if (!actualPeerId) {
@@ -391,19 +390,11 @@ export class WebRTCService {
       if (!peerConnection) {
         console.warn('⚠️ Peer connection NOT found with key:', actualPeerId);
         console.log('📋 Available keys:', Array.from(this.peerConnections.keys()));
-        
-        // If not found by userId, try 'initiator' as last resort for backwards compatibility
-        const initiatorPC = this.peerConnections.get('initiator');
-        if (initiatorPC) {
-          console.log('🔄 Using initiator PC for answer');
-          peerConnection = initiatorPC;
-        }
       } else {
         console.log('✅ Found peer connection with key:', actualPeerId);
       }
       
       if (peerConnection) {
-        // Check connection state before setting remote description
         const signalingState = peerConnection.signalingState;
         console.log(`📊 Peer connection signaling state: ${signalingState}`);
         console.log('📊 Peer connection details:', {
@@ -414,19 +405,25 @@ export class WebRTCService {
           receivers: peerConnection.getReceivers().length,
         });
         
-        // Only set remote description if we're in a state where we can
+        // Only set remote description if signaling state allows
         if (signalingState === 'have-local-offer') {
           await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-          console.log('✅ Set remote description (answer)');
+          console.log('✅ Set remote description (answer) - connection should now be establishing');
           console.log('📊 After setting remote answer:', {
             signalingState: peerConnection.signalingState,
             iceConnectionState: peerConnection.iceConnectionState,
+            connectionState: peerConnection.connectionState,
           });
         } else {
           console.warn(`⚠️ Cannot set remote answer - wrong state: ${signalingState}. Expected 'have-local-offer'`);
+          console.log('📊 Current connection state:', {
+            signalingState,
+            iceConnectionState: peerConnection.iceConnectionState,
+            connectionState: peerConnection.connectionState,
+          });
         }
       } else {
-        console.warn('⚠️ No peer connection found for answer after all attempts');
+        console.warn('⚠️ No peer connection found for answer');
         console.log('📊 Answer data:', { callerId, targetId, peerId });
         console.log('📊 Stored remoteUserId:', this.remoteUserId);
       }
@@ -582,17 +579,22 @@ export class WebRTCService {
       videoTracks: this.localStream?.getVideoTracks().length || 0,
     });
 
-    // Add local stream tracks
+    // Add local stream tracks using transceivers for better compatibility
     if (this.localStream) {
       const tracks = this.localStream.getTracks();
       console.log(`📋 Adding ${tracks.length} tracks to peer connection`);
       
       tracks.forEach((track) => {
         try {
-          peerConnection.addTrack(track, this.localStream!);
-          console.log(`✅ Added ${track.kind} track to peer connection (enabled: ${track.enabled})`);
+          // Use addTransceiver instead of addTrack for better negotiation
+          const transceiver = peerConnection.addTransceiver(track, {
+            streams: [this.localStream!],
+            direction: 'sendrecv', // Will both send and receive
+          });
+          console.log(`✅ Added ${track.kind} transceiver (enabled: ${track.enabled})`);
+          console.log(`📊 Transceiver mid: ${transceiver.mid}, sender: ${transceiver.sender.track?.id}`);
         } catch (err) {
-          console.error(`❌ Error adding ${track.kind} track:`, err);
+          console.error(`❌ Error adding ${track.kind} transceiver:`, err);
         }
       });
     } else {
@@ -612,7 +614,7 @@ export class WebRTCService {
       }
     };
 
-    // Handle remote stream
+    // Handle remote stream - THIS IS CRITICAL
     peerConnection.ontrack = (event) => {
       console.log('✅✅✅ ONTRACK FIRED! ✅✅✅');
       console.log('📹 Received remote track:', {
@@ -624,19 +626,19 @@ export class WebRTCService {
       });
       
       if (event.streams && event.streams.length > 0) {
-        console.log(`✅ Remote stream has ${event.streams[0].getTracks().length} tracks`);
-        console.log('🔍 Stream tracks details:', event.streams[0].getTracks().map(t => ({
+        const remoteStream = event.streams[0];
+        console.log(`✅ Remote stream has ${remoteStream.getTracks().length} tracks`);
+        console.log('🔍 Stream tracks details:', remoteStream.getTracks().map(t => ({
           kind: t.kind,
           label: t.label,
           enabled: t.enabled,
           id: t.id
         })));
         
-        // Check if this is a screen share track (usually has specific characteristics)
-        const tracks = event.streams[0].getTracks();
+        // Check if this is a screen share track
+        const tracks = remoteStream.getTracks();
         const videoTrack = tracks.find(t => t.kind === 'video');
         
-        // Better screen share detection - check track settings and properties
         const isScreenShareTrack = videoTrack && (
           videoTrack.label?.includes('screen') || 
           videoTrack.label?.includes('display') || 
@@ -649,19 +651,18 @@ export class WebRTCService {
         console.log('🔍 Track analysis:', {
           isScreenShareTrack,
           trackLabel: videoTrack?.label,
-          trackSettings: (videoTrack as any)?.settings,
           trackKind: videoTrack?.kind,
         });
         
         if (isScreenShareTrack && this.onScreenShare) {
           console.log('🖥️ Detected screen share track, calling onScreenShare callback');
-          this.onScreenShare(event.streams[0], peerId);
+          this.onScreenShare(remoteStream, peerId);
         } else if (this.onRemoteStream) {
           console.log('📹 Detected regular video track, calling onRemoteStream callback');
           console.log('🔍 Callback function exists:', !!this.onRemoteStream);
-          console.log('🔍 Stream to pass:', event.streams[0]);
-          this.onRemoteStream(event.streams[0], peerId);
-          console.log('✅ onRemoteStream callback called');
+          console.log('🔍 Stream object:', { id: remoteStream.id, trackCount: remoteStream.getTracks().length });
+          this.onRemoteStream(remoteStream, peerId);
+          console.log('✅ onRemoteStream callback called successfully');
         } else {
           console.error('❌ NO CALLBACK SET! this.onRemoteStream is:', this.onRemoteStream);
         }
@@ -672,28 +673,52 @@ export class WebRTCService {
 
     // Handle connection state changes
     peerConnection.onconnectionstatechange = () => {
-      console.log(`🔄 Connection state with ${peerId}: ${peerConnection.connectionState}`);
-      console.log(`📊 Peer connection stats:`, {
-        connectionState: peerConnection.connectionState,
-        iceConnectionState: peerConnection.iceConnectionState,
-        signalingState: peerConnection.signalingState,
-        localTracks: peerConnection.getSenders().length,
-        remoteTracks: peerConnection.getReceivers().length,
+      const state = peerConnection.connectionState;
+      const iceState = peerConnection.iceConnectionState;
+      const sigState = peerConnection.signalingState;
+      
+      console.log(`🔄 Connection state with ${peerId}: ${state}`);
+      console.log(`📊 Full connection status:`, {
+        connectionState: state,
+        iceConnectionState: iceState,
+        signalingState: sigState,
+        senders: peerConnection.getSenders().length,
+        receivers: peerConnection.getReceivers().length,
       });
       
-      if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
-        this.closePeerConnection(peerId);
+      // Only close on truly failed states
+      if (state === 'failed') {
+        console.error('❌ Peer connection FAILED - attempting recovery');
+        // Don't close immediately - wait for ICE restart
+        setTimeout(() => {
+          if (peerConnection.connectionState === 'failed') {
+            console.log('🔌 Closing failed peer connection after delay');
+            this.closePeerConnection(peerId);
+          }
+        }, 5000);
+      } else if (state === 'connected') {
+        console.log('✅ Peer connection established successfully');
+      } else if (state === 'disconnected') {
+        console.warn('⚠️ Peer connection disconnected - may reconnect');
       }
     };
 
-    // Log ICE connection state
+    // Handle ICE connection state
     peerConnection.oniceconnectionstatechange = () => {
-      console.log(`🧊 ICE connection state with ${peerId}: ${peerConnection.iceConnectionState}`);
+      const iceState = peerConnection.iceConnectionState;
+      console.log(`🧊 ICE connection state with ${peerId}: ${iceState}`);
       
-      if (peerConnection.iceConnectionState === 'failed') {
-        console.warn('⚠️ ICE connection failed - may need TURN server or network fix');
-      } else if (peerConnection.iceConnectionState === 'connected' || peerConnection.iceConnectionState === 'completed') {
-        console.log('✅ ICE connection established');
+      if (iceState === 'connected' || iceState === 'completed') {
+        console.log('✅ ICE connection established - media should flow now');
+      } else if (iceState === 'failed') {
+        console.warn('⚠️ ICE connection failed - checking network connectivity');
+        console.log('📊 ICE Info:', {
+          state: iceState,
+          connectionState: peerConnection.connectionState,
+          signalingState: peerConnection.signalingState,
+        });
+      } else if (iceState === 'checking') {
+        console.log('🔍 ICE is checking candidates...');
       }
     };
 
@@ -771,12 +796,13 @@ export class WebRTCService {
       }
       this.initiateConnectionInProgress = true;
 
-      console.log(`🔗 Starting WebRTC connection initiation...`);
+      console.log(`🔗 Starting WebRTC connection initiation...\n`);
       console.log(`📊 Initiator userId: ${this.userId}`);
       console.log(`📊 Remote userId: ${remoteUserId}`);
       console.log(`📊 Session ID: ${this.sessionId}`);
       console.log(`📊 Local stream exists: ${!!this.localStream}`);
       console.log(`📊 Socket connected: ${socketService.isConnected()}`);
+      console.log(`📊 User role: ${this.userRole}\n`);
 
       if (!this.localStream) {
         throw new Error('Local stream not initialized. Call startLocalVideo first.');
@@ -789,24 +815,23 @@ export class WebRTCService {
       // Store remoteUserId for later matching
       this.remoteUserId = remoteUserId;
 
-      // Only mentors should initiate connections to avoid race conditions
-      // Students wait for mentor offers
+      // Only mentors should initiate connections
       const shouldOffer = this.userRole === 'mentor';
       
-      console.log(`🤝 Should offer: ${shouldOffer} (role: ${this.userRole}, userId: ${this.userId})`);
+      console.log(`🤝 Should offer: ${shouldOffer} (role: ${this.userRole})\n`);
 
       if (!shouldOffer) {
-        console.log('⏳ Waiting for offer from remote peer (higher ID)...');
+        console.log('⏳ Student waiting for offer from mentor...');
         this.initiateConnectionInProgress = false;
         return; // Wait for remote peer to send offer
       }
 
       // Ensure socket is connected before proceeding
       if (!socketService.isConnected()) {
-        console.warn('⚠️ Socket not connected! Waiting for connection...');
+        console.warn('⚠️ Socket not connected yet, waiting for connection...');
         try {
-          await socketService.waitForConnection(10000); // Wait max 10 seconds
-          console.log('✅ Socket now connected');
+          await socketService.waitForConnection(15000); // Wait max 15 seconds
+          console.log('✅ Socket connected, proceeding with offer\n');
         } catch (err) {
           throw new Error('Socket connection timeout: unable to establish connection');
         }
@@ -814,46 +839,57 @@ export class WebRTCService {
 
       // Check if we already have a connection for this remote user
       if (this.peerConnections.has(remoteUserId)) {
-        console.warn(`⚠️ Peer connection already exists for ${remoteUserId}, skipping initialization`);
+        console.warn(`⚠️ Peer connection already exists for ${remoteUserId}, skipping`);
         this.initiateConnectionInProgress = false;
         return;
       }
 
-      // Create a peer connection with remoteUserId as the key
-      console.log(`🔌 Creating peer connection with KEY: ${remoteUserId}`);
+      // Create peer connection with proper key
+      console.log(`🔌 Creating peer connection with KEY: ${remoteUserId}\n`);
       const peerConnection = this.createPeerConnection(remoteUserId);
-      console.log(`✅ Peer connection created and stored with key: ${remoteUserId}`);
+      console.log(`✅ Peer connection created\n`);
+
+      // Log connection setup
+      console.log('📊 Peer connection details after creation:', {
+        signalingState: peerConnection.signalingState,
+        iceConnectionState: peerConnection.iceConnectionState,
+        connectionState: peerConnection.connectionState,
+        senders: peerConnection.getSenders().length,
+        receivers: peerConnection.getReceivers().length,
+      });
 
       // Create and send offer
-      console.log('📤 Creating WebRTC offer...');
+      console.log('📤 Creating WebRTC offer with receive audio + video...');
       const offer = await peerConnection.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: true,
       });
 
       await peerConnection.setLocalDescription(offer);
-      console.log('✅ Local description set (offer)');
+      console.log('✅ Local description set (offer)\n');
 
-      // Send offer via socket with user IDs (not socket IDs)
+      // Log offer before sending
+      console.log('📊 Offer SDP (first 200 chars):', offer.sdp?.substring(0, 200));
+
+      // Send offer via socket with proper user IDs
       socketService.emit('video:offer', {
         sessionId: this.sessionId,
         callerId: this.userId,          // Mentor's user ID
         targetId: remoteUserId,         // Student's user ID
-        peerId: this.userId,            // Also send as peerId for backward compat
+        peerId: this.userId,            // Backward compatibility
         offer,
       } as any);
       
-      console.log('📤 WebRTC offer sent to remote user');
-      console.log('📊 Offer data sent:', {
+      console.log('📤 WebRTC offer sent\n');
+      console.log('📊 Offer data:', {
         sessionId: this.sessionId,
         callerId: this.userId,
         targetId: remoteUserId,
-        peerId: this.userId,
         offerType: offer.type,
       });
 
       this.initiateConnectionInProgress = false;
-      console.log('✅ WebRTC connection initiation completed');
+      console.log('✅ WebRTC connection initiation completed\n');
     } catch (err: any) {
       console.error('❌ Error initiating WebRTC connection:', err);
       this.initiateConnectionInProgress = false;

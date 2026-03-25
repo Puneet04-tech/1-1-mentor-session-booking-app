@@ -111,12 +111,38 @@ export default function SessionPage() {
 
         webrtcService.setOnRemoteStream((stream: MediaStream, peerId: string) => {
           console.log('💾 [CRITICAL] Setting remote stream to video element!');
+          console.log('📊 Stream details:', {
+            streamId: stream.id,
+            audioTracks: stream.getAudioTracks().length,
+            videoTracks: stream.getVideoTracks().length,
+            totalTracks: stream.getTracks().length,
+            trackDetails: stream.getTracks().map(t => ({
+              kind: t.kind,
+              id: t.id,
+              enabled: t.enabled,
+              label: t.label,
+            }))
+          });
+          
           if (remoteVideoRef.current) {
             console.log('✅ remoteVideoRef exists, setting srcObject');
+            console.log('📊 Video element before:', {
+              exists: !!remoteVideoRef.current,
+              hasSrcObject: !!remoteVideoRef.current.srcObject,
+              hasVideoWidth: remoteVideoRef.current.videoWidth,
+              hasVideoHeight: remoteVideoRef.current.videoHeight,
+            });
+            
             remoteVideoRef.current.srcObject = stream;
+            
+            console.log('📊 Video element after assignment:', {
+              hasSrcObject: !!remoteVideoRef.current.srcObject,
+              streamId: (remoteVideoRef.current.srcObject as any)?.id,
+            });
+            
             setRemoteUserName('Remote User');
           } else {
-            console.error('❌ remoteVideoRef.current is NULL!');
+            console.error('❌ remoteVideoRef.current is NULL! Cannot set stream');
           }
         });
 
