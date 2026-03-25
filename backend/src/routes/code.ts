@@ -73,10 +73,17 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       return res.status(400).json({ error: 'Code and language required' });
     }
 
-    // Normalize language name
-    const normalizedLang = LANGUAGE_MAP[language.toLowerCase()] || language;
+    // Ensure language is a string
+    const languageStr = String(language).trim().toLowerCase();
 
-    console.log(`Executing ${normalizedLang} code via Piston API in session ${sessionId}...`);
+    if (!languageStr) {
+      return res.status(400).json({ error: 'Language must be a non-empty string' });
+    }
+
+    // Normalize language name
+    const normalizedLang = LANGUAGE_MAP[languageStr] || languageStr;
+
+    console.log(`Executing ${normalizedLang} code via Judge0 API in session ${sessionId}...`);
 
     let output = '';
     let error: string | null = null;
