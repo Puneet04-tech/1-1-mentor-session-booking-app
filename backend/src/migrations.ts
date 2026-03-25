@@ -40,7 +40,7 @@ async function runMigrations() {
 
     console.log('✅ All migrations completed successfully!');
   } finally {
-    await client.end();
+    client.release();
     await pool.end();
   }
 }
