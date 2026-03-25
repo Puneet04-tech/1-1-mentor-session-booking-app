@@ -15,35 +15,35 @@ export function setSocketIO(socketIO: SocketIOServer) {
   io = socketIO;
 }
 
-// Language mappings to Piston API runtime identifiers
-const LANGUAGE_MAP: { [key: string]: string } = {
-  'javascript': 'javascript',
-  'js': 'javascript',
-  'typescript': 'typescript',
-  'ts': 'typescript',
-  'python': 'python',
-  'python3': 'python',
-  'py': 'python',
-  'py3': 'python',
-  'java': 'java',
-  'cpp': 'cpp',
-  'c++': 'cpp',
-  'c': 'c',
-  'csharp': 'csharp',
-  'cs': 'csharp',
-  'ruby': 'ruby',
-  'php': 'php',
-  'go': 'go',
-  'rust': 'rust',
-  'swift': 'swift',
-  'kotlin': 'kotlin',
-  'scala': 'scala',
-  'haskell': 'haskell',
+// Language mappings to Judge0 language IDs
+// Reference: https://judge0.com/api/docs
+const LANGUAGE_MAP: { [key: string]: number } = {
+  'python': 71,          // Python 3.8+
+  'python3': 71,
+  'py': 71,
+  'java': 62,            // Java (OpenJDK)
+  'cpp': 54,             // C++ (GCC)
+  'c++': 54,
+  'c': 52,               // C (GCC)
+  'javascript': 63,      // JavaScript (Node.js)
+  'js': 63,
+  'typescript': 67,      // TypeScript
+  'ts': 67,
+  'php': 68,             // PHP
+  'ruby': 72,            // Ruby
+  'go': 60,              // Go
+  'rust': 73,            // Rust
+  'csharp': 51,          // C#
+  'cs': 51,
+  'swift': 83,           // Swift
+  'kotlin': 78,          // Kotlin
+  'scala': 81,           // Scala
+  'haskell': 11,         // Haskell
 };
 
 
 /**
- * Code execution endpoint - Supports cloud-based execution via Piston API
+ * Code execution endpoint - Supports cloud-based execution via Judge0 API
  * Executes code in multiple languages: JS, Python, Java, C++, C#, Ruby, PHP, Go, Rust, etc.
  */
 router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) => {
@@ -68,8 +68,8 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       if (normalizedLang === 'javascript' || normalizedLang === 'typescript') {
         output = executeJavaScriptLocal(code);
       } else {
-        // Use Piston API for all other languages (Python, Java, C++, etc.)
-        output = await executeViaPiston(code, normalizedLang);
+        // Use Judge0 API for all other languages (Python, Java, C++, etc.)
+        output = await executeViaJudge0(code, normalizedLang);
       }
     } catch (execErr: any) {
       error = execErr.message;
@@ -107,9 +107,103 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 });
 
 /**
- * Execute code via Piston API (free cloud code execution service)
+ * Execute code via Judge0 API (free cloud code execution service)
  * Supports: Python, Java, C++, C, C#, Ruby, PHP, Go, Rust, Swift, Kotlin, Scala, Haskell, etc.
- * API: https://emkc.org/api/v2/
+ * API: https://judge0.com/api/docs
+ */
+async function executeViaJudge0(code: string, language: string): Promise<string> {
+  const JUDGE0_API = process.env.JUDGE0_API || 'https://judge0-ce.p.rapidapi.com';
+  const JUDGE0_KEY = process.env.JUDGE0_KEY;
+  
+  try {
+    const langId = LANGUAGE_MAP[language.toLowerCase()];
+    
+    if (!langId) {
+      throw new Error(`Unsupported language: ${language}`);
+    }
+
+    console.log(`Calling Judge0 API for ${language} (ID: ${langId})...`);
+
+    const headers: any = {
+      'Content-Type': 'application/json',
+    };
+
+    // Add API key if available (for RapidAPI)
+    if (JUDGE0_KEY) {
+      headers['X-RapidAPI-Key'] = JUDGE0_KEY;
+      headers['X-RapidAPI-Host'] = 'judge0-ce.p.rapidapi.com';
+    }
+
+    const requestPayload = {
+      source_code: code,
+      language_id: langId,
+      stdin: '',
+      cpu_time_limit: 10,
+      memory_limit: 512000,  // 512MB
+    };
+
+    console.log('Request payload:', { language_id: langId, code_length: code.length });
+
+    const response = await axios.post(
+      `${JUDGE0_API}/submissions?base64_encoded=false&wait=true`,
+      requestPayload,
+      {
+        timeout: 30000,
+        headers,
+      }
+    );
+
+    console.log('Judge0 API response status:', response.data.status);
+
+    const result = response.data;
+
+    // Check for compilation errors
+    if (result.compile_output) {
+      const compileError = result.compile_output.trim();
+      if (compileError && !result.stdout) {
+        throw new Error(`Compilation Error:\n${compileError}`);
+      }
+    }
+
+    // Check for runtime errors
+    if (result.runtime_error) {
+      throw new Error(`Runtime Error:\n${result.runtime_error}`);
+    }
+
+    // Return output
+    const stdout = result.stdout ? Buffer.from(result.stdout, 'base64').toString('utf-8').trim() : '';
+    const stderr = result.stderr ? Buffer.from(result.stderr, 'base64').toString('utf-8').trim() : '';
+    
+    if (stdout || stderr) {
+      return stdout + (stdout && stderr ? '\n' : '') + stderr;
+    }
+
+    return 'Code executed successfully (no output)';
+  } catch (err: any) {
+    console.error('Judge0 API detailed error:', {
+      message: err.message,
+      code: err.code,
+      status: err.response?.status,
+      statusText: err.response?.statusText,
+      data: err.response?.data,
+    });
+
+    // Handle network errors
+    if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
+      throw new Error(`Judge0 API unavailable (${err.code})`);
+    }
+
+    // Handle HTTP errors
+    if (err.response?.status) {
+      throw new Error(`Judge0 API error (${err.response.status}): ${err.response.statusText}`);
+    }
+
+    throw new Error(`Code execution failed: ${err.message}`);
+  }
+}
+
+/**
+ * Execute code via Piston API (DEPRECATED - Left for reference)
  */
 async function executeViaPiston(code: string, language: string): Promise<string> {
   const PISTON_API = process.env.PISTON_API || 'https://emkc.org/api/v2';
@@ -296,9 +390,52 @@ router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Respons
 
 
 /**
- * List available runtimes from Piston API (PUBLIC - no auth needed)
+ * List available runtimes from Judge0 API (PUBLIC - no auth needed)
  */
 router.get('/runtimes', async (req: any, res: Response) => {
+  try {
+    const JUDGE0_API = process.env.JUDGE0_API || 'https://judge0-ce.p.rapidapi.com';
+    const JUDGE0_KEY = process.env.JUDGE0_KEY;
+
+    const headers: any = {
+      'Content-Type': 'application/json',
+    };
+
+    if (JUDGE0_KEY) {
+      headers['X-RapidAPI-Key'] = JUDGE0_KEY;
+      headers['X-RapidAPI-Host'] = 'judge0-ce.p.rapidapi.com';
+    }
+
+    // Get languages from Judge0
+    const languagesResponse = await axios.get(`${JUDGE0_API}/languages`, {
+      timeout: 5000,
+      headers,
+    });
+
+    const languages = languagesResponse.data || [];
+
+    res.json({
+      success: true,
+      totalLanguages: languages.length,
+      languages: languages.map((lang: any) => ({
+        id: lang.id,
+        name: lang.name,
+      })),
+    });
+  } catch (err: any) {
+    console.error('Failed to fetch Judge0 languages:', err.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch available languages',
+      details: err.message,
+    });
+  }
+});
+
+/**
+ * List available runtimes from Piston API (DEPRECATED - Left for reference)
+ */
+router.get('/runtimes-piston', async (req: any, res: Response) => {
   try {
     const PISTON_API = process.env.PISTON_API || 'https://emkc.org/api/v2';
 
@@ -335,35 +472,37 @@ router.get('/runtimes', async (req: any, res: Response) => {
 
 /**
  * Health check - Verify code execution service is available
- * Tests JavaScript locally and checks Piston API connectivity
+ * Tests JavaScript locally and checks Judge0 API connectivity
  */
 router.get('/health/check', async (req: AuthRequest, res: Response) => {
   try {
-    const PISTON_API = process.env.PISTON_API || 'https://emkc.org/api/v2';
+    const JUDGE0_API = process.env.JUDGE0_API || 'https://judge0-ce.p.rapidapi.com';
+    const JUDGE0_KEY = process.env.JUDGE0_KEY;
 
     // Test JavaScript execution
     const jsTest = executeJavaScriptLocal('console.log("JS works!")');
 
-    // Get available runtimes from Piston API
-    let availableRuntimes: any[] = [];
+    // Get available languages from Judge0 API
+    let availableLanguages: any[] = [];
     try {
-      const runtimesResponse = await axios.get(`${PISTON_API}/runtimes`, {
-        timeout: 5000,
-      });
-      availableRuntimes = runtimesResponse.data || [];
-      console.log('Available Piston runtimes:', availableRuntimes.map((r: any) => `${r.language}/${r.version}`));
-    } catch (e) {
-      console.warn('Failed to fetch Piston API runtimes');
-    }
+      const headers: any = {
+        'Content-Type': 'application/json',
+      };
 
-    // Group runtimes by language
-    const languageGroups: { [key: string]: string[] } = {};
-    availableRuntimes.forEach((runtime: any) => {
-      if (!languageGroups[runtime.language]) {
-        languageGroups[runtime.language] = [];
+      if (JUDGE0_KEY) {
+        headers['X-RapidAPI-Key'] = JUDGE0_KEY;
+        headers['X-RapidAPI-Host'] = 'judge0-ce.p.rapidapi.com';
       }
-      languageGroups[runtime.language].push(runtime.version);
-    });
+
+      const languagesResponse = await axios.get(`${JUDGE0_API}/languages`, {
+        timeout: 5000,
+        headers,
+      });
+      availableLanguages = languagesResponse.data || [];
+      console.log('Available Judge0 languages:', availableLanguages.length);
+    } catch (e) {
+      console.warn('Failed to fetch Judge0 API languages');
+    }
 
     res.json({
       success: true,
@@ -373,12 +512,12 @@ router.get('/health/check', async (req: AuthRequest, res: Response) => {
         test: 'Passed',
         jsTest: jsTest,
       },
-      pistonAPI: {
-        endpoint: PISTON_API,
-        status: availableRuntimes.length > 0 ? 'available' : 'checking',
-        totalRuntimes: availableRuntimes.length,
+      judge0API: {
+        endpoint: JUDGE0_API,
+        status: availableLanguages.length > 0 ? 'available' : 'checking',
+        totalLanguages: availableLanguages.length,
       },
-      availableLanguages: languageGroups,
+      supportedLanguages: availableLanguages.map((lang: any) => lang.name),
     });
   } catch (err: any) {
     console.error('Health check error:', err.message);
