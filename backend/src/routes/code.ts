@@ -296,6 +296,44 @@ router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Respons
 
 
 /**
+ * List available runtimes from Piston API
+ */
+router.get('/runtimes', async (req: AuthRequest, res: Response) => {
+  try {
+    const PISTON_API = process.env.PISTON_API || 'https://emkc.org/api/v2';
+
+    const runtimesResponse = await axios.get(`${PISTON_API}/runtimes`, {
+      timeout: 5000,
+    });
+
+    const runtimes = runtimesResponse.data || [];
+    
+    // Organize by language
+    const byLanguage: { [key: string]: any[] } = {};
+    runtimes.forEach((runtime: any) => {
+      if (!byLanguage[runtime.language]) {
+        byLanguage[runtime.language] = [];
+      }
+      byLanguage[runtime.language].push(runtime.version);
+    });
+
+    res.json({
+      success: true,
+      totalRuntimes: runtimes.length,
+      byLanguage,
+      allRuntimes: runtimes,
+    });
+  } catch (err: any) {
+    console.error('Failed to fetch Piston runtimes:', err.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch available runtimes',
+      details: err.message,
+    });
+  }
+});
+
+/**
  * Health check - Verify code execution service is available
  * Tests JavaScript locally and checks Piston API connectivity
  */
@@ -306,30 +344,26 @@ router.get('/health/check', async (req: AuthRequest, res: Response) => {
     // Test JavaScript execution
     const jsTest = executeJavaScriptLocal('console.log("JS works!")');
 
-    // Check Piston API connectivity
-    let pistonStatus = 'unavailable';
-    let pistonVersion = null;
+    // Get available runtimes from Piston API
+    let availableRuntimes: any[] = [];
     try {
-      const pistonResponse = await axios.get(`${PISTON_API}/runtimes`, {
+      const runtimesResponse = await axios.get(`${PISTON_API}/runtimes`, {
         timeout: 5000,
       });
-      pistonStatus = 'available';
-      pistonVersion = pistonResponse.data?.length || 'unknown';
+      availableRuntimes = runtimesResponse.data || [];
+      console.log('Available Piston runtimes:', availableRuntimes.map((r: any) => `${r.language}/${r.version}`));
     } catch (e) {
-      console.warn('Piston API connectivity check failed');
+      console.warn('Failed to fetch Piston API runtimes');
     }
 
-    const support: any = {
-      javascript: { status: 'supported', engine: 'Node.js VM', latency: 'local', test: 'Passed' },
-      typescript: { status: 'supported', engine: 'Node.js VM', latency: 'local', test: 'Passed' },
-      python: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
-      java: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
-      cpp: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
-      php: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
-      ruby: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
-      go: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
-      rust: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
-    };
+    // Group runtimes by language
+    const languageGroups: { [key: string]: string[] } = {};
+    availableRuntimes.forEach((runtime: any) => {
+      if (!languageGroups[runtime.language]) {
+        languageGroups[runtime.language] = [];
+      }
+      languageGroups[runtime.language].push(runtime.version);
+    });
 
     res.json({
       success: true,
@@ -341,10 +375,10 @@ router.get('/health/check', async (req: AuthRequest, res: Response) => {
       },
       pistonAPI: {
         endpoint: PISTON_API,
-        status: pistonStatus,
-        supportedRuntimes: pistonVersion,
+        status: availableRuntimes.length > 0 ? 'available' : 'checking',
+        totalRuntimes: availableRuntimes.length,
       },
-      supportedLanguages: support,
+      availableLanguages: languageGroups,
     });
   } catch (err: any) {
     console.error('Health check error:', err.message);
