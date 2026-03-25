@@ -66,7 +66,7 @@ const GLOT_LANGUAGE_MAP: { [key: string]: string } = {
 
 
 /**
- * Code execution endpoint - Supports cloud-based execution via Judge0 API
+ * Code execution endpoint - Supports cloud-based execution via Piston API
  * Executes code in multiple languages: JS, Python, Java, C++, C#, Ruby, PHP, Go, Rust, etc.
  */
 router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) => {
@@ -87,7 +87,7 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
     // Normalize language name
     const normalizedLang = LANGUAGE_MAP[languageStr] || languageStr;
 
-    console.log(`Executing ${normalizedLang} code via Judge0 API in session ${sessionId}...`);
+    console.log(`Executing ${normalizedLang} code via Piston API in session ${sessionId}...`);
 
     let output = '';
     let error: string | null = null;
@@ -98,7 +98,7 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       if (normalizedLang === 'javascript' || normalizedLang === 'typescript') {
         output = executeJavaScriptLocal(code);
       } else {
-        // Use Glot.io API for all other languages (Python, Java, C++, etc.)
+        // Use Piston API for all other languages (Python, Java, C++, etc.)
         output = await executeViaGlot(code, normalizedLang);
       }
     } catch (execErr: any) {
@@ -137,66 +137,72 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 });
 
 /**
- * Execute code via Glot.io API (simpler, more reliable)
- * Supports: Python, Java, C++, C, C#, Ruby, PHP, Go, Rust, Swift, Kotlin, Scala, Haskell, etc.
- * API: https://run.glot.io/{language} - No authentication needed, returns output immediately
+ * Execute code via Piston API (reliable, well-tested)
+ * Supports: Python, Java, C++, C, C#, Ruby, PHP, Go, Rust, Swift, Kotlin, etc.
+ * API: https://emkc.org/api/v2/execute - No authentication needed
  */
 async function executeViaGlot(code: string, language: string): Promise<string> {
   try {
-    const glotLang = GLOT_LANGUAGE_MAP[language.toLowerCase()];
+    const pistonLang = GLOT_LANGUAGE_MAP[language.toLowerCase()];
     
-    if (!glotLang) {
+    if (!pistonLang) {
       throw new Error(`Unsupported language: ${language}. Supported: ${Object.keys(GLOT_LANGUAGE_MAP).join(', ')}`);
     }
 
-    console.log(`Calling Glot.io API for ${language} (${glotLang})...`);
+    console.log(`Calling Piston API for ${language} (${pistonLang})...`);
 
-    // Glot.io v3 endpoint format: POST https://run.glot.io/{language}
-    const GLOT_API = `https://run.glot.io/${glotLang}`;
+    // Piston API endpoint
+    const PISTON_API = 'https://emkc.org/api/v2/execute';
     
     const requestPayload = {
+      language: pistonLang,
+      version: '*', // Use latest version
       files: [
         {
-          name: 'f.' + (glotLang === 'javascript' ? 'js' : glotLang === 'python' ? 'py' : glotLang === 'java' ? 'java' : glotLang === 'cpp' ? 'cpp' : glotLang === 'csharp' ? 'cs' : glotLang === 'typescript' ? 'ts' : glotLang === 'ruby' ? 'rb' : glotLang === 'go' ? 'go' : glotLang === 'rust' ? 'rs' : glotLang === 'php' ? 'php' : 'txt'),
+          name: 'f.' + (pistonLang === 'javascript' ? 'js' : pistonLang === 'python' ? 'py' : pistonLang === 'java' ? 'java' : pistonLang === 'cpp' ? 'cpp' : pistonLang === 'csharp' ? 'cs' : pistonLang === 'typescript' ? 'ts' : pistonLang === 'ruby' ? 'rb' : pistonLang === 'go' ? 'go' : pistonLang === 'rust' ? 'rs' : pistonLang === 'php' ? 'php' : 'txt'),
           content: code,
         }
       ],
+      stdin: '',
     };
 
-    console.log('Glot.io request:', { url: GLOT_API, language: glotLang, code_length: code.length });
+    console.log('Piston API request:', { url: PISTON_API, language: pistonLang, code_length: code.length });
 
-    const response = await axios.post(GLOT_API, requestPayload, {
+    const response = await axios.post(PISTON_API, requestPayload, {
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
       }
     });
 
-    console.log('Glot.io response status:', response.status);
-    console.log('Glot.io response data:', JSON.stringify(response.data, null, 2));
+    console.log('Piston API response status:', response.status);
+    console.log('Piston API response data:', JSON.stringify(response.data, null, 2));
 
     const result = response.data;
 
-    // Handle errors in response
-    if (result.error && result.error !== '') {
-      throw new Error(`Glot.io Error: ${result.error}`);
+    // Handle compile errors
+    if (result.compile && result.compile.stderr && result.compile.stderr.trim()) {
+      const compileErr = result.compile.stderr.trim();
+      if (!result.run || !result.run.stdout) {
+        throw new Error(`Compilation Error:\n${compileErr}`);
+      }
     }
 
-    // Extract output
-    const stdout = result.stdout || '';
-    const stderr = result.stderr || '';
+    // Extract runtime output
+    const stdout = (result.run && result.run.stdout) ? result.run.stdout.trim() : '';
+    const stderr = (result.run && result.run.stderr) ? result.run.stderr.trim() : '';
 
     if (stdout) {
-      return stdout.trim();
+      return stdout;
     }
 
     if (stderr) {
-      throw new Error(`Runtime Error:\n${stderr.trim()}`);
+      throw new Error(`Runtime Error:\n${stderr}`);
     }
 
     return 'Code executed successfully (no output)';
   } catch (err: any) {
-    console.error('Glot.io API error:', {
+    console.error('Piston API error:', {
       message: err.message,
       code: err.code,
       status: err.response?.status,
@@ -207,16 +213,12 @@ async function executeViaGlot(code: string, language: string): Promise<string> {
 
     // Handle network errors
     if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
-      throw new Error(`Glot.io API unavailable (${err.code})`);
+      throw new Error(`Piston API unavailable (${err.code})`);
     }
 
     // Handle HTTP errors
-    if (err.response?.status === 405) {
-      throw new Error(`Glot.io API error (405): Method or endpoint incorrect. Check endpoint format.`);
-    }
-
     if (err.response?.status) {
-      throw new Error(`Glot.io API error (${err.response.status}): ${err.response.statusText}`);
+      throw new Error(`Piston API error (${err.response.status}): ${err.response.statusText}`);
     }
 
     throw new Error(`Code execution failed: ${err.message}`);
@@ -492,22 +494,22 @@ router.get('/runtimes-piston', async (req: any, res: Response) => {
 
 /**
  * Health check - Verify code execution service is available
- * Tests JavaScript locally and checks Glot.io API connectivity
+ * Tests JavaScript locally and checks Piston API connectivity
  */
 router.get('/health/check', async (req: AuthRequest, res: Response) => {
   try {
     // Test JavaScript execution
     const jsTest = executeJavaScriptLocal('console.log("JS works!")');
 
-    // Test Glot.io connectivity with Python
-    let glotioStatus = 'checking';
+    // Test Piston connectivity with Python
+    let pistonStatus = 'checking';
     try {
-      const pythonTest = await executeViaGlot('print("Glot.io works!")', 'python');
-      glotioStatus = 'available';
-      console.log('Glot.io test passed:', pythonTest);
+      const pythonTest = await executeViaGlot('print("Piston works!")', 'python');
+      pistonStatus = 'available';
+      console.log('Piston test passed:', pythonTest);
     } catch (e: any) {
-      console.warn('Glot.io test failed:', e.message);
-      glotioStatus = 'error';
+      console.warn('Piston test failed:', e.message);
+      pistonStatus = 'error';
     }
 
     res.json({
@@ -518,9 +520,9 @@ router.get('/health/check', async (req: AuthRequest, res: Response) => {
         test: 'Passed',
         jsTest: jsTest,
       },
-      glotioAPI: {
-        endpoint: 'https://glot.io/api/run',
-        status: glotioStatus,
+      pistonAPI: {
+        endpoint: 'https://emkc.org/api/v2/execute',
+        status: pistonStatus,
         supportedLanguages: Object.keys(GLOT_LANGUAGE_MAP),
       },
     });
