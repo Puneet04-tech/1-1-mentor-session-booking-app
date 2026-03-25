@@ -20,9 +20,9 @@ const LANGUAGE_MAP: { [key: string]: string } = {
   'javascript': 'javascript',
   'js': 'javascript',
   'typescript': 'typescript',
-  'python': 'python3',
-  'py': 'python3',
-  'java': 'java17',
+  'python': 'python',
+  'py': 'python',
+  'java': 'java',
   'cpp': 'cpp',
   'c++': 'cpp',
   'c': 'c',
@@ -117,13 +117,13 @@ async function executeViaPiston(code: string, language: string): Promise<string>
     const requestPayload = {
       language: language,
       version: '*',  // Use latest version
-      source: code,
-      args: [],
+      files: [
+        {
+          name: 'main',
+          content: code,
+        },
+      ],
       stdin: '',
-      compile_timeout: 20000,
-      run_timeout: 20000,
-      compile_memory_limit: -1,
-      run_memory_limit: -1,
     };
 
     console.log('Request payload:', JSON.stringify(requestPayload, null, 2));
@@ -142,19 +142,28 @@ async function executeViaPiston(code: string, language: string): Promise<string>
       throw new Error(`Piston Error: ${response.data.error}`);
     }
 
+    // Get compile and run results
+    const compile = response.data.compile || {};
+    const run = response.data.run || {};
+
     // Handle compile stage errors
-    if (response.data.compile?.stderr) {
-      const stderr = response.data.compile.stderr.trim();
-      if (stderr && !response.data.run?.output) {
-        throw new Error(`Compilation Error:\n${stderr}`);
+    if (compile.stderr?.trim()) {
+      const compileError = compile.stderr.trim();
+      // Only throw if there's no runtime output (sometimes stderr is warnings)
+      if (!run.stdout) {
+        throw new Error(`Compilation Error:\n${compileError}`);
       }
     }
 
-    // Return runtime output
-    const stdout = response.data.run?.output?.trim() || '';
-    const stderr = response.data.run?.stderr?.trim() || '';
+    // Return runtime output (stdout + stderr if needed)
+    const stdout = run.stdout?.trim() || '';
+    const stderr = run.stderr?.trim() || '';
     
-    return (stdout + (stdout && stderr ? '\n' : '') + stderr).trim() || 'Code executed successfully (no output)';
+    if (stdout || stderr) {
+      return stdout + (stdout && stderr ? '\n' : '') + stderr;
+    }
+
+    return 'Code executed successfully (no output)';
   } catch (err: any) {
     console.error('Piston API detailed error:', {
       message: err.message,
