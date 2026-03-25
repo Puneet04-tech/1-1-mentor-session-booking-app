@@ -1034,16 +1034,64 @@ export default function SessionPage() {
           {/* Video Panel - Integrated in session page */}
           <GlowingCard glow="purple" className="flex-shrink-0 h-64 md:h-80 lg:h-96 flex flex-col">
             <h3 className="font-bold text-white text-xs md:text-base mb-1 md:mb-3 px-2 md:px-4 pt-2 md:pt-4 flex-shrink-0">Video Call</h3>
-            <div className="flex-1 min-h-0 bg-black rounded flex flex-col overflow-hidden">
-              {videoLoading ? (
-                <div className="flex items-center justify-center h-full">
+            <div className="flex-1 min-h-0 bg-black rounded flex flex-col overflow-hidden relative">
+              {/* 🔴 CRITICAL FIX: ALWAYS render video elements - they must ALWAYS be in the DOM */}
+              {/* Overlays will appear on top, but video elements are always here */}
+              <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-2 p-2 absolute inset-0">
+                {/* Local Video - Always rendered */}
+                <div className="relative bg-gray-900 rounded overflow-hidden">
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-white text-xs">
+                    You
+                  </div>
+                </div>
+                
+                {/* Remote Video - Always rendered */}
+                <div className="relative bg-gray-900 rounded overflow-hidden">
+                  <video
+                    ref={remoteVideoRef}
+                    autoPlay
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
+                  
+                  {/* Waiting message - only show if no remote stream yet */}
+                  {!remoteUserName && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80">
+                      <div className="text-center">
+                        <div className="animate-pulse mb-2">👥</div>
+                        <p className="text-gray-400 text-xs">Waiting for remote user...</p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* User label - only show if remote stream exists */}
+                  {remoteUserName && (
+                    <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-white text-xs">
+                      {remoteUserName}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 🔴 CRITICAL FIX: Overlays appear on top of video elements */}
+              {videoLoading && (
+                <div className="absolute inset-0 flex items-center justify-center h-full bg-black/80 z-20">
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-t-2 border-white mx-auto mb-2"></div>
                     <p className="text-gray-400 text-xs md:text-sm">Connecting video...</p>
                   </div>
                 </div>
-              ) : videoError ? (
-                <div className="flex items-center justify-center h-full">
+              )}
+
+              {videoError && (
+                <div className="absolute inset-0 flex items-center justify-center h-full bg-black/80 z-20">
                   <div className="text-center">
                     <p className="text-red-400 text-xs md:text-sm mb-2">❌ {videoError}</p>
                     <GlowingButton 
@@ -1053,50 +1101,6 @@ export default function SessionPage() {
                     >
                       Retry
                     </GlowingButton>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-2 p-2">
-                  {/* Local Video */}
-                  <div className="relative bg-gray-900 rounded overflow-hidden">
-                    <video
-                      ref={localVideoRef}
-                      autoPlay
-                      muted
-                      playsInline
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-white text-xs">
-                      You
-                    </div>
-                  </div>
-                  
-                  {/* Remote Video */}
-                  <div className="relative bg-gray-900 rounded overflow-hidden">
-                    {/* Always render the video element - don't make it conditional! */}
-                    <video
-                      ref={remoteVideoRef}
-                      autoPlay
-                      playsInline
-                      className="w-full h-full object-cover"
-                    />
-                    
-                    {/* Waiting message - only show if no remote stream yet */}
-                    {!remoteUserName && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80">
-                        <div className="text-center">
-                          <div className="animate-pulse mb-2">👥</div>
-                          <p className="text-gray-400 text-xs">Waiting for remote user...</p>
-                        </div>
-                      </div>
-                    )}
-                    
-                    {/* User label - only show if remote stream exists */}
-                    {remoteUserName && (
-                      <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-white text-xs">
-                        {remoteUserName}
-                      </div>
-                    )}
                   </div>
                 </div>
               )}
