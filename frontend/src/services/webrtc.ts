@@ -801,20 +801,15 @@ export class WebRTCService {
         return; // Wait for remote peer to send offer
       }
 
-      // Check if socket is connected before proceeding
+      // Ensure socket is connected before proceeding
       if (!socketService.isConnected()) {
-        console.warn('⚠️ Socket not connected! Waiting...');
-        // Retry waiting for socket connection
-        let retries = 0;
-        while (retries < 20 && !socketService.isConnected()) {
-          await new Promise(resolve => setTimeout(resolve, 250));
-          retries++;
+        console.warn('⚠️ Socket not connected! Waiting for connection...');
+        try {
+          await socketService.waitForConnection(10000); // Wait max 10 seconds
+          console.log('✅ Socket now connected');
+        } catch (err) {
+          throw new Error('Socket connection timeout: unable to establish connection');
         }
-        
-        if (!socketService.isConnected()) {
-          throw new Error('Socket connection failed after 5 seconds');
-        }
-        console.log('✅ Socket connected after retry');
       }
 
       // Check if we already have a connection for this remote user

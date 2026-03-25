@@ -15,12 +15,27 @@ class SocketService {
   private socket: Socket | null = null;
   private listeners: Map<string, Function[]> = new Map();
   private currentSessionId: string | null = null;
+  private connectionPromise: Promise<void> | null = null;
+  private resolveConnection: (() => void) | null = null;
 
-  connect(token: string): Socket {
+  connect(token: string): Promise<Socket> {
     if (this.socket?.connected) {
       console.log('Socket already connected:', this.socket.id);
-      return this.socket;
+      return Promise.resolve(this.socket);
     }
+
+    if (this.connectionPromise) {
+      console.log('🔌 Socket connection in progress, waiting...');
+      return this.connectionPromise.then(() => this.socket as Socket);
+    }
+
+    // Create a promise for connection
+    this.connectionPromise = new Promise((resolve) => {
+      this.resolveConnection = () => {
+        console.log('✅ Connection promise resolved');
+        resolve();
+      };
+    });
 
     console.log('🔌 Connecting to socket at:', SOCKET_URL);
     this.socket = io(SOCKET_URL, {
@@ -33,24 +48,33 @@ class SocketService {
         token,
       },
       reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: 5,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 3000,
+      reconnectionAttempts: 10,
     });
 
     this.socket.on('connect', () => {
       console.log('✅ Socket connected:', this.socket?.id);
+      if (this.resolveConnection) {
+        this.resolveConnection();
+      }
       this.emit('connected');
     });
 
     this.socket.on('disconnect', () => {
       console.log('❌ Socket disconnected');
+      this.connectionPromise = null;
+      this.resolveConnection = null;
       this.emit('disconnected');
     });
 
     this.socket.on('error', (error) => {
       console.error('❌ Socket error:', error);
       this.emit('error', error);
+    });
+
+    this.socket.on('connect_error', (error) => {
+      console.error('❌ Socket connect_error:', error);
     });
 
     // Debug: Log all incoming events
@@ -69,7 +93,7 @@ class SocketService {
       this.emit('screen:stopped', data);
     });
 
-    return this.socket;
+    return this.connectionPromise.then(() => this.socket as Socket);
   }
 
   disconnect() {
@@ -81,6 +105,23 @@ class SocketService {
 
   isConnected(): boolean {
     return this.socket?.connected ?? false;
+  }
+
+  async waitForConnection(timeoutMs: number = 10000): Promise<void> {
+    if (this.socket?.connected) {
+      return Promise.resolve();
+    }
+
+    if (!this.connectionPromise) {
+      return Promise.reject(new Error('Socket not initialized'));
+    }
+
+    return Promise.race([
+      this.connectionPromise,
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('Socket connection timeout')), timeoutMs)
+      ),
+    ]);
   }
 
   on<K extends keyof SocketEvents>(event: K, callback: (data: SocketEvents[K]) => void) {
@@ -125,10 +166,25 @@ class SocketService {
   }
 
   emit<K extends keyof SocketEvents>(event: K, data?: SocketEvents[K]) {
-    if (!this.socket?.connected) {
-      console.warn(`Socket not connected for event: ${event}`);
+    if (!this.socket) {
+      console.warn(`Socket not initialized for event: ${event}`);
       return;
     }
+    
+    if (!this.socket.connected) {
+      console.warn(`Socket not connected yet for event: ${event}, queuing...`);
+      // Wait briefly for connection
+      if (this.connectionPromise) {
+        this.connectionPromise.then(() => {
+          if (this.socket?.connected) {
+            console.log(`📤 Emitting queued event: ${event}`);
+            this.socket!.emit(event as string, data);
+          }
+        });
+      }
+      return;
+    }
+    
     this.socket.emit(event as string, data);
   }
 
