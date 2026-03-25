@@ -201,59 +201,91 @@ export default function SessionPage() {
             }))
           });
           
-          // More defensive check - wait a bit for ref to be ready if needed
-          if (remoteVideoRef.current) {
-            console.log('✅ remoteVideoRef exists, setting srcObject');
-            console.log('📊 Video element before:', {
-              exists: !!remoteVideoRef.current,
-              hasSrcObject: !!remoteVideoRef.current.srcObject,
-              hasVideoWidth: remoteVideoRef.current.videoWidth,
-              hasVideoHeight: remoteVideoRef.current.videoHeight,
-            });
-            webrtcDiagnostics.log('stream-set', 'Video element ref exists, assigning stream', {
-              refExists: true,
-            });
+          // CRITICAL FIX: Query DOM directly to find video element by searching for it
+          const assignStreamToElement = (maxRetries = 3) => {
+            let element = remoteVideoRef.current;
             
-            remoteVideoRef.current.srcObject = stream;
-            
-            console.log('📊 Video element after assignment:', {
-              hasSrcObject: !!remoteVideoRef.current.srcObject,
-              streamId: (remoteVideoRef.current.srcObject as any)?.id,
-            });
-            webrtcDiagnostics.log('stream-set', 'Stream assigned to video element', {
-              assigned: !!remoteVideoRef.current.srcObject,
-              refStreamId: (remoteVideoRef.current.srcObject as any)?.id,
-            });
-            
-            setRemoteUserName('Remote User');
-          } else {
-            console.error('❌ remoteVideoRef.current is NULL! Cannot set stream');
-            console.error('📍 Debugging info:', {
-              refNull: !remoteVideoRef.current,
-              inDOM: remoteVideoRef.current ? document.body.contains(remoteVideoRef.current) : false,
-              peerId,
-              streamId: stream.id,
-            });
-            webrtcDiagnostics.log('error', 'remoteVideoRef is null when trying to set stream', {
-              refExists: false,
-              peerId,
-              streamId: stream.id,
-            });
-            
-            // Try again after a short delay in case ref wasn't ready
-            setTimeout(() => {
-              if (remoteVideoRef.current) {
-                console.log('🔄 Retrying stream assignment after delay...');
-                remoteVideoRef.current.srcObject = stream;
-                setRemoteUserName('Remote User');
-                webrtcDiagnostics.log('stream-set', 'Stream assigned to video element on retry', {
-                  delayed: true,
-                  assigned: !!remoteVideoRef.current.srcObject,
-                });
-              } else {
-                console.error('❌ Remote video ref still NULL after retry');
+            // If ref is NULL, try to find it in the DOM
+            if (!element) {
+              console.warn('⚠️ remoteVideoRef is NULL, searching DOM for video element...');
+              // Find all video elements and use the second one (first is local, second is remote)
+              const allVideos = document.querySelectorAll('video');
+              console.log('📺 Found video elements in DOM:', allVideos.length);
+              
+              if (allVideos.length >= 2) {
+                element = allVideos[1] as HTMLVideoElement;
+                console.log('✅ Found remote video element in DOM (second video tag)');
+              } else if (allVideos.length === 1) {
+                element = allVideos[0] as HTMLVideoElement;
+                console.log('⚠️ Only one video found, using it as remote');
               }
-            }, 500);
+            }
+            
+            if (element && document.body.contains(element)) {
+              console.log('✅ Remote video element exists and is in DOM!');
+              console.log('📊 Video element info:', {
+                tagName: element.tagName,
+                width: element.width,
+                height: element.height,
+                clientWidth: element.clientWidth,
+                clientHeight: element.clientHeight,
+              });
+              
+              try {
+                element.srcObject = stream;
+                console.log('✅ Stream assigned successfully!');
+                console.log('📊 After assignment:', {
+                  hasSrcObject: !!element.srcObject,
+                  streamId: (element.srcObject as any)?.id,
+                });
+                setRemoteUserName('Remote User');
+                webrtcDiagnostics.log('stream-set', 'Stream assigned to video element', {
+                  success: true,
+                  streamId: stream.id,
+                  elementFound: !!element,
+                });
+                return true;
+              } catch (err) {
+                console.error('❌ Error assigning stream to element:', err);
+                webrtcDiagnostics.log('error', 'Failed to assign stream', {
+                  error: String(err),
+                });
+                return false;
+              }
+            } else {
+              console.error('❌ Remote video element not found or not in DOM!');
+              console.error('📍 Debugging:', {
+                elementExists: !!element,
+                inDOM: element ? document.body.contains(element) : false,
+                nodeCount: document.querySelectorAll('video').length,
+                peerId,
+                streamId: stream.id,
+              });
+              webrtcDiagnostics.log('error', 'Video element not found in DOM', {
+                elementExists: !!element,
+                inDOM: element ? document.body.contains(element) : false,
+              });
+              return false;
+            }
+          };
+          
+          // Try to assign immediately
+          if (!assignStreamToElement()) {
+            // Retry with exponential backoff
+            let retries = 0;
+            const retryInterval = setInterval(() => {
+              retries++;
+              console.log(`🔄 Retry attempt ${retries}/3 to assign remote stream...`);
+              if (assignStreamToElement() || retries >= 3) {
+                clearInterval(retryInterval);
+                if (retries >= 3) {
+                  console.error('❌ Failed to assign stream after 3 retries');
+                  webrtcDiagnostics.log('error', 'Failed to assign stream after retries', {
+                    attempts: retries,
+                  });
+                }
+              }
+            }, 300);
           }
         });
 
