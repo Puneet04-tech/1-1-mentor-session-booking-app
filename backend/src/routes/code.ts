@@ -296,9 +296,9 @@ router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Respons
 
 
 /**
- * List available runtimes from Piston API
+ * List available runtimes from Piston API (PUBLIC - no auth needed)
  */
-router.get('/runtimes', async (req: AuthRequest, res: Response) => {
+router.get('/runtimes', async (req: any, res: Response) => {
   try {
     const PISTON_API = process.env.PISTON_API || 'https://emkc.org/api/v2';
 
