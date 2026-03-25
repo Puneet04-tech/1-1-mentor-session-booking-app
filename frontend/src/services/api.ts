@@ -49,40 +49,40 @@ class ApiClient {
     name: string;
     role: 'mentor' | 'student' | 'admin';
   }): Promise<ApiResponse<{ user: User; token: string }>> {
-    return this.client.post('/api/auth/signup', data);
+    return this.client.post('/auth/signup', data);
   }
 
   async login(email: string, password: string): Promise<ApiResponse<{ user: User; token: string }>> {
-    return this.client.post('/api/auth/login', { email, password });
+    return this.client.post('/auth/login', { email, password });
   }
 
   async getCurrentUser(): Promise<ApiResponse<User>> {
-    return this.client.get('/api/auth/me');
+    return this.client.get('/auth/me');
   }
 
   async logout(): Promise<ApiResponse<void>> {
-    return this.client.post('/api/auth/logout');
+    return this.client.post('/auth/logout');
   }
 
   // Session endpoints
   async createSession(data: Partial<Session>): Promise<ApiResponse<Session>> {
-    return this.client.post('/api/sessions', data);
+    return this.client.post('/sessions', data);
   }
 
   async getSession(id: string): Promise<ApiResponse<Session>> {
-    return this.client.get(`/api/sessions/${id}`);
+    return this.client.get(`/sessions/${id}`);
   }
 
   async joinSession(id: string): Promise<ApiResponse<Session>> {
-    return this.client.post(`/api/sessions/${id}/join`);
+    return this.client.post(`/sessions/${id}/join`);
   }
 
   async endSession(id: string): Promise<ApiResponse<Session>> {
-    return this.client.post(`/api/sessions/${id}/end`);
+    return this.client.post(`/sessions/${id}/end`);
   }
 
   async getActiveSessions(): Promise<ApiResponse<Session[]>> {
-    return this.client.get('/api/sessions/active');
+    return this.client.get('/sessions/active');
   }
 
   async getAvailableSessions(): Promise<ApiResponse<Session[]>> {
