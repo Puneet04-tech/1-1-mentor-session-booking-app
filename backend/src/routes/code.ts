@@ -162,7 +162,7 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
 
     // First, create a submission
     const createResponse = await axios.post(
-      `${JUDGE0_API}/submissions`,
+      `${JUDGE0_API}/submissions?base64_encoded=false&fields=*`,
       requestPayload,
       {
         timeout: 30000,
@@ -172,16 +172,16 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
     const submissionToken = createResponse.data.token;
     console.log('Submission token:', submissionToken);
 
-    // Then poll for results
+    // Then poll for results - wait until status is NOT 1 (queued) or 2 (processing)
     let result = createResponse.data;
     let attempts = 0;
-    const maxAttempts = 30;
+    const maxAttempts = 60;
 
-    while (result.status_id <= 2 && attempts < maxAttempts) {
+    while ((result.status_id === 1 || result.status_id === 2) && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 500));
       
       const statusResponse = await axios.get(
-        `${JUDGE0_API}/submissions/${submissionToken}`,
+        `${JUDGE0_API}/submissions/${submissionToken}?base64_encoded=false&fields=*`,
         {
           timeout: 10000,
         }
@@ -189,61 +189,60 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
       
       result = statusResponse.data;
       attempts++;
-      console.log(`Status check ${attempts}: status_id=${result.status_id}`);
+      console.log(`Poll ${attempts}: status_id=${result.status_id}, stdout=${result.stdout ? 'present' : 'null'}`);
     }
 
-    console.log('Final Judge0 result:', JSON.stringify(result, null, 2));
+    console.log('Final Judge0 result after', attempts, 'polls:', {
+      status_id: result.status_id,
+      status_text: ({1: 'In Queue', 2: 'Processing', 3: 'Accepted', 4: 'Wrong Answer', 5: 'TLE', 6: 'Compile Error', 7: 'Runtime Error'} as any)[result.status_id] || 'Unknown',
+      stdout_length: result.stdout ? result.stdout.length : 0,
+      stderr_length: result.stderr ? result.stderr.length : 0,
+      compile_output_length: result.compile_output ? result.compile_output.length : 0,
+    });
 
-    // Helper function to decode output (handles both base64 and plain text)
-    const decodeOutput = (value: any): string => {
+    // Helper function to extract output (already plain text since base64_encoded=false)
+    const extractOutput = (value: any): string => {
       if (!value) return '';
-      
-      if (typeof value === 'string') {
-        try {
-          // Try to decode as base64
-          const decoded = Buffer.from(value, 'base64').toString('utf-8');
-          // Check if it looks like valid UTF-8 (not binary garbage)
-          if (decoded.length > 0 && decoded.length <= value.length * 2) {
-            return decoded.trim();
-          }
-        } catch (e) {
-          // Not valid base64, return as-is
-        }
-        return value.trim();
-      }
-      
+      if (typeof value === 'string') return value.trim();
       return '';
     };
 
-    // Check for compilation errors
-    if (result.compile_output) {
-      const compileError = decodeOutput(result.compile_output);
-      if (compileError && !result.stdout) {
+    // Extract output from the response
+    let output = '';
+    
+    // Get stdout
+    if (result.stdout) {
+      const stdout = extractOutput(result.stdout);
+      if (stdout) output = stdout;
+    }
+    
+    // Append stderr if present
+    if (result.stderr) {
+      const stderr = extractOutput(result.stderr);
+      if (stderr) {
+        output = output ? `${output}\n${stderr}` : stderr;
+      }
+    }
+    
+    console.log('Extracted output:', { output, length: output.length });
+
+    // Check for compilation errors ONLY if no output
+    if (result.compile_output && !output) {
+      const compileError = extractOutput(result.compile_output);
+      if (compileError) {
         throw new Error(`Compilation Error:\n${compileError}`);
       }
     }
 
-    // Check for runtime errors
-    if (result.runtime_error) {
-      const runtimeErr = decodeOutput(result.runtime_error);
+    // Check for runtime errors ONLY if no output
+    if (result.runtime_error && !output) {
+      const runtimeErr = extractOutput(result.runtime_error);
       if (runtimeErr) {
         throw new Error(`Runtime Error:\n${runtimeErr}`);
       }
     }
 
-    // Parse output 
-    let output = '';
-    if (result.stdout) {
-      output = decodeOutput(result.stdout);
-    }
-    
-    if (result.stderr) {
-      const stderr = decodeOutput(result.stderr);
-      if (stderr) {
-        output = output ? `${output}\n${stderr}` : stderr;
-      }
-    }
-
+    // Return output or success message
     if (output) {
       return output;
     }
