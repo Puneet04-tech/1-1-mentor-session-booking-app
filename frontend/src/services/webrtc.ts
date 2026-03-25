@@ -579,6 +579,10 @@ export class WebRTCService {
       audioTracks: this.localStream?.getAudioTracks().length || 0,
       videoTracks: this.localStream?.getVideoTracks().length || 0,
     });
+    webrtcDiagnostics.log('peer-connection', 'Creating peer connection', {
+      peerId,
+      hasLocalStream: !!this.localStream,
+    });
 
     // Add local stream tracks using transceivers for better compatibility
     if (this.localStream) {
@@ -592,17 +596,17 @@ export class WebRTCService {
       
       tracks.forEach((track) => {
         try {
-          // Use addTransceiver instead of addTrack for better negotiation
+          // Use addTransceiver with sendrecv to both send our stream AND receive remote stream
           const transceiver = peerConnection.addTransceiver(track, {
             streams: [this.localStream!],
-            direction: 'sendrecv', // Will both send and receive
+            direction: 'sendrecv',
           });
           console.log(`✅ Added ${track.kind} transceiver (enabled: ${track.enabled})`);
-          console.log(`📊 Transceiver mid: ${transceiver.mid}, sender: ${transceiver.sender.track?.id}`);
+          console.log(`📊 Transceiver: mid=${transceiver.mid}, direction=${transceiver.direction}`);
           webrtcDiagnostics.log('track-add', `${track.kind} transceiver added`, {
             trackId: track.id,
             transceiverId: transceiver.mid,
-            direction: 'sendrecv',
+            direction: transceiver.direction,
           });
         } catch (err) {
           console.error(`❌ Error adding ${track.kind} transceiver:`, err);
@@ -613,9 +617,7 @@ export class WebRTCService {
       });
     } else {
       console.warn('⚠️  No local stream available when creating peer connection!');
-      webrtcDiagnostics.log('error', 'No local stream available', {
-        peerId,
-      });
+      webrtcDiagnostics.log('error', 'No local stream available', { peerId });
     }
 
     // Handle ICE candidates
@@ -739,42 +741,126 @@ export class WebRTCService {
         senders: peerConnection.getSenders().length,
         receivers: peerConnection.getReceivers().length,
       });
+      webrtcDiagnostics.log('state-change', `Connection state: ${state}`, {
+        iceState,
+        sigState,
+        senders: peerConnection.getSenders().length,
+        receivers: peerConnection.getReceivers().length,
+      });
+      
+      // Once connected, verify we have receivers ready for tracks
+      if (state === 'connected') {
+        console.log('✅ Peer connection CONNECTED - checking for inbound tracks...');
+        const receivers = peerConnection.getReceivers();
+        console.log(`📊 Receivers ready: ${receivers.length}`, receivers.map(r => ({
+          kind: r.track?.kind,
+          trackId: r.track?.id,
+          trackEnabled: r.track?.enabled,
+        })));
+        webrtcDiagnostics.log('state-change', 'Connection established, checking receivers', {
+          receiverCount: receivers.length,
+        });
+      }
       
       // Only close on truly failed states
       if (state === 'failed') {
         console.error('❌ Peer connection FAILED - attempting recovery');
-        // Don't close immediately - wait for ICE restart
+        webrtcDiagnostics.log('error', 'Connection failed', { peerId });
         setTimeout(() => {
           if (peerConnection.connectionState === 'failed') {
             console.log('🔌 Closing failed peer connection after delay');
             this.closePeerConnection(peerId);
           }
         }, 5000);
-      } else if (state === 'connected') {
-        console.log('✅ Peer connection established successfully');
       } else if (state === 'disconnected') {
         console.warn('⚠️ Peer connection disconnected - may reconnect');
       }
     };
 
-    // Handle ICE connection state
+    // Handle ICE connection state - THIS IS CRITICAL FOR MEDIA FLOW
     peerConnection.oniceconnectionstatechange = () => {
       const iceState = peerConnection.iceConnectionState;
       console.log(`🧊 ICE connection state with ${peerId}: ${iceState}`);
+      webrtcDiagnostics.log('state-change', `ICE state: ${iceState}`, { peerId });
       
       if (iceState === 'connected' || iceState === 'completed') {
-        console.log('✅ ICE connection established - media should flow now');
-      } else if (iceState === 'failed') {
-        console.warn('⚠️ ICE connection failed - checking network connectivity');
-        console.log('📊 ICE Info:', {
-          state: iceState,
-          connectionState: peerConnection.connectionState,
-          signalingState: peerConnection.signalingState,
+        console.log('✅✅✅ ICE CONNECTED - Media should now flow! ✅✅✅');
+        console.log('📊 Checking for media tracks:');
+        
+        // Check receivers for incoming media
+        const receivers = peerConnection.getReceivers();
+        console.log(`   Receivers: ${receivers.length}`, receivers.map(r => ({
+          kind: r.track?.kind,
+          trackId: r.track?.id,
+          trackEnabled: r.track?.enabled,
+          hasTrack: !!r.track,
+        })));
+        
+        // Check senders for outgoing media
+        const senders = peerConnection.getSenders();
+        console.log(`   Senders: ${senders.length}`, senders.map(s => ({
+          kind: s.track?.kind,
+          trackId: s.track?.id,
+          trackEnabled: s.track?.enabled,
+          hasTrack: !!s.track,
+        })));
+        
+        webrtcDiagnostics.log('state-change', 'ICE connected', {
+          receiverCount: receivers.length,
+          senderCount: senders.length,
         });
+      } else if (iceState === 'failed') {
+        console.warn('⚠️ ICE connection FAILED - Network may be blocked or TURN server needed');
+        webrtcDiagnostics.log('error', 'ICE failed', { peerId });
       } else if (iceState === 'checking') {
-        console.log('🔍 ICE is checking candidates...');
+        console.log('🔍 ICE is gathering and checking candidates...');
       }
     };
+
+    // Start monitoring receivers for incoming tracks
+    // This is a fallback in case ontrack doesn't fire
+    let receiverCheckInterval: ReturnType<typeof setInterval> | null = null;
+    const trackIds = new Set<string>(); // Track which tracks we've already handled
+
+    const checkReceiversForTracks = () => {
+      const receivers = peerConnection.getReceivers();
+      
+      receivers.forEach((receiver) => {
+        if (receiver.track && !trackIds.has(receiver.track.id)) {
+          trackIds.add(receiver.track.id);
+          console.log(`🎯 [RECEIVER MONITOR] Detected ${receiver.track.kind} track on receiver!`);
+          console.log(`📊 Track: id=${receiver.track.id}, enabled=${receiver.track.enabled}, label=${receiver.track.label}`);
+          webrtcDiagnostics.log('track-receive', 'Track detected via receiver monitor', {
+            kind: receiver.track.kind,
+            trackId: receiver.track.id,
+            method: 'receiver-monitor',
+          });
+          
+          // Create a new MediaStream with just this track as a fallback
+          // (normal ontrack should have provided this, but this is our backup)
+          if (this.onRemoteStream) {
+            const fallbackStream = new MediaStream();
+            fallbackStream.addTrack(receiver.track);
+            console.log(`🎯 Created fallback stream with ${receiver.track.kind} track`);
+            console.log('📹 Calling onRemoteStream via receiver monitor');
+            this.onRemoteStream(fallbackStream, peerId);
+          }
+        }
+      });
+    };
+
+    // Start checking for receivers every 500ms for 10 seconds
+    let checkCount = 0;
+    receiverCheckInterval = setInterval(() => {
+      checkCount++;
+      if (checkCount > 20) {
+        // Stop after 10 seconds
+        if (receiverCheckInterval) clearInterval(receiverCheckInterval);
+        console.log('⏹️ Receiver monitor stopped (10 second timeout)');
+        return;
+      }
+      checkReceiversForTracks();
+    }, 500);
 
     this.peerConnections.set(peerId, peerConnection);
     return peerConnection;
