@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: mentor-session-backend
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRE
+        value: 7d
+      - key: CORS_ORIGIN
+        sync: false
+      - key: JUDGE0_API_BASE_URL
+        value: https://judge0-ce.p.rapidapi.com
+      - key: JUDGE0_API_KEY
+        sync: false
+      - key: JUDGE0_HOST
+        value: judge0-ce.p.rapidapi.com
+    healthCheckPath: /api/health
+    autoDeploy: true
+    
+databases:
+  - name: mentor-postgres
+    engine: postgres
+    plan: free
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: Allow all connections

@@ -294,23 +294,27 @@ export class WebRTCService {
   async handleVideoOffer(data: any) {
     try {
       const { offer, callerId, targetId, peerId } = data;
-      const fromUserId = callerId || targetId || peerId;
+      const fromUserId = callerId || peerId;
       console.log('📨 RECEIVED VIDEO OFFER', {
-        fromUserId,
+        callerId,
+        targetId,
+        peerId,
         offerExists: !!offer,
         currentRemoteUserId: this.remoteUserId,
-        payload: data,
       });
-      console.log('📊 Current peer connections:', Array.from(this.peerConnections.keys()));
+      console.log('📊 Current peer connections BEFORE:', Array.from(this.peerConnections.keys()));
       
-      // Store the remote user ID for later answer matching
+      // Store the remote user ID for later matching
       if (fromUserId) {
         this.remoteUserId = fromUserId;
-        console.log('💾 Stored remote user ID:', this.remoteUserId);
+        console.log('💾 Stored remote user ID (offer sender):', this.remoteUserId);
       }
       
       // Use callerId (offerer's user ID) as the peer connection key
-      const actualPeerId = callerId || targetId || peerId || 'unknown-peer';
+      // This way when the offerer sends us their answer with callerId matching their user ID,
+      // we'll look for PC with that ID
+      const actualPeerId = callerId || peerId || 'unknown-peer';
+      console.log(`🔌 Will use peer connection key: ${actualPeerId}`);
       
       // Check if we already have a peer connection for this peer
       let peerConnection = this.peerConnections.get(actualPeerId);
@@ -318,14 +322,14 @@ export class WebRTCService {
       if (peerConnection) {
         // Already have a connection - check its state
         const signalingState = peerConnection.signalingState;
-        console.log(`📊 Existing peer connection signaling state: ${signalingState}`);
+        console.log(`📊 Existing peer connection found with key ${actualPeerId}, state: ${signalingState}`);
         
         if (signalingState !== 'stable') {
           console.warn(`⚠️ Ignoring offer - peer connection already in state: ${signalingState}`);
           return;
         }
       } else {
-        console.log('🔗 Creating NEW peer connection for:', actualPeerId);
+        console.log(`🔌 Creating NEW peer connection with KEY: ${actualPeerId}`);
         peerConnection = this.createPeerConnection(actualPeerId);
       }
 
@@ -344,13 +348,17 @@ export class WebRTCService {
         remoteTracks: peerConnection.getReceivers().length,
       });
 
+      // Send answer with user IDs so remote can match
       socketService.emit('video:answer', {
         sessionId: this.sessionId,
-        callerId: this.userId,
-        targetId: actualPeerId,
+        callerId: this.userId,        // My user ID (answer sender)
+        targetId: actualPeerId,       // Offer sender's user ID
         answer,
       } as any);
-      console.log('📤 Sent video answer');
+      console.log('📤 Sent video answer', {
+        callerId: this.userId,
+        targetId: actualPeerId,
+      });
     } catch (err) {
       console.error('❌ Error handling video offer:', err);
     }
@@ -364,42 +372,63 @@ export class WebRTCService {
         targetId,
         peerId,
         hasAnswer: !!answer,
+        currentRemoteUserId: this.remoteUserId,
       });
       console.log('📊 Current peer connections:', Array.from(this.peerConnections.keys()));
       
-      // The answer is coming from the remote user (callerId)
-      const actualPeerId = callerId || this.remoteUserId || targetId || peerId;
+      // The answer is coming from a peer. Use callerId as the primary key (sender's user ID)
+      // This should match the peer connection we created in initiateConnection
+      const actualPeerId = callerId || targetId || peerId || this.remoteUserId;
       
       if (!actualPeerId) {
         console.warn('⚠️ Could not determine peer ID for answer');
         return;
       }
       
+      console.log('🔍 Looking for peer connection with key:', actualPeerId);
       let peerConnection = this.peerConnections.get(actualPeerId);
       
       if (!peerConnection) {
-        // If not found by initiatorId, try 'initiator' as last resort for backwards compatibility
+        console.warn('⚠️ Peer connection NOT found with key:', actualPeerId);
+        console.log('📋 Available keys:', Array.from(this.peerConnections.keys()));
+        
+        // If not found by userId, try 'initiator' as last resort for backwards compatibility
         const initiatorPC = this.peerConnections.get('initiator');
         if (initiatorPC) {
           console.log('🔄 Using initiator PC for answer');
           peerConnection = initiatorPC;
         }
+      } else {
+        console.log('✅ Found peer connection with key:', actualPeerId);
       }
       
       if (peerConnection) {
         // Check connection state before setting remote description
         const signalingState = peerConnection.signalingState;
         console.log(`📊 Peer connection signaling state: ${signalingState}`);
+        console.log('📊 Peer connection details:', {
+          signalingState,
+          iceConnectionState: peerConnection.iceConnectionState,
+          connectionState: peerConnection.connectionState,
+          senders: peerConnection.getSenders().length,
+          receivers: peerConnection.getReceivers().length,
+        });
         
         // Only set remote description if we're in a state where we can
         if (signalingState === 'have-local-offer') {
           await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
           console.log('✅ Set remote description (answer)');
+          console.log('📊 After setting remote answer:', {
+            signalingState: peerConnection.signalingState,
+            iceConnectionState: peerConnection.iceConnectionState,
+          });
         } else {
           console.warn(`⚠️ Cannot set remote answer - wrong state: ${signalingState}. Expected 'have-local-offer'`);
         }
       } else {
-        console.warn('⚠️ No peer connection found for answer. Looking for remoteUserId:', this.remoteUserId);
+        console.warn('⚠️ No peer connection found for answer after all attempts');
+        console.log('📊 Answer data:', { callerId, targetId, peerId });
+        console.log('📊 Stored remoteUserId:', this.remoteUserId);
       }
     } catch (err) {
       console.error('❌ Error handling video answer:', err);
@@ -576,7 +605,8 @@ export class WebRTCService {
         console.log('🧊 Sending ICE candidate');
         socketService.emit('video:ice-candidate', {
           sessionId: this.sessionId,
-          peerId,
+          peerId: this.userId,
+          callerId: this.userId,
           candidate: event.candidate,
         } as any);
       }
@@ -584,6 +614,7 @@ export class WebRTCService {
 
     // Handle remote stream
     peerConnection.ontrack = (event) => {
+      console.log('✅✅✅ ONTRACK FIRED! ✅✅✅');
       console.log('📹 Received remote track:', {
         kind: event.track.kind,
         enabled: event.track.enabled,
@@ -627,7 +658,12 @@ export class WebRTCService {
           this.onScreenShare(event.streams[0], peerId);
         } else if (this.onRemoteStream) {
           console.log('📹 Detected regular video track, calling onRemoteStream callback');
+          console.log('🔍 Callback function exists:', !!this.onRemoteStream);
+          console.log('🔍 Stream to pass:', event.streams[0]);
           this.onRemoteStream(event.streams[0], peerId);
+          console.log('✅ onRemoteStream callback called');
+        } else {
+          console.error('❌ NO CALLBACK SET! this.onRemoteStream is:', this.onRemoteStream);
         }
       } else {
         console.warn('⚠️ Remote track received but no streams array');
@@ -713,7 +749,9 @@ export class WebRTCService {
   }
 
   setOnRemoteStream(callback: (stream: MediaStream, peerId: string) => void) {
+    console.log('🔔 [CALLBACK SET] setOnRemoteStream called with callback:', typeof callback);
     this.onRemoteStream = callback;
+    console.log('✅ [CALLBACK SET] onRemoteStream callback now set:', !!this.onRemoteStream);
   }
 
   setOnScreenShare(callback: (stream: MediaStream, peerId: string) => void) {
@@ -734,7 +772,8 @@ export class WebRTCService {
       this.initiateConnectionInProgress = true;
 
       console.log(`🔗 Starting WebRTC connection initiation...`);
-      console.log(`📊 Current user: ${this.userId}, Remote user: ${remoteUserId}`);
+      console.log(`📊 Initiator userId: ${this.userId}`);
+      console.log(`📊 Remote userId: ${remoteUserId}`);
       console.log(`📊 Session ID: ${this.sessionId}`);
       console.log(`📊 Local stream exists: ${!!this.localStream}`);
       console.log(`📊 Socket connected: ${socketService.isConnected()}`);
@@ -785,8 +824,10 @@ export class WebRTCService {
         return;
       }
 
-      // Create a peer connection with remoteUserId as the key (not 'initiator')
+      // Create a peer connection with remoteUserId as the key
+      console.log(`🔌 Creating peer connection with KEY: ${remoteUserId}`);
       const peerConnection = this.createPeerConnection(remoteUserId);
+      console.log(`✅ Peer connection created and stored with key: ${remoteUserId}`);
 
       // Create and send offer
       console.log('📤 Creating WebRTC offer...');
@@ -798,23 +839,22 @@ export class WebRTCService {
       await peerConnection.setLocalDescription(offer);
       console.log('✅ Local description set (offer)');
 
-      // Send offer via socket
+      // Send offer via socket with user IDs (not socket IDs)
       socketService.emit('video:offer', {
         sessionId: this.sessionId,
-        callerId: this.userId,
-        targetId: remoteUserId,
-        peerId: this.userId,
+        callerId: this.userId,          // Mentor's user ID
+        targetId: remoteUserId,         // Student's user ID
+        peerId: this.userId,            // Also send as peerId for backward compat
         offer,
       } as any);
       
       console.log('📤 WebRTC offer sent to remote user');
-      console.log('📊 Offer data:', {
+      console.log('📊 Offer data sent:', {
         sessionId: this.sessionId,
         callerId: this.userId,
         targetId: remoteUserId,
         peerId: this.userId,
         offerType: offer.type,
-        offerSdp: offer.sdp?.substring(0, 100) + '...'
       });
 
       this.initiateConnectionInProgress = false;

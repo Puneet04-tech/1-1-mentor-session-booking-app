@@ -32,11 +32,13 @@ export async function handleVideoConnectionRequest(socket: Socket, io: SocketIOS
 
 export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data: any) {
   try {
-    const { sessionId, peerId, offer, remoteUserId, initiatorId } = data;
+    const { sessionId, peerId, offer, remoteUserId, initiatorId, callerId, targetId } = data;
     
     console.log('📨 Video offer received:', {
       sessionId,
       peerId,
+      callerId,
+      targetId,
       initiatorId,
       remoteUserId,
       socketId: socket.id,
@@ -47,12 +49,14 @@ export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data:
     const room = io.sockets.adapter.rooms.get(`session:${sessionId}`);
     console.log('👥 Room members when video offer received:', room ? Array.from(room) : 'No members');
     
-    // Broadcast offer to session, including sender ID so recipient knows who to answer
+    // Broadcast offer to session, preserving user IDs (callerId, targetId)
     socket.to(`session:${sessionId}`).emit('video:offer', {
-      peerId: socket.id, // Send socket ID so recipient knows who the offer is from
+      peerId: peerId || socket.id, // Use provided peerId or fallback to socket.id
       offer,
+      callerId: callerId || socket.id, // Preserve user ID of offer sender
+      targetId: targetId || remoteUserId, // Preserve target user ID
       remoteUserId,
-      initiatorId: initiatorId || socket.id,
+      initiatorId: initiatorId || peerId || socket.id,
       timestamp: Date.now(),
     });
     
@@ -64,13 +68,24 @@ export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data:
 
 export async function handleVideoAnswer(socket: Socket, io: SocketIOServer, data: any) {
   try {
-    const { sessionId, peerId, answer, initiatorId } = data;
+    const { sessionId, peerId, answer, initiatorId, callerId, targetId } = data;
     
-    // Broadcast answer to session, including sender ID
+    console.log('📨 Video answer received:', {
+      sessionId,
+      peerId,
+      callerId,
+      targetId,
+      initiatorId,
+      socketId: socket.id
+    });
+    
+    // Broadcast answer to session, preserving user IDs (callerId, targetId)
     socket.to(`session:${sessionId}`).emit('video:answer', {
-      peerId: socket.id, // Send socket ID so recipient knows who the answer is from
+      peerId: peerId || socket.id, // Use provided peerId or fallback to socket.id
       answer,
-      initiatorId: initiatorId || socket.id,
+      callerId: callerId || socket.id, // Preserve user ID of answer sender
+      targetId: targetId, // Preserve target user ID
+      initiatorId: initiatorId || peerId || socket.id,
       timestamp: Date.now(),
     });
     
@@ -82,12 +97,14 @@ export async function handleVideoAnswer(socket: Socket, io: SocketIOServer, data
 
 export async function handleICECandidate(socket: Socket, io: SocketIOServer, data: any) {
   try {
-    const { sessionId, peerId, candidate } = data;
+    const { sessionId, peerId, candidate, callerId, targetId } = data;
     
-    // Broadcast ICE candidate to session, including sender ID
+    // Broadcast ICE candidate to session, preserving user IDs
     socket.to(`session:${sessionId}`).emit('video:ice-candidate', {
-      peerId: socket.id, // Send socket ID so recipient knows who the candidate is from
+      peerId: peerId || socket.id, // Use provided peerId or fallback to socket.id
       candidate,
+      callerId: callerId || peerId || socket.id, // Preserve user ID of candidate sender
+      targetId: targetId,
       timestamp: Date.now(),
     });
   } catch (err) {

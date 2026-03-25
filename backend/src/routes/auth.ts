@@ -15,8 +15,14 @@ router.post('/signup',  async (req: AuthRequest, res: Response) => {
   try {
     const { email, password, name, role } = req.body;
 
+    // Validate input
     if (!email || !password || !name || !role) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ error: 'Missing required fields: email, password, name, role' });
+    }
+
+    // Validate password strength (minimum 8 characters)
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long' });
     }
 
     // Check if user exists
@@ -26,21 +32,31 @@ router.post('/signup',  async (req: AuthRequest, res: Response) => {
     );
 
     if (existing) {
-      return res.status(400).json({ error: 'User already exists' });
+      return res.status(400).json({ error: 'User already exists with this email' });
     }
 
-    // Hash password
+    // Hash password with bcrypt (10 rounds)
     const hashedPassword = await bcrypt.hash(password, 10);
+    console.log('✅ Password hashed successfully for signup');
 
     const userId = uuidv4();
     const now = new Date().toISOString();
 
-    // Create user (note: this is a simplified version - you may need to use Supabase Auth)
+    // Create user in users table
     await query(
       `INSERT INTO users (id, email, name, role, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [userId, email, name, role, now, now]
     );
+    console.log('✅ User created:', { id: userId, email, role });
+
+    // Store hashed password in user_passwords table
+    await query(
+      `INSERT INTO user_passwords (user_id, password_hash, created_at, updated_at)
+       VALUES ($1, $2, $3, $4)`,
+      [userId, hashedPassword, now, now]
+    );
+    console.log('✅ Password stored securely in user_passwords table');
 
     // Generate JWT token
     const token = jwt.sign(
@@ -51,13 +67,14 @@ router.post('/signup',  async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
+      message: 'Signup successful',
       data: {
         user: { id: userId, email, name, role },
         token,
       },
     });
   } catch (err) {
-    console.error('Signup error:', err);
+    console.error('❌ Signup error:', err);
     res.status(500).json({ error: 'Signup failed' });
   }
 });
@@ -78,11 +95,32 @@ router.post('/login', async (req: AuthRequest, res: Response) => {
     );
 
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      console.warn('⚠️  Login attempt for non-existent user:', email);
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // In production, verify password against hashed password in DB
-    // For now, simplified
+    // Get password hash from user_passwords table
+    const userPassword = await queryOne(
+      'SELECT password_hash FROM user_passwords WHERE user_id = $1',
+      [user.id]
+    );
+
+    if (!userPassword) {
+      console.error('❌ No password found for user:', user.id);
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Verify password using bcrypt
+    const isPasswordValid = await bcrypt.compare(password, userPassword.password_hash);
+
+    if (!isPasswordValid) {
+      console.warn('⚠️  Invalid password for user:', email);
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    console.log('✅ Password verified successfully for user:', email);
+
+    // Generate JWT token
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
       jwtSecret,
@@ -91,13 +129,14 @@ router.post('/login', async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
+      message: 'Login successful',
       data: {
         user,
         token,
       },
     });
   } catch (err) {
-    console.error('Login error:', err);
+    console.error('❌ Login error:', err);
     res.status(500).json({ error: 'Login failed' });
   }
 });
@@ -123,6 +162,66 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
 // Logout
 router.post('/logout', authMiddleware, (req: AuthRequest, res: Response) => {
   res.json({ success: true, message: 'Logged out' });
+});
+
+// Change password (requires authentication)
+router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    const userId = req.user?.id;
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: 'Old password and new password required' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters long' });
+    }
+
+    if (oldPassword === newPassword) {
+      return res.status(400).json({ error: 'New password must be different from old password' });
+    }
+
+    // Get current password hash
+    const userPassword = await queryOne(
+      'SELECT password_hash FROM user_passwords WHERE user_id = $1',
+      [userId]
+    );
+
+    if (!userPassword) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // Verify old password
+    const isOldPasswordValid = await bcrypt.compare(oldPassword, userPassword.password_hash);
+
+    if (!isOldPasswordValid) {
+      console.warn('⚠️  Invalid old password for user:', userId);
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+    const now = new Date().toISOString();
+
+    // Update password
+    await query(
+      `UPDATE user_passwords 
+       SET password_hash = $1, updated_at = $2 
+       WHERE user_id = $3`,
+      [hashedNewPassword, now, userId]
+    );
+
+    console.log('✅ Password changed successfully for user:', userId);
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully',
+    });
+  } catch (err) {
+    console.error('❌ Change password error:', err);
+    res.status(500).json({ error: 'Failed to change password' });
+  }
 });
 
 export default router;

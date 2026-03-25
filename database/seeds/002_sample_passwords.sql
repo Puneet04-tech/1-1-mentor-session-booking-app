@@ -1,0 +1,24 @@
+-- Sample password data - passwords pre-hashed with bcrypt
+-- IMPORTANT: These passwords are hashed with bcrypt (10 rounds)
+-- Keep these credentials ONLY for testing/development
+-- 
+-- All test accounts use password: password123
+-- These hashes were generated with: bcrypt.hash('password123', 10)
+-- 
+-- NOTE: The hashes below are placeholders. Run the seed script to generate real hashes:
+--       npm run seed
+--
+-- Test Credentials:
+-- Mentor 1: john_mentor@example.com / password123
+-- Mentor 2: jane_mentor@example.com / password123
+-- Student 1: bob_student@example.com / password123
+-- Student 2: alice_student@example.com / password123
+
+-- These hash values need to be generated dynamically - see seed script
+-- INSERT INTO user_passwords (user_id, password_hash, created_at, updated_at)
+-- VALUES
+--   ('550e8400-e29b-41d4-a716-446655440001', '<BCRYPT_HASH_HERE>', NOW(), NOW()),
+--   ('550e8400-e29b-41d4-a716-446655440002', '<BCRYPT_HASH_HERE>', NOW(), NOW()),
+--   ('550e8400-e29b-41d4-a716-446655440003', '<BCRYPT_HASH_HERE>', NOW(), NOW()),
+--   ('550e8400-e29b-41d4-a716-446655440004', '<BCRYPT_HASH_HERE>', NOW(), NOW());
+

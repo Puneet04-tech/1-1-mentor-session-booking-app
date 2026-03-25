@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { webrtcService } from '@/services/webrtc';
 import { apiClient } from '@/services/api';
 import { socketService } from '@/services/socket';
+import { setupVideoDebug } from '@/services/webrtcDebug';
 import { useSessionStore, useEditorStore, useVideoStore, useAuthStore } from '@/store';
 import { GlowingButton, GlowingCard, Badge, Avatar } from '@/components/ui/GlowingComponents';
 import dynamic from 'next/dynamic';
@@ -82,6 +83,7 @@ export default function SessionPage() {
   const [videoLoading, setVideoLoading] = useState(true);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [remoteUserName, setRemoteUserName] = useState<string | null>(null);
+  const [showDebugInfo, setShowDebugInfo] = useState(false);
 
   // Initialize video conferencing on mount
   useEffect(() => {
@@ -91,29 +93,15 @@ export default function SessionPage() {
         setVideoLoading(true);
         setVideoError(null);
 
-        // Start local video
-        console.log('📹 Starting local video...');
-        const localStream = await webrtcService.startLocalVideo(sessionId, currentUser?.id || '');
-        console.log('✅ Local video started');
+        // 🎯 Setup debugging utilities FIRST (for all three checks)
+        console.log('🔧 Setting up WebRTC debugging utilities...');
+        const videoDebugger = setupVideoDebug(remoteVideoRef);
 
-        // Fetch session to find remote user
-        const response = await apiClient.getSession(sessionId);
-        const session = response?.data;
-        
-        if (!session) {
-          throw new Error('Failed to fetch session data');
-        }
-
-        // Find remote user ID
-        const remoteUserId = session.mentor_id === currentUser?.id ? session.student_id : session.mentor_id;
-        
-        if (!remoteUserId) {
-          throw new Error('Could not find remote participant');
-        }
-        console.log('✅ Found remote user:', remoteUserId);
-
-        // Set WebRTC callbacks
+        // ⭐ CRITICAL FIX: Set WebRTC callbacks IMMEDIATELY before ANY async operations
+        // If we wait for API calls, the mentor might join and send offer while we're fetching
+        console.log('🔧 Setting up WebRTC callbacks (SYNCHRONOUS - FIRST!)...');
         webrtcService.setUserRole(currentUser?.role === 'admin' ? 'student' : currentUser?.role || 'student');
+        
         webrtcService.setOnLocalStream((stream: MediaStream) => {
           console.log('💾 Setting local stream to video element');
           if (localVideoRef.current) {
@@ -122,16 +110,18 @@ export default function SessionPage() {
         });
 
         webrtcService.setOnRemoteStream((stream: MediaStream, peerId: string) => {
-          console.log('💾 Setting remote stream to video element');
+          console.log('💾 [CRITICAL] Setting remote stream to video element!');
           if (remoteVideoRef.current) {
+            console.log('✅ remoteVideoRef exists, setting srcObject');
             remoteVideoRef.current.srcObject = stream;
             setRemoteUserName('Remote User');
+          } else {
+            console.error('❌ remoteVideoRef.current is NULL!');
           }
         });
 
         webrtcService.setOnScreenShare((stream: MediaStream, peerId: string) => {
           console.log('🖥️ Received remote screen share stream:', stream);
-          // Set screen share stream to screen share video element
           if (screenShareRef.current) {
             screenShareRef.current.srcObject = stream;
             console.log('✅ Remote screen share stream set to video element');
@@ -147,12 +137,35 @@ export default function SessionPage() {
           }
         });
 
+        console.log('✅ WebRTC callbacks set up BEFORE any async operations');
+
+        // NOW do async operations (after callbacks are ready)
+        console.log('📋 Fetching session data...');
+        const response = await apiClient.getSession(sessionId);
+        const session = response?.data;
+        
+        if (!session) {
+          throw new Error('Failed to fetch session data');
+        }
+
+        const remoteUserId = session.mentor_id === currentUser?.id ? session.student_id : session.mentor_id;
+        
+        if (!remoteUserId) {
+          throw new Error('Could not find remote participant');
+        }
+        console.log('✅ Found remote user:', remoteUserId);
+
+        // Start local video (this will setup socket listeners)
+        console.log('📹 Starting local video...');
+        const localStream = await webrtcService.startLocalVideo(sessionId, currentUser?.id || '');
+        console.log('✅ Local video started');
+
         // Set initial local video
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = localStream;
         }
 
-        // Initiate WebRTC connection - only mentor should initiate
+        // Initiate WebRTC connection
         console.log('🔗 Checking if should initiate WebRTC connection...');
         console.log('👤 Current user role:', currentUser?.role);
         console.log('👤 Current user ID:', currentUser?.id);
@@ -164,24 +177,21 @@ export default function SessionPage() {
         } else {
           console.log('👨‍🎓 Student detected - waiting for mentor to initiate connection...');
           
-          // Wait a moment for mentor's connection, then check if we need to request connection
           setTimeout(async () => {
             console.log('🔍 Checking if connection exists after delay...');
             
-            // Check if we have any peer connections
             const hasConnection = webrtcService.hasPeerConnection(remoteUserId);
             console.log('🔗 Has peer connection:', hasConnection);
             
             if (!hasConnection) {
               console.log('🔄 No connection found, requesting connection from mentor...');
-              // Student can send a signal to mentor to initiate connection
               socketService.emit('video:connection-request', {
                 sessionId,
                 userId: currentUser?.id,
                 targetUserId: remoteUserId
               } as any);
             }
-          }, 2000); // Wait 2 seconds for mentor's connection
+          }, 2000);
         }
 
         setVideoLoading(false);
@@ -926,24 +936,28 @@ export default function SessionPage() {
                   
                   {/* Remote Video */}
                   <div className="relative bg-gray-900 rounded overflow-hidden">
-                    {remoteVideoRef.current?.srcObject ? (
-                      <>
-                        <video
-                          ref={remoteVideoRef}
-                          autoPlay
-                          playsInline
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-white text-xs">
-                          {remoteUserName || 'Remote User'}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex items-center justify-center h-full">
+                    {/* Always render the video element - don't make it conditional! */}
+                    <video
+                      ref={remoteVideoRef}
+                      autoPlay
+                      playsInline
+                      className="w-full h-full object-cover"
+                    />
+                    
+                    {/* Waiting message - only show if no remote stream yet */}
+                    {!remoteUserName && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80">
                         <div className="text-center">
                           <div className="animate-pulse mb-2">👥</div>
                           <p className="text-gray-400 text-xs">Waiting for remote user...</p>
                         </div>
+                      </div>
+                    )}
+                    
+                    {/* User label - only show if remote stream exists */}
+                    {remoteUserName && (
+                      <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-white text-xs">
+                        {remoteUserName}
                       </div>
                     )}
                   </div>
@@ -973,29 +987,82 @@ export default function SessionPage() {
             </div>
             
             {/* Video Controls */}
-            <div className="w-full px-2 md:px-4 py-2 md:py-3 border-t border-gray-700/30 gap-1 md:gap-2 flex flex-shrink-0 bg-dark-950/80">
+            <div className="w-full px-2 md:px-4 py-2 md:py-3 border-t border-gray-700/30 gap-1 md:gap-2 flex flex-wrap flex-shrink-0 bg-dark-950/80">
               <GlowingButton 
                 variant="secondary" 
-                className="text-xs flex-1 py-1 md:py-2"
+                className="text-xs flex-1 py-1 md:py-2 min-w-[60px]"
                 onClick={handleToggleVideo}
               >
                 {isVideoEnabled ? '📹' : '📹❌'} Video
               </GlowingButton>
               <GlowingButton 
                 variant="secondary" 
-                className="text-xs flex-1 py-1 md:py-2"
+                className="text-xs flex-1 py-1 md:py-2 min-w-[60px]"
                 onClick={handleToggleAudio}
               >
                 {isAudioEnabled ? '🎤' : '🔇'} Audio
               </GlowingButton>
               <GlowingButton 
                 variant="secondary" 
-                className="text-xs flex-1 py-1 md:py-2"
+                className="text-xs flex-1 py-1 md:py-2 min-w-[100px]"
                 onClick={handleToggleScreenShare}
               >
-                {isScreenSharingActive ? '🛑 Stop Share' : '🖥️ Share Screen'}
+                {isScreenSharingActive ? '🛑 Stop' : '🖥️ Share'}
+              </GlowingButton>
+              <GlowingButton 
+                variant="secondary" 
+                className="text-xs flex-1 py-1 md:py-2 min-w-[60px] bg-yellow-500/20 hover:bg-yellow-500/30"
+                onClick={() => setShowDebugInfo(!showDebugInfo)}
+              >
+                🔧 Debug
               </GlowingButton>
             </div>
+
+            {/* Debug Info Panel */}
+            {showDebugInfo && (
+              <div className="w-full px-2 md:px-4 py-3 bg-yellow-900/20 border-t border-yellow-700/50 text-xs max-h-64 overflow-y-auto flex-shrink-0">
+                <div className="space-y-2 font-mono text-yellow-200">
+                  <p>📊 <strong>VIDEO DEBUG INFO</strong></p>
+                  
+                  <div className="bg-black/40 p-2 rounded space-y-1">
+                    <p><span className="text-gray-400">DOM Check:</span></p>
+                    <p>  ✓ Ref exists: {remoteVideoRef.current ? 'YES' : 'NO'}</p>
+                    <p>  ✓ In DOM: {remoteVideoRef.current && document.body.contains(remoteVideoRef.current) ? 'YES' : 'NO'}</p>
+                    <p>  ✓ Dimensions: {remoteVideoRef.current?.clientWidth || 0}x{remoteVideoRef.current?.clientHeight || 0}px</p>
+                  </div>
+
+                  <div className="bg-black/40 p-2 rounded space-y-1">
+                    <p><span className="text-gray-400">Stream Check:</span></p>
+                    <p>  ✓ Has srcObject: {remoteVideoRef.current?.srcObject ? 'YES' : 'NO'}</p>
+                    {remoteVideoRef.current?.srcObject instanceof MediaStream && (
+                      <>
+                        <p>  ✓ Tracks: {(remoteVideoRef.current.srcObject as MediaStream).getTracks().length}</p>
+                        <p>  ✓ Video tracks: {(remoteVideoRef.current.srcObject as MediaStream).getVideoTracks().length}</p>
+                      </>
+                    )}
+                    <p>  ✓ Paused: {remoteVideoRef.current?.paused ? 'YES' : 'NO'}</p>
+                    <p>  ✓ Volume: {(remoteVideoRef.current?.volume || 0).toFixed(2)}</p>
+                  </div>
+
+                  <div className="bg-black/40 p-2 rounded space-y-1">
+                    <p><span className="text-gray-400">Playback Policy:</span></p>
+                    <p>  ✓ autoplay attr: {remoteVideoRef.current?.autoplay ? 'YES' : 'NO'}</p>
+                    <p>  ✓ playsinline: {remoteVideoRef.current?.hasAttribute('playsinline') ? 'YES' : 'NO'}</p>
+                    <p>  ✓ muted: {remoteVideoRef.current?.muted ? 'YES' : 'NO'}</p>
+                    <p>  ✓ visible: {remoteVideoRef.current && window.getComputedStyle(remoteVideoRef.current).display !== 'none' ? 'YES' : 'NO'}</p>
+                  </div>
+
+                  <div className="bg-blue-900/20 border border-blue-700/50 p-2 rounded mt-2">
+                    <p className="text-blue-300 mb-1">🔍 <strong>BROWSER CONSOLE COMMANDS:</strong></p>
+                    <p className="text-blue-200 text-xs">window.videoDebug.checkDOM() - DOM checks</p>
+                    <p className="text-blue-200 text-xs">window.videoDebug.checkStream() - Stream checks</p>
+                    <p className="text-blue-200 text-xs">window.videoDebug.checkPolicy() - Policy checks</p>
+                    <p className="text-blue-200 text-xs">window.videoDebug.report() - Full report</p>
+                    <p className="text-blue-200 text-xs">window.videoDebug.play() - Force play</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </GlowingCard>
 
           {/* Chat Panel */}

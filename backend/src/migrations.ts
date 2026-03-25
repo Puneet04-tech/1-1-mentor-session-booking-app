@@ -1,0 +1,51 @@
+import { Pool } from 'pg';
+import * as fs from 'fs';
+import * as path from 'path';
+import { config } from './config';
+
+const pool = new Pool({
+  connectionString: config.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
+
+async function runMigrations() {
+  const client = await pool.connect();
+  
+  try {
+    console.log('🚀 Starting database migrations...\n');
+
+    // Get all migration files sorted by name
+    const migrationsDir = path.join(__dirname, '../../database/migrations');
+    const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+
+    for (const file of files) {
+      const filePath = path.join(migrationsDir, file);
+      const sql = fs.readFileSync(filePath, 'utf-8');
+
+      console.log(`📋 Running migration: ${file}`);
+      
+      try {
+        await client.query(sql);
+        console.log(`✅ Successfully applied: ${file}\n`);
+      } catch (err: any) {
+        // Check if error is "already exists" - that's ok
+        if (err.message.includes('already exists') || err.message.includes('duplicate')) {
+          console.log(`⚠️  Skipped (already exists): ${file}\n`);
+        } else {
+          console.error(`❌ Error in ${file}:`, err.message);
+          throw err;
+        }
+      }
+    }
+
+    console.log('✅ All migrations completed successfully!');
+  } finally {
+    await client.end();
+    await pool.end();
+  }
+}
+
+runMigrations().catch((err) => {
+  console.error('❌ Migration failed:', err);
+  process.exit(1);
+});
