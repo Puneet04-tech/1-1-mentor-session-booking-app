@@ -25,7 +25,9 @@ class SocketService {
     console.log('🔌 Connecting to socket at:', SOCKET_URL);
     this.socket = io(SOCKET_URL, {
       path: '/socket.io',
-      transports: ['websocket', 'polling'],
+      transports: ['websocket'],
+      upgrade: true,
+      rememberUpgrade: true,
       withCredentials: true,
       auth: {
         token,
