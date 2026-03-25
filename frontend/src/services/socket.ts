@@ -75,6 +75,9 @@ class SocketService {
 
     this.socket.on('connect_error', (error) => {
       console.error('❌ Socket connect_error:', error);
+      if (error.message.includes('Authentication')) {
+        console.error('🔐 Auth failed - check token validity');
+      }
     });
 
     // Debug: Log all incoming events

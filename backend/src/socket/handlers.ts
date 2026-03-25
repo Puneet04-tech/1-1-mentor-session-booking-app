@@ -28,7 +28,9 @@ import {
 
 export function setupSocketHandlers(io: SocketIOServer) {
   io.on('connection', (socket: Socket) => {
-    console.log(`User connected: ${socket.id}`);
+    const userId = socket.data.userId;
+    console.log(`✅ User connected: ${socket.id} (userId: ${userId})`);
+    console.log(`   Total connected clients: ${io.engine.clientsCount}`);
 
     // Code editor events
     socket.on('code:update', (data) => handleCodeUpdate(socket, io, data));
@@ -59,7 +61,12 @@ export function setupSocketHandlers(io: SocketIOServer) {
     socket.on('presence:update', (data) => handlePresenceUpdate(socket, io, data));
 
     socket.on('disconnect', () => {
-      console.log(`User disconnected: ${socket.id}`);
+      console.log(`❌ User disconnected: ${socket.id} (userId: ${userId})`);
+      console.log(`   Total connected clients: ${io.engine.clientsCount}`);
+    });
+
+    socket.on('error', (error) => {
+      console.error(`❌ Socket error for ${socket.id}:`, error);
     });
   });
 }

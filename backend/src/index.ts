@@ -4,6 +4,7 @@ import compression from 'compression';
 import helmet from 'helmet';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
+import jwt from 'jsonwebtoken';
 import { config } from './config';
 import { healthCheck } from './database';
 import authRoutes from './routes/auth';
@@ -45,6 +46,29 @@ const io = new SocketIOServer(httpServer, {
 // Set Socket.io instance for routes that need it
 setSessionSocketIO(io);
 setCodeSocketIO(io);
+
+// Socket.IO authentication middleware
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+    
+    if (!token) {
+      console.warn('🔴 Socket connection attempt without token');
+      return next(new Error('Authentication required'));
+    }
+
+    // Verify JWT token
+    const decoded = jwt.verify(token, config.JWT_SECRET) as any;
+    socket.data.userId = decoded.id;
+    socket.data.user = decoded;
+    
+    console.log(`✅ Socket authenticated for user: ${decoded.id}`);
+    next();
+  } catch (err: any) {
+    console.error('🔴 Socket authentication error:', err.message);
+    next(new Error(`Authentication failed: ${err.message}`));
+  }
+});
 
 // Middleware
 app.use(helmet());
