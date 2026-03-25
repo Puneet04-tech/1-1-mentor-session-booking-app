@@ -26,9 +26,17 @@ const app: Express = express();
 const httpServer = createServer(app);
 
 // Socket.io setup
+const allowedOrigins = new Set<string>([...config.CLIENT_URLS, config.CLIENT_URL]);
+
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: config.CLIENT_URL,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS policy violation: ${origin}`));
+      }
+    },
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -42,7 +50,13 @@ setCodeSocketIO(io);
 app.use(helmet());
 app.use(compression());
 app.use(cors({
-  origin: config.CLIENT_URL,
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS policy violation: ${origin}`));
+    }
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));

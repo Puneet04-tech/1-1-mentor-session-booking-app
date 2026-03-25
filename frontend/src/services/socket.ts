@@ -2,7 +2,14 @@ import { io, Socket } from 'socket.io-client';
 import { SocketEvents } from '@/types';
 import { useAuthStore } from '@/store';
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
+const rawSocketUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
+const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+
+const SOCKET_URL = rawSocketUrl
+  ? rawSocketUrl.replace(/\/?$/, '')
+  : apiUrl
+  ? apiUrl.replace(/\/api\/?$/, '')
+  : 'http://localhost:5000';
 
 class SocketService {
   private socket: Socket | null = null;
