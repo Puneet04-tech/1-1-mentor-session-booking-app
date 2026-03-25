@@ -3,11 +3,7 @@ import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import axios from 'axios';
 import { config } from '@/config';
-import { execSync, spawnSync } from 'child_process';
 import { runInNewContext } from 'vm';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { Server as SocketIOServer } from 'socket.io';
 
 const router = Router();
@@ -19,14 +15,34 @@ export function setSocketIO(socketIO: SocketIOServer) {
   io = socketIO;
 }
 
-const TEMP_DIR = path.join(os.tmpdir(), 'code-execution');
+// Language mappings for Piston API
+const LANGUAGE_MAP: { [key: string]: string } = {
+  'javascript': 'javascript',
+  'js': 'javascript',
+  'typescript': 'typescript',
+  'python': 'python',
+  'py': 'python',
+  'java': 'java',
+  'cpp': 'cpp',
+  'c++': 'cpp',
+  'c': 'c',
+  'csharp': 'csharp',
+  'cs': 'csharp',
+  'ruby': 'ruby',
+  'php': 'php',
+  'go': 'go',
+  'rust': 'rust',
+  'swift': 'swift',
+  'kotlin': 'kotlin',
+  'scala': 'scala',
+  'haskell': 'haskell',
+};
 
-// Ensure temp directory exists
-if (!fs.existsSync(TEMP_DIR)) {
-  fs.mkdirSync(TEMP_DIR, { recursive: true });
-}
 
-// Execute code - Local execution without external dependencies
+/**
+ * Code execution endpoint - Supports cloud-based execution via Piston API
+ * Executes code in multiple languages: JS, Python, Java, C++, C#, Ruby, PHP, Go, Rust, etc.
+ */
 router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { code, language, sessionId } = req.body;
@@ -35,27 +51,22 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       return res.status(400).json({ error: 'Code and language required' });
     }
 
-    console.log(`Executing ${language} code locally in session ${sessionId}...`);
+    // Normalize language name
+    const normalizedLang = LANGUAGE_MAP[language.toLowerCase()] || language;
+
+    console.log(`Executing ${normalizedLang} code via Piston API in session ${sessionId}...`);
 
     let output = '';
-    let error = null;
+    let error: string | null = null;
     let status = 'Success';
 
     try {
-      if (language === 'javascript' || language === 'typescript') {
-        // Use Node.js VM for safe JavaScript execution
-        output = executeJavaScript(code);
-      } else if (language === 'python') {
-        // Execute Python if available
-        output = executePython(code);
-      } else if (language === 'java') {
-        // Compile and execute Java if JDK available
-        output = executeJava(code);
-      } else if (language === 'cpp') {
-        // Compile and execute C++ if GCC available
-        output = executeCpp(code);
+      // For JavaScript, try local execution first (safer, faster, no network latency)
+      if (normalizedLang === 'javascript' || normalizedLang === 'typescript') {
+        output = executeJavaScriptLocal(code);
       } else {
-        output = `Language "${language}" is not supported.`;
+        // Use Piston API for all other languages (Python, Java, C++, etc.)
+        output = await executeViaPiston(code, normalizedLang);
       }
     } catch (execErr: any) {
       error = execErr.message;
@@ -67,7 +78,7 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
       output: output.trim(),
       error: error,
       status: status,
-      language: language,
+      language: normalizedLang,
       timestamp: new Date().toISOString(),
       executedBy: req.user?.id,
     };
@@ -75,7 +86,7 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
     // Broadcast execution result to all users in the session via Socket.io
     if (io && sessionId) {
       io.to(`session:${sessionId}`).emit('code:execution:result', result);
-      console.log(`Broadcaster execution result to session:${sessionId}`);
+      console.log(`Broadcasted execution result to session:${sessionId}`);
     }
 
     res.json({
@@ -88,47 +99,124 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
     res.status(500).json({
       error: 'Code execution failed',
       message: err.message || 'Unknown error occurred',
-      tip: 'Using local code execution. Make sure your code is valid.',
     });
   }
 });
 
 /**
- * Execute JavaScript code safely using Node VM
+ * Execute code via Piston API (free cloud code execution service)
+ * Supports: Python, Java, C++, C, C#, Ruby, PHP, Go, Rust, Swift, Kotlin, Scala, Haskell, etc.
+ * API: https://emkc.org/api/v2/
  */
-function executeJavaScript(code: string): string {
-  // Capture console.log output
+async function executeViaPiston(code: string, language: string): Promise<string> {
+  const PISTON_API = process.env.PISTON_API || 'https://emkc.org/api/v2';
+
+  try {
+    console.log(`Calling Piston API for ${language}...`);
+
+    const response = await axios.post(
+      `${PISTON_API}/execute`,
+      {
+        language: language,
+        source: code,
+        args: [],
+        stdin: '',
+        compile_timeout: 20000,
+        run_timeout: 20000,
+        compile_memory_limit: -1,
+        run_memory_limit: -1,
+      },
+      {
+        timeout: 30000,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    // Check for compilation errors (compile stderr)
+    if (response.data.compile && response.data.compile.stderr) {
+      const compileError = response.data.compile.stderr.trim();
+      if (compileError) {
+        throw new Error(`Compilation Error:\n${compileError}`);
+      }
+    }
+
+    // Check for runtime errors (run stderr)
+    if (response.data.run && response.data.run.stderr) {
+      const runtimeError = response.data.run.stderr.trim();
+      if (runtimeError) {
+        // Don't throw - some programs output to stderr legitimately
+        const stdout = response.data.run.output?.trim() || '';
+        return stdout + (stdout && runtimeError ? '\n' : '') + runtimeError;
+      }
+    }
+
+    // Return stdout output
+    if (response.data.run && response.data.run.output) {
+      return response.data.run.output.trim() || 'Code executed successfully (no output)';
+    }
+
+    return 'Code executed successfully (no output)';
+  } catch (err: any) {
+    if (err.message.includes('Compilation Error') || err.message.includes('Runtime Error')) {
+      throw err;
+    }
+
+    console.error('Piston API error:', err.message);
+
+    // Check if Piston is unavailable
+    if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+      const PISTON_API = process.env.PISTON_API || 'https://emkc.org/api/v2';
+      throw new Error(
+        `Code execution service unavailable. Piston API endpoint: ${PISTON_API}`
+      );
+    }
+
+    throw new Error(`Failed to execute code: ${err.message || 'Piston API error'}`);
+  }
+}
+
+/**
+ * Execute JavaScript/TypeScript code safely using Node VM
+ * Faster and safer than cloud execution for JS - no network latency
+ */
+function executeJavaScriptLocal(code: string): string {
   let output = '';
   const originalLog = console.log;
-  
+
   try {
     console.log = (...args: any[]) => {
-      const line = args.map(arg => {
-        if (typeof arg === 'object') {
-          return JSON.stringify(arg, null, 2);
-        }
-        return String(arg);
-      }).join(' ');
+      const line = args
+        .map((arg) => {
+          if (typeof arg === 'object') {
+            return JSON.stringify(arg, null, 2);
+          }
+          return String(arg);
+        })
+        .join(' ');
       output += line + '\n';
       originalLog(...args);
     };
 
-    // Create sandbox context with console
+    // Create sandbox context with console object
     const context = {
       console: {
         log: (...args: any[]) => {
-          const line = args.map(arg => {
-            if (typeof arg === 'object') {
-              return JSON.stringify(arg, null, 2);
-            }
-            return String(arg);
-          }).join(' ');
+          const line = args
+            .map((arg) => {
+              if (typeof arg === 'object') {
+                return JSON.stringify(arg, null, 2);
+              }
+              return String(arg);
+            })
+            .join(' ');
           output += line + '\n';
         },
       },
     };
 
-    // Execute code in a safe VM context
+    // Execute code in a safe VM context with 10 second timeout
     runInNewContext(code, context, { timeout: 10000 });
 
     return output.trim() || 'Code executed successfully (no output)';
@@ -138,202 +226,8 @@ function executeJavaScript(code: string): string {
 }
 
 /**
- * Execute Python code
+ * Get code snapshot from database
  */
-function executePython(code: string): string {
-  try {
-    // Write code to temp file
-    const tempFile = path.join(TEMP_DIR, `script_${Date.now()}.py`);
-    fs.writeFileSync(tempFile, code);
-
-    try {
-      // Try python3 first
-      const result = execSync(`python3 "${tempFile}"`, {
-        timeout: 15000,
-        encoding: 'utf-8',
-        maxBuffer: 10 * 1024 * 1024,
-      });
-      fs.unlinkSync(tempFile);
-      return result.trim() || 'Code executed successfully (no output)';
-    } catch (err) {
-      // Try python if python3 fails
-      try {
-        const result = execSync(`python "${tempFile}"`, {
-          timeout: 15000,
-          encoding: 'utf-8',
-          maxBuffer: 10 * 1024 * 1024,
-        });
-        fs.unlinkSync(tempFile);
-        return result.trim() || 'Code executed successfully (no output)';
-      } catch (innerErr: any) {
-        fs.unlinkSync(tempFile);
-        throw new Error('Python is not installed. Install Python 3 to execute Python code.');
-      }
-    }
-  } catch (err: any) {
-    throw err;
-  }
-}
-
-/**
- * Execute Java code
- */
-function executeJava(code: string): string {
-  try {
-    const className = 'TempCode';
-    const fileName = `${className}.java`;
-    const tempFile = path.join(TEMP_DIR, fileName);
-    const classFile = path.join(TEMP_DIR, `${className}.class`);
-
-    // Wrap code in a class if not already wrapped
-    let javaCode = code;
-    if (!code.includes('public class') && !code.includes('public static void main')) {
-      javaCode = `public class ${className} {
-    public static void main(String[] args) {
-        ${code.replace(/\n/g, '\n        ')}
-    }
-}`;
-    }
-
-    fs.writeFileSync(tempFile, javaCode);
-
-    try {
-      // Compile Java code
-      execSync(`javac "${tempFile}"`, {
-        timeout: 20000,
-        encoding: 'utf-8',
-      });
-
-      // Run compiled Java code
-      const result = execSync(`java -cp "${TEMP_DIR}" ${className}`, {
-        timeout: 20000,
-        encoding: 'utf-8',
-        maxBuffer: 10 * 1024 * 1024,
-      });
-
-      // Cleanup
-      fs.unlinkSync(tempFile);
-      if (fs.existsSync(classFile)) fs.unlinkSync(classFile);
-
-      return result.trim() || 'Code executed successfully (no output)';
-    } catch (compileErr: any) {
-      // Cleanup on error
-      try {
-        fs.unlinkSync(tempFile);
-        if (fs.existsSync(classFile)) fs.unlinkSync(classFile);
-      } catch (e) {}
-
-      if (compileErr.message.includes('not found') || compileErr.message.includes('javac')) {
-        throw new Error('Java compiler not found. Install JDK to execute Java code.');
-      }
-      throw new Error(`Java Error: ${compileErr.message}`);
-    }
-  } catch (err: any) {
-    throw err;
-  }
-}
-
-/**
- * Execute C++ code using local compiler (with helpful fallback message)
- */
-function executeCpp(code: string): string {
-  try {
-    // Wrap code in main if needed
-    let cppCode = code;
-    if (!code.includes('int main')) {
-      cppCode = `#include <iostream>
-using namespace std;
-int main() {
-    ${code.replace(/\n/g, '\n    ')}
-    return 0;
-}`;
-    }
-
-    const exeName = `program_${Date.now()}`;
-    const cppFile = path.join(TEMP_DIR, `${exeName}.cpp`);
-    const exeFile = path.join(TEMP_DIR, exeName + (process.platform === 'win32' ? '.exe' : ''));
-
-    fs.writeFileSync(cppFile, cppCode);
-
-    try {
-      // Try to compile with g++
-      const compileResult = spawnSync('g++', [`"${cppFile}"`, '-o', `"${exeFile}"`], {
-        timeout: 20000,
-        encoding: 'utf-8',
-        shell: true,
-        maxBuffer: 10 * 1024 * 1024,
-      });
-
-      // Check for compilation errors
-      if (compileResult.error || compileResult.status !== 0) {
-        const errorMsg = compileResult.stderr || compileResult.error?.message || 'Unknown compilation error';
-        
-        // Cleanup and provide helpful message
-        try { fs.unlinkSync(cppFile); } catch (e) {}
-        try { if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile); } catch (e) {}
-        
-        if (errorMsg.includes('not found') || errorMsg.includes('ENOENT')) {
-          return `❌ C++ Compiler Not Found\n\n` +
-                 `Install a C++ compiler to execute C++ code:\n\n` +
-                 `📦 Windows (MinGW):\n` +
-                 `   1. Download: https://www.mingw-w64.org/\n` +
-                 `   2. Run the installer and add to PATH\n` +
-                 `   3. Verify: Open Command Prompt and type "g++ --version"\n\n` +
-                 `🍎 macOS:\n` +
-                 `   brew install gcc\n\n` +
-                 `🐧 Linux:\n` +
-                 `   sudo apt install g++     # Ubuntu/Debian\n` +
-                 `   sudo yum install gcc-c++ # RedHat/CentOS`;
-        }
-        
-        return `Compilation Error:\n${errorMsg}`;
-      }
-
-      // Run the compiled executable
-      const runResult = spawnSync(exeFile, [], {
-        timeout: 20000,
-        encoding: 'utf-8',
-        maxBuffer: 10 * 1024 * 1024,
-      });
-
-      // Cleanup
-      try { fs.unlinkSync(cppFile); } catch (e) {}
-      try { if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile); } catch (e) {}
-
-      if (runResult.error) {
-        return `Runtime Error: ${runResult.error.message}`;
-      }
-
-      const output = (runResult.stdout || '').trim();
-      if (runResult.stderr) {
-        return output + (output ? '\n' : '') + runResult.stderr;
-      }
-
-      return output || 'Code executed successfully (no output)';
-    } catch (err: any) {
-      // Cleanup temp files
-      try { fs.unlinkSync(cppFile); } catch (e) {}
-      try { if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile); } catch (e) {}
-      
-      throw err;
-    }
-  } catch (err: any) {
-    return `❌ C++ Compilation Failed\n\n` +
-           `Install a C++ compiler to execute C++ code:\n\n` +
-           `📦 Windows (MinGW):\n` +
-           `   1. Download: https://www.mingw-w64.org/\n` +
-           `   2. Run the installer and add to PATH\n` +
-           `   3. Verify: Open Command Prompt and type "g++ --version"\n\n` +
-           `🍎 macOS:\n` +
-           `   brew install gcc\n\n` +
-           `🐧 Linux:\n` +
-           `   sudo apt install g++     # Ubuntu/Debian\n` +
-           `   sudo yum install gcc-c++ # RedHat/CentOS\n\n` +
-           `Error Details: ${err.message}`;
-  }
-}
-
-// Get code snapshot
 router.get('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const snapshot = await queryOne(
@@ -374,50 +268,63 @@ router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Respons
   }
 });
 
-// Health check - Verify local code execution is working
-router.get('/health', async (req: AuthRequest, res: Response) => {
+
+/**
+ * Health check - Verify code execution service is available
+ * Tests JavaScript locally and checks Piston API connectivity
+ */
+router.get('/health/check', async (req: AuthRequest, res: Response) => {
   try {
+    const PISTON_API = process.env.PISTON_API || 'https://emkc.org/api/v2';
+
     // Test JavaScript execution
-    const jsTest = executeJavaScript('console.log("JS works!")');
-    
-    // Check for language support
+    const jsTest = executeJavaScriptLocal('console.log("JS works!")');
+
+    // Check Piston API connectivity
+    let pistonStatus = 'unavailable';
+    let pistonVersion = null;
+    try {
+      const pistonResponse = await axios.get(`${PISTON_API}/runtimes`, {
+        timeout: 5000,
+      });
+      pistonStatus = 'available';
+      pistonVersion = pistonResponse.data?.length || 'unknown';
+    } catch (e) {
+      console.warn('Piston API connectivity check failed');
+    }
+
     const support: any = {
-      javascript: { status: 'supported', engine: 'Node.js VM', test: 'Passed' },
-      typescript: { status: 'supported', engine: 'Node.js VM', test: 'Passed' },
+      javascript: { status: 'supported', engine: 'Node.js VM', latency: 'local', test: 'Passed' },
+      typescript: { status: 'supported', engine: 'Node.js VM', latency: 'local', test: 'Passed' },
+      python: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
+      java: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
+      cpp: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
+      php: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
+      ruby: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
+      go: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
+      rust: { status: 'supported', engine: 'Piston API', latency: 'remote', test: pistonStatus },
     };
-
-    // Check Python
-    try {
-      support.python = { status: 'supported', engine: 'Python', test: 'Available' };
-    } catch (e) {
-      support.python = { status: 'not installed', engine: 'Requires Python 3', test: 'Failed' };
-    }
-
-    // Check Java
-    try {
-      support.java = { status: 'supported', engine: 'JDK', test: 'Available' };
-    } catch (e) {
-      support.java = { status: 'not installed', engine: 'Requires JDK', test: 'Failed' };
-    }
-
-    // Check C++
-    try {
-      support.cpp = { status: 'supported', engine: 'GCC/G++', test: 'Available' };
-    } catch (e) {
-      support.cpp = { status: 'not installed', engine: 'Requires GCC', test: 'Failed' };
-    }
 
     res.json({
       success: true,
-      message: 'Local code execution is available',
+      message: 'Code execution service is available',
+      localExecution: {
+        status: 'available',
+        test: 'Passed',
+        jsTest: jsTest,
+      },
+      pistonAPI: {
+        endpoint: PISTON_API,
+        status: pistonStatus,
+        supportedRuntimes: pistonVersion,
+      },
       supportedLanguages: support,
-      jsTest: jsTest,
     });
   } catch (err: any) {
     console.error('Health check error:', err.message);
     res.status(500).json({
       success: false,
-      message: 'Local code execution check failed',
+      message: 'Code execution health check failed',
       error: err.message,
     });
   }
