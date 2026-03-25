@@ -135,11 +135,11 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 /**
  * Execute code via Judge0 API (free cloud code execution service)
  * Supports: Python, Java, C++, C, C#, Ruby, PHP, Go, Rust, Swift, Kotlin, Scala, Haskell, etc.
- * API: https://judge0.com/api/docs
+ * API: https://judge0.com - Free public sandbox, no authentication needed
  */
 async function executeViaJudge0(code: string, language: string): Promise<string> {
-  const JUDGE0_API = process.env.JUDGE0_API || 'https://judge0-ce.p.rapidapi.com';
-  const JUDGE0_KEY = process.env.JUDGE0_KEY;
+  // Use free public Judge0 sandbox (no authentication required)
+  const JUDGE0_API = process.env.JUDGE0_API || 'https://judge0.com/api/v2';
   
   try {
     const langId = JUDGE0_LANGUAGE_IDS[language.toLowerCase()];
@@ -149,16 +149,6 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
     }
 
     console.log(`Calling Judge0 API for ${language} (ID: ${langId})...`);
-
-    const headers: any = {
-      'Content-Type': 'application/json',
-    };
-
-    // Add API key if available (for RapidAPI)
-    if (JUDGE0_KEY) {
-      headers['X-RapidAPI-Key'] = JUDGE0_KEY;
-      headers['X-RapidAPI-Host'] = 'judge0-ce.p.rapidapi.com';
-    }
 
     const requestPayload = {
       source_code: code,
@@ -175,7 +165,6 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
       requestPayload,
       {
         timeout: 30000,
-        headers,
       }
     );
 
@@ -416,26 +405,14 @@ router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Respons
 
 
 /**
- * List available runtimes from Judge0 API (PUBLIC - no auth needed)
+ * List available languages from Judge0 API (PUBLIC - no auth needed)
  */
 router.get('/runtimes', async (req: any, res: Response) => {
   try {
-    const JUDGE0_API = process.env.JUDGE0_API || 'https://judge0-ce.p.rapidapi.com';
-    const JUDGE0_KEY = process.env.JUDGE0_KEY;
+    const JUDGE0_API = process.env.JUDGE0_API || 'https://judge0.com/api/v2';
 
-    const headers: any = {
-      'Content-Type': 'application/json',
-    };
-
-    if (JUDGE0_KEY) {
-      headers['X-RapidAPI-Key'] = JUDGE0_KEY;
-      headers['X-RapidAPI-Host'] = 'judge0-ce.p.rapidapi.com';
-    }
-
-    // Get languages from Judge0
     const languagesResponse = await axios.get(`${JUDGE0_API}/languages`, {
       timeout: 5000,
-      headers,
     });
 
     const languages = languagesResponse.data || [];
@@ -502,8 +479,7 @@ router.get('/runtimes-piston', async (req: any, res: Response) => {
  */
 router.get('/health/check', async (req: AuthRequest, res: Response) => {
   try {
-    const JUDGE0_API = process.env.JUDGE0_API || 'https://judge0-ce.p.rapidapi.com';
-    const JUDGE0_KEY = process.env.JUDGE0_KEY;
+    const JUDGE0_API = process.env.JUDGE0_API || 'https://judge0.com/api/v2';
 
     // Test JavaScript execution
     const jsTest = executeJavaScriptLocal('console.log("JS works!")');
@@ -511,18 +487,8 @@ router.get('/health/check', async (req: AuthRequest, res: Response) => {
     // Get available languages from Judge0 API
     let availableLanguages: any[] = [];
     try {
-      const headers: any = {
-        'Content-Type': 'application/json',
-      };
-
-      if (JUDGE0_KEY) {
-        headers['X-RapidAPI-Key'] = JUDGE0_KEY;
-        headers['X-RapidAPI-Host'] = 'judge0-ce.p.rapidapi.com';
-      }
-
       const languagesResponse = await axios.get(`${JUDGE0_API}/languages`, {
         timeout: 5000,
-        headers,
       });
       availableLanguages = languagesResponse.data || [];
       console.log('Available Judge0 languages:', availableLanguages.length);
