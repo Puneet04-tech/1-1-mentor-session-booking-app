@@ -139,11 +139,9 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 /**
  * Execute code via Glot.io API (simpler, more reliable)
  * Supports: Python, Java, C++, C, C#, Ruby, PHP, Go, Rust, Swift, Kotlin, Scala, Haskell, etc.
- * API: https://glot.io/api - No authentication needed, returns output immediately
+ * API: https://run.glot.io/{language} - No authentication needed, returns output immediately
  */
 async function executeViaGlot(code: string, language: string): Promise<string> {
-  const GLOT_API = 'https://glot.io/api/run';
-  
   try {
     const glotLang = GLOT_LANGUAGE_MAP[language.toLowerCase()];
     
@@ -151,21 +149,21 @@ async function executeViaGlot(code: string, language: string): Promise<string> {
       throw new Error(`Unsupported language: ${language}. Supported: ${Object.keys(GLOT_LANGUAGE_MAP).join(', ')}`);
     }
 
-    console.log(`Calling Glot.io API for ${language}...`);
+    console.log(`Calling Glot.io API for ${language} (${glotLang})...`);
 
+    // Glot.io v3 endpoint format: POST https://run.glot.io/{language}
+    const GLOT_API = `https://run.glot.io/${glotLang}`;
+    
     const requestPayload = {
-      language: glotLang,
-      version: '*',
       files: [
         {
-          name: 'main.' + (glotLang === 'javascript' ? 'js' : glotLang === 'python' ? 'py' : glotLang === 'java' ? 'java' : glotLang === 'cpp' ? 'cpp' : glotLang === 'csharp' ? 'cs' : glotLang === 'typescript' ? 'ts' : glotLang),
+          name: 'f.' + (glotLang === 'javascript' ? 'js' : glotLang === 'python' ? 'py' : glotLang === 'java' ? 'java' : glotLang === 'cpp' ? 'cpp' : glotLang === 'csharp' ? 'cs' : glotLang === 'typescript' ? 'ts' : glotLang === 'ruby' ? 'rb' : glotLang === 'go' ? 'go' : glotLang === 'rust' ? 'rs' : glotLang === 'php' ? 'php' : 'txt'),
           content: code,
         }
       ],
-      stdin: '',
     };
 
-    console.log('Glot.io request:', { language: glotLang, code_length: code.length });
+    console.log('Glot.io request:', { url: GLOT_API, language: glotLang, code_length: code.length });
 
     const response = await axios.post(GLOT_API, requestPayload, {
       timeout: 30000,
@@ -179,17 +177,17 @@ async function executeViaGlot(code: string, language: string): Promise<string> {
 
     const result = response.data;
 
-    // Handle errors
-    if (result.error) {
+    // Handle errors in response
+    if (result.error && result.error !== '') {
       throw new Error(`Glot.io Error: ${result.error}`);
     }
 
     // Extract output
-    const output = result.stdout || result.output || '';
+    const stdout = result.stdout || '';
     const stderr = result.stderr || '';
 
-    if (output) {
-      return output.trim();
+    if (stdout) {
+      return stdout.trim();
     }
 
     if (stderr) {
@@ -202,7 +200,9 @@ async function executeViaGlot(code: string, language: string): Promise<string> {
       message: err.message,
       code: err.code,
       status: err.response?.status,
+      statusText: err.response?.statusText,
       data: err.response?.data,
+      url: err.config?.url,
     });
 
     // Handle network errors
@@ -211,6 +211,10 @@ async function executeViaGlot(code: string, language: string): Promise<string> {
     }
 
     // Handle HTTP errors
+    if (err.response?.status === 405) {
+      throw new Error(`Glot.io API error (405): Method or endpoint incorrect. Check endpoint format.`);
+    }
+
     if (err.response?.status) {
       throw new Error(`Glot.io API error (${err.response.status}): ${err.response.statusText}`);
     }
