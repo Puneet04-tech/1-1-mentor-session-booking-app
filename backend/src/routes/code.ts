@@ -135,11 +135,11 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 /**
  * Execute code via Judge0 API (free cloud code execution service)
  * Supports: Python, Java, C++, C, C#, Ruby, PHP, Go, Rust, Swift, Kotlin, Scala, Haskell, etc.
- * API: https://judge0.com - Free public sandbox, no authentication needed
+ * API: https://ce.judge0.com - Free community edition, no authentication needed
  */
 async function executeViaJudge0(code: string, language: string): Promise<string> {
-  // Use free public Judge0 sandbox (no authentication required)
-  const JUDGE0_API = process.env.JUDGE0_API || 'https://judge0.com/api/v2';
+  // Use free community edition Judge0 sandbox (no authentication required)
+  const JUDGE0_API = process.env.JUDGE0_API || 'https://ce.judge0.com';
   
   try {
     const langId = JUDGE0_LANGUAGE_IDS[language.toLowerCase()];
@@ -160,21 +160,45 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
 
     console.log('Request payload:', { language_id: langId, code_length: code.length });
 
-    const response = await axios.post(
-      `${JUDGE0_API}/submissions?base64_encoded=false&wait=true`,
+    // First, create a submission
+    const createResponse = await axios.post(
+      `${JUDGE0_API}/submissions`,
       requestPayload,
       {
         timeout: 30000,
       }
     );
 
-    console.log('Judge0 API response status:', response.data.status);
+    const submissionToken = createResponse.data.token;
+    console.log('Submission token:', submissionToken);
 
-    const result = response.data;
+    // Then poll for results
+    let result = createResponse.data;
+    let attempts = 0;
+    const maxAttempts = 30;
+
+    while (result.status_id <= 2 && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const statusResponse = await axios.get(
+        `${JUDGE0_API}/submissions/${submissionToken}`,
+        {
+          timeout: 10000,
+        }
+      );
+      
+      result = statusResponse.data;
+      attempts++;
+      console.log(`Status check ${attempts}:`, result.status_id);
+    }
+
+    console.log('Final Judge0 result:', JSON.stringify(result, null, 2));
 
     // Check for compilation errors
     if (result.compile_output) {
-      const compileError = result.compile_output.trim();
+      const compileError = typeof result.compile_output === 'string' 
+        ? Buffer.from(result.compile_output, 'base64').toString('utf-8').trim()
+        : result.compile_output.trim();
       if (compileError && !result.stdout) {
         throw new Error(`Compilation Error:\n${compileError}`);
       }
@@ -182,15 +206,33 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
 
     // Check for runtime errors
     if (result.runtime_error) {
-      throw new Error(`Runtime Error:\n${result.runtime_error}`);
+      const runtimeErr = typeof result.runtime_error === 'string'
+        ? Buffer.from(result.runtime_error, 'base64').toString('utf-8').trim()
+        : result.runtime_error.trim();
+      if (runtimeErr) {
+        throw new Error(`Runtime Error:\n${runtimeErr}`);
+      }
     }
 
-    // Return output
-    const stdout = result.stdout ? Buffer.from(result.stdout, 'base64').toString('utf-8').trim() : '';
-    const stderr = result.stderr ? Buffer.from(result.stderr, 'base64').toString('utf-8').trim() : '';
+    // Parse output (base64 encoded in Judge0 response)
+    let output = '';
+    if (result.stdout) {
+      output = typeof result.stdout === 'string' 
+        ? Buffer.from(result.stdout, 'base64').toString('utf-8').trim()
+        : result.stdout.trim();
+    }
     
-    if (stdout || stderr) {
-      return stdout + (stdout && stderr ? '\n' : '') + stderr;
+    if (result.stderr) {
+      const stderr = typeof result.stderr === 'string' 
+        ? Buffer.from(result.stderr, 'base64').toString('utf-8').trim()
+        : result.stderr.trim();
+      if (stderr) {
+        output = output ? `${output}\n${stderr}` : stderr;
+      }
+    }
+
+    if (output) {
+      return output;
     }
 
     return 'Code executed successfully (no output)';
@@ -409,7 +451,7 @@ router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Respons
  */
 router.get('/runtimes', async (req: any, res: Response) => {
   try {
-    const JUDGE0_API = process.env.JUDGE0_API || 'https://judge0.com/api/v2';
+    const JUDGE0_API = process.env.JUDGE0_API || 'https://ce.judge0.com';
 
     const languagesResponse = await axios.get(`${JUDGE0_API}/languages`, {
       timeout: 5000,
@@ -479,7 +521,7 @@ router.get('/runtimes-piston', async (req: any, res: Response) => {
  */
 router.get('/health/check', async (req: AuthRequest, res: Response) => {
   try {
-    const JUDGE0_API = process.env.JUDGE0_API || 'https://judge0.com/api/v2';
+    const JUDGE0_API = process.env.JUDGE0_API || 'https://ce.judge0.com';
 
     // Test JavaScript execution
     const jsTest = executeJavaScriptLocal('console.log("JS works!")');
