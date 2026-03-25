@@ -153,6 +153,11 @@ class SocketService {
     return this.socket?.connected ?? false;
   }
 
+  // Public getter for debugging
+  getSocket() {
+    return this.socket;
+  }
+
   async waitForConnection(timeoutMs: number = 10000): Promise<void> {
     if (this.socket?.connected) {
       return Promise.resolve();

@@ -86,6 +86,35 @@ export default function SessionPage() {
   const [remoteUserName, setRemoteUserName] = useState<string | null>(null);
   const [showDebugInfo, setShowDebugInfo] = useState(false);
 
+  // Setup diagnostics and services in global window (FIRST - before anything else)
+  useEffect(() => {
+    // Make services available globally for debugging
+    (window as any).socketService = socketService;
+    (window as any).webrtcService = webrtcService;
+    (window as any).webrtcDiag = {
+      summary: () => {
+        const summary = webrtcDiagnostics.export();
+        console.log('📊 WebRTC Diagnostics Summary:', summary);
+        return summary;
+      },
+      events: () => {
+        const events = webrtcDiagnostics.getEvents();
+        console.log('📋 WebRTC Events:', events);
+        return events;
+      },
+      export: () => {
+        const data = webrtcDiagnostics.export();
+        console.log('💾 WebRTC Export:', data);
+        return data;
+      },
+      clear: () => webrtcDiagnostics.clear(),
+      printSummary: () => webrtcDiagnostics.printSummary(),
+    };
+    console.log('✅ Global debug tools available: window.socketService, window.webrtcService, window.webrtcDiag');
+    console.log('🔧 Try: window.socketService?.socket?.connected');
+    console.log('🔧 Try: window.webrtcDiag?.summary()');
+  }, []);
+
   // Setup diagnostics command in console
   useEffect(() => {
     // Make diagnostics available globally
@@ -107,6 +136,37 @@ export default function SessionPage() {
         // 🎯 Setup debugging utilities FIRST (for all three checks)
         console.log('🔧 Setting up WebRTC debugging utilities...');
         const videoDebugger = setupVideoDebug(remoteVideoRef);
+
+        // 🔌 CRITICAL: Connect socket IMMEDIATELY and wait for it
+        console.log('🔌 Checking socket connection...');
+        
+        // If socket not already connected, connect it now with the stored token
+        if (!socketService.isConnected()) {
+          console.log('🔌 Socket not connected, connecting now...');
+          const token = localStorage.getItem('auth_token');
+          if (!token) {
+            throw new Error('No authentication token available');
+          }
+          // Connect socket - this returns a Promise we should wait on
+          try {
+            await socketService.connect(token);
+            console.log('✅ Socket connected during init!');
+          } catch (err) {
+            console.error('❌ Socket connection failed during init', err);
+            // Continue - may still connect with fallback transport
+          }
+        } else {
+          console.log('✅ Socket already connected!');
+        }
+        
+        // Wait for socket connection to establish
+        try {
+          await socketService.waitForConnection(20000); // Wait max 20 seconds
+          console.log('✅ Socket definitively connected!');
+        } catch (err) {
+          console.error('❌ Socket connection timeout or failed', err);
+          throw new Error('Failed to establish socket connection - video requires real-time communication');
+        }
 
         // ⭐ CRITICAL FIX: Set WebRTC callbacks IMMEDIATELY before ANY async operations
         // If we wait for API calls, the mentor might join and send offer while we're fetching
@@ -141,6 +201,7 @@ export default function SessionPage() {
             }))
           });
           
+          // More defensive check - wait a bit for ref to be ready if needed
           if (remoteVideoRef.current) {
             console.log('✅ remoteVideoRef exists, setting srcObject');
             console.log('📊 Video element before:', {
@@ -167,9 +228,32 @@ export default function SessionPage() {
             setRemoteUserName('Remote User');
           } else {
             console.error('❌ remoteVideoRef.current is NULL! Cannot set stream');
+            console.error('📍 Debugging info:', {
+              refNull: !remoteVideoRef.current,
+              inDOM: remoteVideoRef.current ? document.body.contains(remoteVideoRef.current) : false,
+              peerId,
+              streamId: stream.id,
+            });
             webrtcDiagnostics.log('error', 'remoteVideoRef is null when trying to set stream', {
               refExists: false,
+              peerId,
+              streamId: stream.id,
             });
+            
+            // Try again after a short delay in case ref wasn't ready
+            setTimeout(() => {
+              if (remoteVideoRef.current) {
+                console.log('🔄 Retrying stream assignment after delay...');
+                remoteVideoRef.current.srcObject = stream;
+                setRemoteUserName('Remote User');
+                webrtcDiagnostics.log('stream-set', 'Stream assigned to video element on retry', {
+                  delayed: true,
+                  assigned: !!remoteVideoRef.current.srcObject,
+                });
+              } else {
+                console.error('❌ Remote video ref still NULL after retry');
+              }
+            }, 500);
           }
         });
 
