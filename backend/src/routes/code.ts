@@ -116,6 +116,7 @@ async function executeViaPiston(code: string, language: string): Promise<string>
 
     const requestPayload = {
       language: language,
+      version: '*',  // Use latest version
       source: code,
       args: [],
       stdin: '',
@@ -177,7 +178,7 @@ async function executeViaPiston(code: string, language: string): Promise<string>
     if (err.response?.status === 404) {
       throw new Error(
         `Piston API Runtime Not Found (404). Language: ${language}. ` +
-        `Check supported runtimes at ${PISTON_API}/runtimes`
+        `Available runtimes: ${PISTON_API}/runtimes`
       );
     }
 
