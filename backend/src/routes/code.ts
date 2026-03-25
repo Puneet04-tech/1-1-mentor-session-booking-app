@@ -189,16 +189,35 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
       
       result = statusResponse.data;
       attempts++;
-      console.log(`Status check ${attempts}:`, result.status_id);
+      console.log(`Status check ${attempts}: status_id=${result.status_id}`);
     }
 
     console.log('Final Judge0 result:', JSON.stringify(result, null, 2));
 
+    // Helper function to decode output (handles both base64 and plain text)
+    const decodeOutput = (value: any): string => {
+      if (!value) return '';
+      
+      if (typeof value === 'string') {
+        try {
+          // Try to decode as base64
+          const decoded = Buffer.from(value, 'base64').toString('utf-8');
+          // Check if it looks like valid UTF-8 (not binary garbage)
+          if (decoded.length > 0 && decoded.length <= value.length * 2) {
+            return decoded.trim();
+          }
+        } catch (e) {
+          // Not valid base64, return as-is
+        }
+        return value.trim();
+      }
+      
+      return '';
+    };
+
     // Check for compilation errors
     if (result.compile_output) {
-      const compileError = typeof result.compile_output === 'string' 
-        ? Buffer.from(result.compile_output, 'base64').toString('utf-8').trim()
-        : result.compile_output.trim();
+      const compileError = decodeOutput(result.compile_output);
       if (compileError && !result.stdout) {
         throw new Error(`Compilation Error:\n${compileError}`);
       }
@@ -206,26 +225,20 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
 
     // Check for runtime errors
     if (result.runtime_error) {
-      const runtimeErr = typeof result.runtime_error === 'string'
-        ? Buffer.from(result.runtime_error, 'base64').toString('utf-8').trim()
-        : result.runtime_error.trim();
+      const runtimeErr = decodeOutput(result.runtime_error);
       if (runtimeErr) {
         throw new Error(`Runtime Error:\n${runtimeErr}`);
       }
     }
 
-    // Parse output (base64 encoded in Judge0 response)
+    // Parse output 
     let output = '';
     if (result.stdout) {
-      output = typeof result.stdout === 'string' 
-        ? Buffer.from(result.stdout, 'base64').toString('utf-8').trim()
-        : result.stdout.trim();
+      output = decodeOutput(result.stdout);
     }
     
     if (result.stderr) {
-      const stderr = typeof result.stderr === 'string' 
-        ? Buffer.from(result.stderr, 'base64').toString('utf-8').trim()
-        : result.stderr.trim();
+      const stderr = decodeOutput(result.stderr);
       if (stderr) {
         output = output ? `${output}\n${stderr}` : stderr;
       }
