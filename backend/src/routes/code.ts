@@ -15,26 +15,45 @@ export function setSocketIO(socketIO: SocketIOServer) {
   io = socketIO;
 }
 
-// Language mappings to Judge0 language IDs
+// Language name normalization
+const LANGUAGE_MAP: { [key: string]: string } = {
+  'python': 'python',
+  'python3': 'python',
+  'py': 'python',
+  'java': 'java',
+  'cpp': 'cpp',
+  'c++': 'cpp',
+  'c': 'c',
+  'javascript': 'javascript',
+  'js': 'javascript',
+  'typescript': 'typescript',
+  'ts': 'typescript',
+  'php': 'php',
+  'ruby': 'ruby',
+  'go': 'go',
+  'rust': 'rust',
+  'csharp': 'csharp',
+  'cs': 'csharp',
+  'swift': 'swift',
+  'kotlin': 'kotlin',
+  'scala': 'scala',
+  'haskell': 'haskell',
+};
+
+// Language to Judge0 language ID mapping
 // Reference: https://judge0.com/api/docs
-const LANGUAGE_MAP: { [key: string]: number } = {
+const JUDGE0_LANGUAGE_IDS: { [key: string]: number } = {
   'python': 71,          // Python 3.8+
-  'python3': 71,
-  'py': 71,
   'java': 62,            // Java (OpenJDK)
   'cpp': 54,             // C++ (GCC)
-  'c++': 54,
   'c': 52,               // C (GCC)
   'javascript': 63,      // JavaScript (Node.js)
-  'js': 63,
   'typescript': 67,      // TypeScript
-  'ts': 67,
   'php': 68,             // PHP
   'ruby': 72,            // Ruby
   'go': 60,              // Go
   'rust': 73,            // Rust
   'csharp': 51,          // C#
-  'cs': 51,
   'swift': 83,           // Swift
   'kotlin': 78,          // Kotlin
   'scala': 81,           // Scala
@@ -116,10 +135,10 @@ async function executeViaJudge0(code: string, language: string): Promise<string>
   const JUDGE0_KEY = process.env.JUDGE0_KEY;
   
   try {
-    const langId = LANGUAGE_MAP[language.toLowerCase()];
+    const langId = JUDGE0_LANGUAGE_IDS[language.toLowerCase()];
     
     if (!langId) {
-      throw new Error(`Unsupported language: ${language}`);
+      throw new Error(`Unsupported language: ${language}. Supported: ${Object.keys(JUDGE0_LANGUAGE_IDS).join(', ')}`);
     }
 
     console.log(`Calling Judge0 API for ${language} (ID: ${langId})...`);
