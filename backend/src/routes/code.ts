@@ -112,7 +112,7 @@ async function executeViaPiston(code: string, language: string): Promise<string>
   const PISTON_API = process.env.PISTON_API || 'https://emkc.org/api/v2';
 
   try {
-    console.log(`Calling Piston API for ${language}...`);
+    console.log(`Calling Piston API (${PISTON_API}) for ${language}...`);
 
     const response = await axios.post(
       `${PISTON_API}/execute`,
@@ -134,7 +134,9 @@ async function executeViaPiston(code: string, language: string): Promise<string>
       }
     );
 
-    // Check for compilation errors (compile stderr)
+    console.log(`Piston API response status: ${response.status}, has run: ${!!response.data.run}`);
+
+    // Check for compilation errors
     if (response.data.compile && response.data.compile.stderr) {
       const compileError = response.data.compile.stderr.trim();
       if (compileError) {
@@ -142,38 +144,41 @@ async function executeViaPiston(code: string, language: string): Promise<string>
       }
     }
 
-    // Check for runtime errors (run stderr)
-    if (response.data.run && response.data.run.stderr) {
-      const runtimeError = response.data.run.stderr.trim();
-      if (runtimeError) {
-        // Don't throw - some programs output to stderr legitimately
-        const stdout = response.data.run.output?.trim() || '';
-        return stdout + (stdout && runtimeError ? '\n' : '') + runtimeError;
-      }
-    }
-
-    // Return stdout output
-    if (response.data.run && response.data.run.output) {
-      return response.data.run.output.trim() || 'Code executed successfully (no output)';
+    // Return runtime output (stdout + stderr if both exist)
+    const stdout = response.data.run?.output?.trim() || '';
+    const stderr = response.data.run?.stderr?.trim() || '';
+    
+    if (stdout || stderr) {
+      return (stdout + (stdout && stderr ? '\n' : '') + stderr).trim() || 'Code executed successfully (no output)';
     }
 
     return 'Code executed successfully (no output)';
   } catch (err: any) {
-    if (err.message.includes('Compilation Error') || err.message.includes('Runtime Error')) {
+    // Re-throw compilation errors as-is
+    if (err.message.includes('Compilation Error')) {
       throw err;
     }
 
-    console.error('Piston API error:', err.message);
+    console.error('Piston API error:', {
+      message: err.message,
+      code: err.code,
+      status: err.response?.status,
+      statusText: err.response?.statusText,
+    });
 
-    // Check if Piston is unavailable
-    if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
-      const PISTON_API = process.env.PISTON_API || 'https://emkc.org/api/v2';
+    // Handle network errors
+    if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
       throw new Error(
-        `Code execution service unavailable. Piston API endpoint: ${PISTON_API}`
+        `Piston API unavailable (${err.code}). Endpoint: ${PISTON_API}`
       );
     }
 
-    throw new Error(`Failed to execute code: ${err.message || 'Piston API error'}`);
+    // Handle Axios errors with response
+    if (err.response) {
+      throw new Error(`Piston API error (${err.response.status}): ${err.response.statusText}`);
+    }
+
+    throw new Error(`Code execution failed: ${err.message || 'Unknown error'}`);
   }
 }
 
