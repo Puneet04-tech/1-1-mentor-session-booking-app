@@ -29,18 +29,29 @@ class SocketService {
       return this.connectionPromise.then(() => this.socket as Socket);
     }
 
-    // Create a promise for connection
-    this.connectionPromise = new Promise((resolve) => {
+    // Create a promise for connection with timeout
+    this.connectionPromise = new Promise((resolve, reject) => {
+      const connectionTimeout = setTimeout(() => {
+        console.error('❌ Connection promise timed out after 30 seconds');
+        if (token) {
+          console.error('📍 Token provided:', token.substring(0, 20) + '...');
+        }
+        reject(new Error('Socket connection timeout'));
+      }, 30000);
+
       this.resolveConnection = () => {
+        clearTimeout(connectionTimeout);
         console.log('✅ Connection promise resolved');
         resolve();
       };
     });
 
     console.log('🔌 Connecting to socket at:', SOCKET_URL);
+    console.log('📍 Current location:', typeof window !== 'undefined' ? window.location.origin : 'server-side');
+    console.log('📍 Environment:', process.env.NODE_ENV);
     this.socket = io(SOCKET_URL, {
       path: '/socket.io',
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'],
       upgrade: true,
       rememberUpgrade: true,
       withCredentials: true,
@@ -51,10 +62,12 @@ class SocketService {
       reconnectionDelay: 500,
       reconnectionDelayMax: 3000,
       reconnectionAttempts: 10,
+      timeout: 15000,
     });
 
     this.socket.on('connect', () => {
       console.log('✅ Socket connected:', this.socket?.id);
+      console.log('📊 Connected via transport:', this.socket?.io?.engine?.transport?.name);
       if (this.resolveConnection) {
         this.resolveConnection();
       }
@@ -73,11 +86,41 @@ class SocketService {
       this.emit('error', error);
     });
 
+    // Track connection attempt
+    this.socket.io?.on('open', () => {
+      console.log('🔓 Socket.IO connection opened');
+    });
+
+    this.socket.io?.engine?.on('upgrade', (transport: any) => {
+      console.log('⬆️ Transport upgraded to:', transport.name);
+    });
+
+    this.socket.io?.engine?.on('upgradeError', (error: any) => {
+      console.log('⬆️ Transport upgrade error:', error);
+    });
+
     this.socket.on('connect_error', (error) => {
       console.error('❌ Socket connect_error:', error);
+      console.error('📍 Error message:', error.message);
+      console.error('📍 Socket URL is:', SOCKET_URL);
+      console.error('📍 Transport status:', {
+        websocketActive: this.socket?.active,
+        connected: this.socket?.connected,
+        currentTransport: this.socket?.io?.engine?.transport?.name,
+      });
       if (error.message.includes('Authentication')) {
         console.error('🔐 Auth failed - check token validity');
+      } else if (error.message.includes('CORS')) {
+        console.error('🚨 CORS error - backend origin mismatch');
+      } else if (error.message.includes('timeout')) {
+        console.error('⏱️ Connection timeout - backend may be down or websocket not supported');
       }
+    });
+
+    // Handle connection failure after max retries
+    this.socket.on('connect_error', () => {
+      const reconnectAttempt = this.socket?.io?.reconnectionAttempts() || 0;
+      console.error(`📊 Reconnection attempt status: ${reconnectAttempt}`);
     });
 
     // Debug: Log all incoming events

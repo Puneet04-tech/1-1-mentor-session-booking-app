@@ -28,13 +28,18 @@ const httpServer = createServer(app);
 
 // Socket.io setup
 const allowedOrigins = new Set<string>([...config.CLIENT_URLS, config.CLIENT_URL]);
+console.log('🔌 Socket.IO allowed origins:', Array.from(allowedOrigins));
 
 const io = new SocketIOServer(httpServer, {
   cors: {
     origin: (origin, callback) => {
+      console.log('📍 Socket.IO incoming origin:', origin);
       if (!origin || allowedOrigins.has(origin)) {
+        console.log('✅ Origin accepted:', origin);
         callback(null, true);
       } else {
+        console.error('❌ Origin rejected:', origin);
+        console.error('📊 Allowed origins were:', Array.from(allowedOrigins));
         callback(new Error(`CORS policy violation: ${origin}`));
       }
     },
@@ -51,6 +56,7 @@ setCodeSocketIO(io);
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth.token;
+    console.log('🔐 Socket auth attempt for client:', socket.id);
     
     if (!token) {
       console.warn('🔴 Socket connection attempt without token');
@@ -62,7 +68,7 @@ io.use((socket, next) => {
     socket.data.userId = decoded.id;
     socket.data.user = decoded;
     
-    console.log(`✅ Socket authenticated for user: ${decoded.id}`);
+    console.log(`✅ Socket authenticated for user: ${decoded.id} (socket: ${socket.id})`);
     next();
   } catch (err: any) {
     console.error('🔴 Socket authentication error:', err.message);
