@@ -243,16 +243,31 @@ export class WebRTCService {
     });
 
     // DO NOT add local stream - screen peer connection is SCREEN ONLY
-    // Add RECVONLY video transceiver for receiving screen
+    // Initialize with sendrecv transceiver so both mentor and student can send/receive screen
     try {
       peerConnection.addTransceiver('video', { 
-        direction: 'recvonly',
+        direction: 'sendrecv',  // Both sides can send and receive screen
         streams: [] 
       });
-      console.log('✅ [SCREEN-PC] Added recvonly video transceiver');
+      console.log('✅ [SCREEN-PC] Added sendrecv video transceiver');
     } catch (err) {
-      console.warn('⚠️ [SCREEN-PC] Could not add receiver transceiver:', err);
+      console.warn('⚠️ [SCREEN-PC] Could not add transceiver:', err);
     }
+
+    // Handle ontrack - MENTOR will receive screen track here too!
+    peerConnection.ontrack = (event) => {
+      console.log('🖥️ [SCREEN-PC] SCREEN TRACK RECEIVED on mentor side!', {
+        trackKind: event.track.kind,
+        trackId: event.track.id,
+        streamsLength: event.streams.length,
+      });
+      
+      if (event.streams && event.streams.length > 0 && this.onScreenShare) {
+        const screenStream = event.streams[0];
+        console.log('🖥️ [SCREEN-PC] Calling onScreenShare callback for both mentor and student');
+        this.onScreenShare(screenStream, peerId);
+      }
+    };
 
     // Handle ICE candidates for screen peer connection
     peerConnection.onicecandidate = (event) => {
@@ -590,10 +605,11 @@ export class WebRTCService {
       const { peerId, offer } = data;
       console.log('📨 Received screen offer from', peerId);
       
-      // Create peer connection for screen share if not exists
+      // Create SCREEN-ONLY peer connection if not exists
       let peerConnection = this.peerConnections.get(`screen:${peerId}`);
       if (!peerConnection) {
-        peerConnection = this.createPeerConnection(`screen:${peerId}`);
+        console.log('🖥️ Creating new screen peer connection for screen:' + peerId);
+        peerConnection = this.createScreenPeerConnection(`screen:${peerId}`);
       }
 
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));

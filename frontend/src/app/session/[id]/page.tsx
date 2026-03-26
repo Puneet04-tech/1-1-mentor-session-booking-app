@@ -326,12 +326,56 @@ export default function SessionPage() {
         });
 
         webrtcService.setOnScreenShare((stream: MediaStream, peerId: string) => {
-          console.log('🖥️ Received remote screen share stream:', stream);
-          if (screenShareRef.current) {
-            screenShareRef.current.srcObject = stream;
-            console.log('✅ Remote screen share stream set to video element');
+          console.log('🖥️ [SCREEN-SHARE-CALLBACK] Received screen share stream:', {
+            streamId: stream.id,
+            videoTracks: stream.getVideoTracks().length,
+            audioTracks: stream.getAudioTracks().length,
+            peerId,
+          });
+          
+          // Prevent duplicate assignments
+          if (assignedScreenStreamIds.current.has(stream.id)) {
+            console.log('⏭️ [SCREEN-DUPLICATE] Screen stream already assigned:', stream.id);
+            return;
           }
-          setIsScreenSharingActive(true);
+          
+          if (screenShareRef.current) {
+            try {
+              console.log('🖥️ [SCREEN-ASSIGN] Assigning screen stream to video element');
+              screenShareRef.current.srcObject = stream;
+              assignedScreenStreamIds.current.add(stream.id);
+              
+              // Play the screen
+              const playPromise = screenShareRef.current.play();
+              console.log('🎬 [SCREEN-ASSIGN] Calling play()...');
+              
+              playPromise
+                .then(() => {
+                  console.log('✅ [SCREEN-PLAY] Screen playing successfully');
+                })
+                .catch(error => {
+                  console.warn('⚠️ [SCREEN-PLAY] Auto-play prevented:', error.name);
+                  // Try on user interaction
+                  const playOnClick = async () => {
+                    try {
+                      await screenShareRef.current?.play();
+                      console.log('✅ [SCREEN-PLAY] Screen playing after user interaction');
+                      document.removeEventListener('click', playOnClick);
+                    } catch (e) {
+                      console.error('❌ [SCREEN-PLAY] Failed after interaction:', e);
+                    }
+                  };
+                  document.addEventListener('click', playOnClick);
+                });
+              
+              console.log('✅ [SCREEN-ASSIGNED] Screen stream successfully assigned');
+              setIsScreenSharingActive(true);
+            } catch (err) {
+              console.error('❌ [SCREEN-ASSIGN] Error assigning screen stream:', err);
+            }
+          } else {
+            console.warn('⏳ [SCREEN-ASSIGN] screenShareRef not ready yet');
+          }
         });
 
         webrtcService.setOnStreamEnded((peerId: string) => {
@@ -830,22 +874,15 @@ export default function SessionPage() {
         
         console.log('✅ Screen share stream obtained:', stream);
         
-        // Set to local screen share element immediately for mentor preview
-        if (screenShareRef.current) {
-          screenShareRef.current.srcObject = stream;
-          screenShareRef.current.muted = true;
-          await screenShareRef.current.play().catch(e => console.warn('Play error:', e));
-          console.log('✅ Stream set to screen share video element (mentor preview)');
-        }
-        
-        // Set state to show overlay
+        // Set state to show overlay IMMEDIATELY (will be filled by onScreenShare callback)
         setIsScreenSharingActive(true);
         
-        // PASS THE STREAM TO WEBRTC - Don't call getDisplayMedia again
+        // PASS THE STREAM TO WEBRTC - Don't use local display
+        // Both mentor and student will see screen through onScreenShare callback
         if (webrtcService) {
           console.log('🔄 Passing screen stream to WebRTC service');
           await webrtcService.startScreenShare(sessionId, currentUser?.id || '', stream);
-          console.log('✅ Screen sharing started through WebRTC');
+          console.log('✅ Screen sharing started - mentor will receive screen through ontrack');
         }
         
         // Handle stream end (user clicks Stop Sharing in browser dialog)
@@ -860,13 +897,19 @@ export default function SessionPage() {
         // Stop screen share
         console.log('🛑 Stopping screen share...');
         
+        // Clear the screen share display
         if (screenShareRef.current?.srcObject) {
           const stream = screenShareRef.current.srcObject as MediaStream;
-          stream.getTracks().forEach(track => track.stop());
+          stream.getTracks().forEach(track => {
+            track.stop();
+          });
           screenShareRef.current.srcObject = null;
         }
         
         setIsScreenSharingActive(false);
+        
+        // Clear assigned screen stream IDs on stop
+        assignedScreenStreamIds.current.clear();
         
         // Stop WebRTC screen share
         if (webrtcService) {
