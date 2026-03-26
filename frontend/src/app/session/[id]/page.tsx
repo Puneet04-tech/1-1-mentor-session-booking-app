@@ -251,34 +251,50 @@ export default function SessionPage() {
           // Assign immediately - ref should always be ready by now
           if (remoteVideoRef.current) {
             console.log('✅ [STREAM-ASSIGN] Assigning remote stream immediately');
+            console.log('📊 [DEBUG] Stream tracks:', {
+              streamId: stream.id,
+              videoTracks: stream.getVideoTracks().length,
+              audioTracks: stream.getAudioTracks().length,
+              videoStatus: stream.getVideoTracks().map(t => ({ id: t.id, enabled: t.enabled, readyState: t.readyState })),
+            });
+            console.log('📊 [DEBUG] Video element:', {
+              exists: !!remoteVideoRef.current,
+              width: remoteVideoRef.current?.clientWidth,
+              height: remoteVideoRef.current?.clientHeight,
+              display: getComputedStyle(remoteVideoRef.current || document.body).getPropertyValue('display'),
+              visibility: getComputedStyle(remoteVideoRef.current || document.body).getPropertyValue('visibility'),
+            });
+            
             try {
               remoteVideoRef.current.srcObject = stream;
+              console.log('📝 [STREAM-ASSIGN] srcObject assigned to ref');
               
               // ONLY mark as assigned AFTER successful assignment
               assignedRemoteStreamIds.current.add(stream.id);
               
               // Force video to play - but handle the AbortError gracefully
+              console.log('🎬 [STREAM-ASSIGN] About to call play()...');
               const playPromise = remoteVideoRef.current.play();
-              if (playPromise !== undefined) {
-                playPromise
-                  .then(() => {
-                    console.log('✅ [STREAM-PLAY] Video playing successfully');
-                  })
-                  .catch(error => {
-                    console.warn('⚠️ [STREAM-PLAY] Auto-play was prevented:', error.name);
-                    // Try again on user interaction
-                    const playOnClick = async () => {
-                      try {
-                        await remoteVideoRef.current?.play();
-                        console.log('✅ [STREAM-PLAY] Video playing after user interaction');
-                        document.removeEventListener('click', playOnClick);
-                      } catch (e) {
-                        console.error('❌ [STREAM-PLAY] Failed to play even after interaction:', e);
-                      }
-                    };
-                    document.addEventListener('click', playOnClick);
-                  });
-              }
+              console.log('📊 [STREAM-ASSIGN] play() returned successfully, attaching handlers...');
+              
+              playPromise
+                .then(() => {
+                  console.log('✅ [STREAM-PLAY] Video playing successfully');
+                })
+                .catch(error => {
+                  console.warn('⚠️ [STREAM-PLAY] Auto-play was prevented:', error.name, error.message);
+                  // Try again on user interaction
+                  const playOnClick = async () => {
+                    try {
+                      await remoteVideoRef.current?.play();
+                      console.log('✅ [STREAM-PLAY] Video playing after user interaction');
+                      document.removeEventListener('click', playOnClick);
+                    } catch (e) {
+                      console.error('❌ [STREAM-PLAY] Failed to play even after interaction:', e);
+                    }
+                  };
+                  document.addEventListener('click', playOnClick);
+                });
 
               console.log('✅ [STREAM-ASSIGNED] Remote stream set to video element');
               setRemoteUserName('Remote User');
