@@ -1040,28 +1040,28 @@ export default function SessionPage() {
             <div className="flex-1 min-h-0 bg-black rounded overflow-hidden relative">
               {/* 🔴 CRITICAL FIX: Video elements absolutely positioned and fill container */}
               {/* IMPORTANT: Must use absolute inset-0 (NOT flex-1) to properly fill the parent */}
-              <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2 gap-2 p-2">
+              <div className="absolute inset-0 flex flex-col lg:grid lg:grid-cols-2 gap-2 p-2">
                 {/* Local Video - Always rendered */}
-                <div className="relative bg-gray-900 rounded overflow-hidden">
+                <div className="flex-1 lg:h-full relative bg-gray-900 rounded overflow-hidden">
                   <video
                     ref={localVideoRef}
                     autoPlay
                     muted
                     playsInline
-                    className="w-full h-full object-cover"
+                    className="absolute inset-0 w-full h-full object-cover"
                   />
-                  <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-white text-xs">
+                  <div className="absolute bottom-2 left-2 z-10 bg-black/70 px-2 py-1 rounded text-white text-xs">
                     You
                   </div>
                 </div>
                 
                 {/* Remote Video - Always rendered */}
-                <div className="relative bg-gray-900 rounded overflow-hidden">
+                <div className="flex-1 lg:h-full relative bg-gray-900 rounded overflow-hidden">
                   <video
                     ref={remoteVideoRef}
                     autoPlay
                     playsInline
-                    className="w-full h-full object-cover"
+                    className="absolute inset-0 w-full h-full object-cover"
                   />
                   
                   {/* Waiting message - only show if no remote stream yet */}
