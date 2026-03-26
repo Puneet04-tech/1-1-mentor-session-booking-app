@@ -256,16 +256,38 @@ export class WebRTCService {
 
     // Handle ontrack - MENTOR will receive screen track here too!
     peerConnection.ontrack = (event) => {
-      console.log('🖥️ [SCREEN-PC] SCREEN TRACK RECEIVED on mentor side!', {
+      console.log('🖥️ [SCREEN-PC:ONTRACK] ===== SCREEN TRACK RECEIVED =====');
+      console.log('🖥️ [SCREEN-PC:ONTRACK] Track details:', {
         trackKind: event.track.kind,
         trackId: event.track.id,
+        trackLabel: event.track.label,
+        trackEnabled: event.track.enabled,
         streamsLength: event.streams.length,
+        peerId,
+        hasOnScreenShareCallback: !!this.onScreenShare,
       });
       
-      if (event.streams && event.streams.length > 0 && this.onScreenShare) {
+      if (event.streams && event.streams.length > 0) {
         const screenStream = event.streams[0];
-        console.log('🖥️ [SCREEN-PC] Calling onScreenShare callback for both mentor and student');
-        this.onScreenShare(screenStream, peerId);
+        console.log('🖥️ [SCREEN-PC:ONTRACK] Screen stream details:', {
+          streamId: screenStream.id,
+          trackCount: screenStream.getTracks().length,
+          tracks: screenStream.getTracks().map(t => ({ kind: t.kind, id: t.id, label: t.label, enabled: t.enabled }))
+        });
+        
+        if (this.onScreenShare) {
+          console.log('🖥️ [SCREEN-PC:ONTRACK] ✅ Calling onScreenShare callback');
+          try {
+            this.onScreenShare(screenStream, peerId);
+            console.log('🖥️ [SCREEN-PC:ONTRACK] ✅ onScreenShare callback executed successfully');
+          } catch (err) {
+            console.error('🖥️ [SCREEN-PC:ONTRACK] ❌ Error in onScreenShare callback:', err);
+          }
+        } else {
+          console.warn('🖥️ [SCREEN-PC:ONTRACK] ⚠️ NO onScreenShare CALLBACK SET!');
+        }
+      } else {
+        console.warn('🖥️ [SCREEN-PC:ONTRACK] ⚠️ No streams in ontrack event');
       }
     };
 
@@ -1137,13 +1159,22 @@ export class WebRTCService {
   }
 
   setOnRemoteStream(callback: (stream: MediaStream, peerId: string) => void) {
-    console.log('🔔 [CALLBACK SET] setOnRemoteStream called with callback:', typeof callback);
+    console.log('🔔 [CALLBACK SET] setOnRemoteStream called');
+    console.log('📋 Callback type:', typeof callback);
+    console.log('📋 Callback function:', callback.toString().substring(0, 200) + '...');
     this.onRemoteStream = callback;
-    console.log('✅ [CALLBACK SET] onRemoteStream callback now set:', !!this.onRemoteStream);
+    console.log('✅ [CALLBACK SET] onRemoteStream callback now assigned');
+    console.log('🔍 [CALLBACK SET] Verification - this.onRemoteStream is now:', !!this.onRemoteStream);
+    
+    // Log that this callback will be used when ontrack fires
+    console.log('💾 [CALLBACK SET] This callback will be invoked when regular video tracks arrive via ontrack event');
   }
 
   setOnScreenShare(callback: (stream: MediaStream, peerId: string) => void) {
+    console.log('🔔 [CALLBACK SET] setOnScreenShare called');
     this.onScreenShare = callback;
+    console.log('✅ [CALLBACK SET] onScreenShare callback now assigned:', !!this.onScreenShare);
+    console.log('💾 [CALLBACK SET] This callback will be invoked when screen-share video tracks arrive via ontrack event');
   }
 
   setOnStreamEnded(callback: (peerId: string) => void) {

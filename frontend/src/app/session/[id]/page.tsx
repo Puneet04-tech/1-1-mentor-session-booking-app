@@ -239,6 +239,7 @@ export default function SessionPage() {
         // If we wait for API calls, the mentor might join and send offer while we're fetching
         console.log('🔧 Setting up WebRTC callbacks (SYNCHRONOUS - FIRST!)...');
         webrtcService.setUserRole(currentUser?.role === 'admin' ? 'student' : currentUser?.role || 'student');
+        console.log('✅ User role set to:', currentUser?.role === 'admin' ? 'student' : currentUser?.role || 'student');
         
         webrtcService.setOnLocalStream((stream: MediaStream) => {
           console.log('💾 Setting local stream to video element');
@@ -246,6 +247,7 @@ export default function SessionPage() {
             localVideoRef.current.srcObject = stream;
           }
         });
+        console.log('✅ setOnLocalStream callback registered');
 
         webrtcService.setOnRemoteStream((stream: MediaStream, peerId: string) => {
           console.log('💾 [REMOTE STREAM RECEIVED] Got remote stream from peer:', peerId);
@@ -324,6 +326,7 @@ export default function SessionPage() {
             // Don't mark as assigned - allow assignment when ref becomes ready
           }
         });
+        console.log('✅ setOnRemoteStream callback registered');
 
         webrtcService.setOnScreenShare((stream: MediaStream, peerId: string) => {
           console.log('🖥️ [SCREEN-SHARE-CALLBACK] Received screen share stream:', {
@@ -377,6 +380,7 @@ export default function SessionPage() {
             console.warn('⏳ [SCREEN-ASSIGN] screenShareRef not ready yet');
           }
         });
+        console.log('✅ setOnScreenShare callback registered');
 
         webrtcService.setOnStreamEnded((peerId: string) => {
           console.log('🏁 Stream ended');
@@ -385,8 +389,7 @@ export default function SessionPage() {
             setRemoteUserName(null);
           }
         });
-
-        console.log('✅ WebRTC callbacks set up BEFORE any async operations');
+        console.log('✅ setOnStreamEnded callback registered');
 
         // NOW do async operations (after callbacks are ready)
         console.log('📋 Fetching session data...');
