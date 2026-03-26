@@ -203,14 +203,14 @@ export default function SessionPage() {
             return;
           }
           
-          // Mark as assigned IMMEDIATELY to prevent duplicate processing while we're setting it up
-          assignedRemoteStreamIds.current.add(stream.id);
-          
           // Assign immediately - ref should always be ready by now
           if (remoteVideoRef.current) {
             console.log('✅ [STREAM-ASSIGN] Assigning remote stream immediately');
             try {
               remoteVideoRef.current.srcObject = stream;
+              
+              // ONLY mark as assigned AFTER successful assignment
+              assignedRemoteStreamIds.current.add(stream.id);
               
               // Force video to play - but handle the AbortError gracefully
               const playPromise = remoteVideoRef.current.play();
@@ -240,9 +240,11 @@ export default function SessionPage() {
               webrtcDiagnostics.log('stream-assigned', 'Remote stream assigned immediately', { peerId });
             } catch (err) {
               console.error('❌ [STREAM-ASSIGN] Error assigning remote stream:', err);
+              // Stream assignment failed - don't mark as assigned, so retry happens on next track
             }
           } else {
             console.error('❌ [STREAM-ASSIGN] Remote video ref not found!', { refNull: !remoteVideoRef.current });
+            // Don't mark as assigned - allow retry when ref is ready
           }
         });
 
