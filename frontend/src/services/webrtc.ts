@@ -181,26 +181,45 @@ export class WebRTCService {
       this.screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
       console.log('✅ Screen share stream obtained:', this.screenStream);
 
-      // Replace video track in peer connections OR use new track
+      // Get the screen track
       const screenTrack = this.screenStream.getVideoTracks()[0];
       
+      // Send screen through a SEPARATE peer connection for each remote peer
+      // This ensures the student gets ontrack event with the screen track
       for (const [peerId, peerConnection] of this.peerConnections) {
-        console.log(`🔄 Adding/Replacing track for peer: ${peerId}`);
+        // Skip screen peer connections
+        if (peerId.startsWith('screen:')) continue;
         
-        // Find existing video transceiver
-        const videoTransceiver = peerConnection.getTransceivers().find(t => 
-          t.sender.track?.kind === 'video' || t.receiver.track?.kind === 'video'
-        );
+        console.log(`🖥️ Setting up screen share peer connection for: ${peerId}`);
+        
+        // Get or create screen peer connection (with screen:${peerId} key)
+        const screenPeerId = `screen:${peerId}`;
+        let screenPeerConnection = this.peerConnections.get(screenPeerId);
+        
+        if (!screenPeerConnection) {
+          console.log(`🖥️ Creating new screen peer connection for: ${peerId}`);
+          screenPeerConnection = this.createPeerConnection(screenPeerId);
+        }
 
-        if (videoTransceiver) {
-          // Instead of replacing the camera track, we'll use a new one if possible
-          // or replace the existing one but mark it as screen share.
-          // For now, let's stick with replacing the CAMERA track because that's what mentors use
-          const sender = videoTransceiver.sender;
-          if (sender) {
-            await sender.replaceTrack(screenTrack);
-            console.log(`📹 Replaced CAMERA track with SCREEN track for peer: ${peerId}`);
-          }
+        try {
+          // Add screen track to the screen peer connection
+          console.log('📹 Adding screen track to screen peer connection');
+          screenPeerConnection.addTrack(screenTrack, this.screenStream);
+          
+          // Create and send offer for screen share
+          console.log('📤 Creating screen offer');
+          const offer = await screenPeerConnection.createOffer();
+          await screenPeerConnection.setLocalDescription(offer);
+          
+          socketService.emit('screen:offer', {
+            sessionId,
+            peerId,
+            fromUserId: userId,
+            offer: screenPeerConnection.localDescription,
+          } as any);
+          console.log('📤 Screen offer sent to:', peerId);
+        } catch (offerErr) {
+          console.error('❌ Error setting up screen peer connection:', offerErr);
         }
       }
 
@@ -216,9 +235,7 @@ export class WebRTCService {
         userId,
       } as any);
 
-      // NOTE: We do NOT force re-negotiation here. replaceTrack alone is sufficient.
-      // Forcing a new offer can cause SDP m-line order mismatches in some browsers.
-      console.log('✅ Screen sharing started');
+      console.log('✅ Screen sharing started with separate peer connection');
       return this.screenStream;
     } catch (err: any) {
       console.error('Screen share error:', err);
@@ -251,22 +268,12 @@ export class WebRTCService {
         this.screenStream.getTracks().forEach((track) => track.stop());
         this.screenStream = null;
 
-        // Restore camera track in peer connections
-        if (this.localStream) {
-          const cameraTrack = this.localStream.getVideoTracks()[0];
-          console.log('📹 Restoring camera track:', cameraTrack?.label);
-          
-          if (cameraTrack) {
-            for (const [peerId, peerConnection] of this.peerConnections) {
-              const videoSender = peerConnection.getSenders().find(s => 
-                s.track?.kind === 'video' || (s as any)._kind === 'video'
-              );
-              
-              if (videoSender) {
-                await videoSender.replaceTrack(cameraTrack);
-                console.log(`✅ Restored camera track for peer: ${peerId}`);
-              }
-            }
+        // Close all screen peer connections
+        for (const [peerId, peerConnection] of this.peerConnections) {
+          if (peerId.startsWith('screen:')) {
+            console.log(`🛑 Closing screen peer connection: ${peerId}`);
+            peerConnection.close();
+            this.peerConnections.delete(peerId);
           }
         }
         
