@@ -215,13 +215,9 @@ export class WebRTCService {
         userId,
       } as any);
 
-      // Trigger re-negotiation for each connection
-      this.peerConnections.forEach((pc, id) => {
-        console.log(`📡 Triggering re-negotiation for screen share: ${id}`);
-        this.createAndSendOffer(pc, id);
-      });
-
-      console.log('✅ Screen sharing started event emitted');
+      // NOTE: We do NOT force re-negotiation here. replaceTrack alone is sufficient.
+      // Forcing a new offer can cause SDP m-line order mismatches in some browsers.
+      console.log('✅ Screen sharing started');
       return this.screenStream;
     } catch (err: any) {
       console.error('Screen share error:', err);
@@ -268,22 +264,18 @@ export class WebRTCService {
               if (videoSender) {
                 await videoSender.replaceTrack(cameraTrack);
                 console.log(`✅ Restored camera track for peer: ${peerId}`);
-                
-                // Re-negotiate after restoration
-                console.log(`📡 Re-negotiating after camera restoration for peer: ${peerId}`);
-                this.createAndSendOffer(peerConnection, peerId);
               }
             }
           }
         }
-
+        
         // Notify backend and peers
         socketService.emit('screen:stopped', {
           sessionId: this.sessionId,
           userId: this.userId,
         } as any);
 
-        console.log('✅ Screen sharing stopped event emitted');
+        console.log('✅ Screen sharing stopped');
       }
     } catch (err) {
       console.error('❌ Error stopping screen share:', err);
@@ -721,26 +713,6 @@ export class WebRTCService {
           targetId: peerId, // Ensure targetId is sent back for matching
           candidate: event.candidate,
         } as any);
-      }
-    };
-
-    // Handle renegotiation needed - CRITICAL for state changes and track updates
-    peerConnection.onnegotiationneeded = async () => {
-      console.log('📡 NEGOTIATION NEEDED - Creating new offer');
-      try {
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        
-        socketService.emit('video:offer', {
-          sessionId: this.sessionId,
-          callerId: this.userId,
-          targetId: peerId,
-          peerId: this.userId,
-          offer,
-        } as any);
-        console.log('✅ Re-offer sent due to negotiation needed');
-      } catch (err) {
-        console.error('❌ Error creating re-offer:', err);
       }
     };
 
