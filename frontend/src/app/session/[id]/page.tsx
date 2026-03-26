@@ -91,7 +91,7 @@ export default function SessionPage() {
   const [videoError, setVideoError] = useState<string | null>(null);
   const [remoteUserName, setRemoteUserName] = useState<string | null>(null);
   const [showDebugInfo, setShowDebugInfo] = useState(false);
-  const [hasPendingStream, setHasPendingStream] = useState(false);
+  const [pendingStreamCounter, setPendingStreamCounter] = useState(0);
 
   // Setup diagnostics and services in global window (FIRST - before anything else)
   useEffect(() => {
@@ -173,13 +173,12 @@ export default function SessionPage() {
           console.log('✅ [PENDING-STREAM] Successfully assigned pending stream from peer:', peerId);
           setRemoteUserName('Remote User');
           pendingRemoteStreamRef.current = null;
-          setHasPendingStream(false);
         } catch (err) {
           console.error('❌ [PENDING-STREAM] Error assigning pending stream:', err);
         }
       }
     }
-  }, [hasPendingStream]);
+  }, [pendingStreamCounter]);
 
   useEffect(() => {
     const initializeVideo = async () => {
@@ -308,7 +307,7 @@ export default function SessionPage() {
           } else {
             console.warn('⏳ [STREAM-ASSIGN] Remote video ref not ready yet, storing as pending...');
             pendingRemoteStreamRef.current = { stream, peerId };
-            setHasPendingStream(true);
+            setPendingStreamCounter(c => c + 1);
             // Don't mark as assigned - allow assignment when ref becomes ready
           }
         });
