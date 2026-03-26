@@ -80,6 +80,8 @@ export default function SessionPage() {
   // Track which streams have already been assigned to prevent duplicates
   const assignedRemoteStreamIds = useRef<Set<string>>(new Set());
   const assignedScreenStreamIds = useRef<Set<string>>(new Set());
+  // Store pending streams if ref isn't ready initially (safety fallback)
+  const pendingRemoteStreamRef = useRef<{stream: MediaStream, peerId: string} | null>(null);
 
   // Video states
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
@@ -132,7 +134,50 @@ export default function SessionPage() {
   }, []);
 
   // NOTE: Removed old pending stream handling - now handled directly in setOnRemoteStream callback
-  // with deduplication using assignedRemoteStreamIds to prevent multiple assignments // Only run once on mount
+  // with deduplication using assignedRemoteStreamIds to prevent multiple assignments
+
+  // SAFETY FALLBACK: If ref becomes ready and we have a pending stream, assign it immediately
+  useEffect(() => {
+    if (remoteVideoRef.current && pendingRemoteStreamRef.current && document.body.contains(remoteVideoRef.current)) {
+      const { stream, peerId } = pendingRemoteStreamRef.current;
+      console.log('✅ [PENDING-STREAM] Remote video ref is now ready! Assigning pending stream...');
+      
+      // Check if this stream hasn't been assigned yet
+      if (!assignedRemoteStreamIds.current.has(stream.id)) {
+        try {
+          remoteVideoRef.current.srcObject = stream;
+          assignedRemoteStreamIds.current.add(stream.id);
+          
+          const playPromise = remoteVideoRef.current.play();
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => {
+                console.log('✅ [PENDING-STREAM-PLAY] Pending stream now playing');
+              })
+              .catch(error => {
+                console.warn('⚠️ [PENDING-STREAM-PLAY] Auto-play was prevented:', error.name);
+                const playOnClick = async () => {
+                  try {
+                    await remoteVideoRef.current?.play();
+                    console.log('✅ [PENDING-STREAM-PLAY] Playing after user interaction');
+                    document.removeEventListener('click', playOnClick);
+                  } catch (e) {
+                    console.error('❌ [PENDING-STREAM-PLAY] Failed after interaction:', e);
+                  }
+                };
+                document.addEventListener('click', playOnClick);
+              });
+          }
+          
+          console.log('✅ [PENDING-STREAM] Successfully assigned pending stream from peer:', peerId);
+          setRemoteUserName('Remote User');
+          pendingRemoteStreamRef.current = null;
+        } catch (err) {
+          console.error('❌ [PENDING-STREAM] Error assigning pending stream:', err);
+        }
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const initializeVideo = async () => {
@@ -243,8 +288,9 @@ export default function SessionPage() {
               // Stream assignment failed - don't mark as assigned, so retry happens on next track
             }
           } else {
-            console.error('❌ [STREAM-ASSIGN] Remote video ref not found!', { refNull: !remoteVideoRef.current });
-            // Don't mark as assigned - allow retry when ref is ready
+            console.warn('⏳ [STREAM-ASSIGN] Remote video ref not ready yet, storing as pending...');
+            pendingRemoteStreamRef.current = { stream, peerId };
+            // Don't mark as assigned - allow assignment when ref becomes ready
           }
         });
 
