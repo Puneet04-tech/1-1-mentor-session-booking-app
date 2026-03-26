@@ -1160,47 +1160,57 @@ export default function SessionPage() {
               </GlowingButton>
             </div>
 
-            {/* Debug Info Panel */}
+            {/* Debug Info Panel - MODAL OVERLAY (not taking up vertical space) */}
             {showDebugInfo && (
-              <div className="w-full px-2 md:px-4 py-3 bg-yellow-900/20 border-t border-yellow-700/50 text-xs max-h-64 overflow-y-auto flex-shrink-0">
-                <div className="space-y-2 font-mono text-yellow-200">
-                  <p>📊 <strong>VIDEO DEBUG INFO</strong></p>
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-dark-900 border border-yellow-700/50 rounded-lg p-4 max-w-md max-h-96 overflow-y-auto">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-yellow-300 font-bold text-sm">📊 VIDEO DEBUG INFO</h4>
+                    <button
+                      onClick={() => setShowDebugInfo(false)}
+                      className="text-yellow-300 hover:text-yellow-400 text-lg leading-none"
+                    >
+                      ✕
+                    </button>
+                  </div>
                   
-                  <div className="bg-black/40 p-2 rounded space-y-1">
-                    <p><span className="text-gray-400">DOM Check:</span></p>
-                    <p>  ✓ Ref exists: {remoteVideoRef.current ? 'YES' : 'NO'}</p>
-                    <p>  ✓ In DOM: {remoteVideoRef.current && document.body.contains(remoteVideoRef.current) ? 'YES' : 'NO'}</p>
-                    <p>  ✓ Dimensions: {remoteVideoRef.current?.clientWidth || 0}x{remoteVideoRef.current?.clientHeight || 0}px</p>
-                  </div>
+                  <div className="space-y-2 font-mono text-yellow-200 text-xs">
+                    <div className="bg-black/40 p-2 rounded space-y-1">
+                      <p><span className="text-gray-400">DOM Check:</span></p>
+                      <p>  ✓ Ref exists: {remoteVideoRef.current ? 'YES' : 'NO'}</p>
+                      <p>  ✓ In DOM: {remoteVideoRef.current && document.body.contains(remoteVideoRef.current) ? 'YES' : 'NO'}</p>
+                      <p>  ✓ Dimensions: {remoteVideoRef.current?.clientWidth || 0}x{remoteVideoRef.current?.clientHeight || 0}px</p>
+                    </div>
 
-                  <div className="bg-black/40 p-2 rounded space-y-1">
-                    <p><span className="text-gray-400">Stream Check:</span></p>
-                    <p>  ✓ Has srcObject: {remoteVideoRef.current?.srcObject ? 'YES' : 'NO'}</p>
-                    {remoteVideoRef.current?.srcObject instanceof MediaStream && (
-                      <>
-                        <p>  ✓ Tracks: {(remoteVideoRef.current.srcObject as MediaStream).getTracks().length}</p>
-                        <p>  ✓ Video tracks: {(remoteVideoRef.current.srcObject as MediaStream).getVideoTracks().length}</p>
-                      </>
-                    )}
-                    <p>  ✓ Paused: {remoteVideoRef.current?.paused ? 'YES' : 'NO'}</p>
-                    <p>  ✓ Volume: {(remoteVideoRef.current?.volume || 0).toFixed(2)}</p>
-                  </div>
+                    <div className="bg-black/40 p-2 rounded space-y-1">
+                      <p><span className="text-gray-400">Stream Check:</span></p>
+                      <p>  ✓ Has srcObject: {remoteVideoRef.current?.srcObject ? 'YES' : 'NO'}</p>
+                      {remoteVideoRef.current?.srcObject instanceof MediaStream && (
+                        <>
+                          <p>  ✓ Tracks: {(remoteVideoRef.current.srcObject as MediaStream).getTracks().length}</p>
+                          <p>  ✓ Video tracks: {(remoteVideoRef.current.srcObject as MediaStream).getVideoTracks().length}</p>
+                        </>
+                      )}
+                      <p>  ✓ Paused: {remoteVideoRef.current?.paused ? 'YES' : 'NO'}</p>
+                      <p>  ✓ Volume: {(remoteVideoRef.current?.volume || 0).toFixed(2)}</p>
+                    </div>
 
-                  <div className="bg-black/40 p-2 rounded space-y-1">
-                    <p><span className="text-gray-400">Playback Policy:</span></p>
-                    <p>  ✓ autoplay attr: {remoteVideoRef.current?.autoplay ? 'YES' : 'NO'}</p>
-                    <p>  ✓ playsinline: {remoteVideoRef.current?.hasAttribute('playsinline') ? 'YES' : 'NO'}</p>
-                    <p>  ✓ muted: {remoteVideoRef.current?.muted ? 'YES' : 'NO'}</p>
-                    <p>  ✓ visible: {remoteVideoRef.current && window.getComputedStyle(remoteVideoRef.current).display !== 'none' ? 'YES' : 'NO'}</p>
-                  </div>
+                    <div className="bg-black/40 p-2 rounded space-y-1">
+                      <p><span className="text-gray-400">Playback Policy:</span></p>
+                      <p>  ✓ autoplay attr: {remoteVideoRef.current?.autoplay ? 'YES' : 'NO'}</p>
+                      <p>  ✓ playsinline: {remoteVideoRef.current?.hasAttribute('playsinline') ? 'YES' : 'NO'}</p>
+                      <p>  ✓ muted: {remoteVideoRef.current?.muted ? 'YES' : 'NO'}</p>
+                      <p>  ✓ visible: {remoteVideoRef.current && window.getComputedStyle(remoteVideoRef.current).display !== 'none' ? 'YES' : 'NO'}</p>
+                    </div>
 
-                  <div className="bg-blue-900/20 border border-blue-700/50 p-2 rounded mt-2">
-                    <p className="text-blue-300 mb-1">🔍 <strong>BROWSER CONSOLE COMMANDS:</strong></p>
-                    <p className="text-blue-200 text-xs">window.videoDebug.checkDOM() - DOM checks</p>
-                    <p className="text-blue-200 text-xs">window.videoDebug.checkStream() - Stream checks</p>
-                    <p className="text-blue-200 text-xs">window.videoDebug.checkPolicy() - Policy checks</p>
-                    <p className="text-blue-200 text-xs">window.videoDebug.report() - Full report</p>
-                    <p className="text-blue-200 text-xs">window.videoDebug.play() - Force play</p>
+                    <div className="bg-blue-900/20 border border-blue-700/50 p-2 rounded mt-2">
+                      <p className="text-blue-300 mb-1">🔍 <strong>BROWSER CONSOLE COMMANDS:</strong></p>
+                      <p className="text-blue-200 text-xs">window.videoDebug.checkDOM() - DOM checks</p>
+                      <p className="text-blue-200 text-xs">window.videoDebug.checkStream() - Stream checks</p>
+                      <p className="text-blue-200 text-xs">window.videoDebug.checkPolicy() - Policy checks</p>
+                      <p className="text-blue-200 text-xs">window.videoDebug.report() - Full report</p>
+                      <p className="text-blue-200 text-xs">window.videoDebug.play() - Force play</p>
+                    </div>
                   </div>
                 </div>
               </div>
