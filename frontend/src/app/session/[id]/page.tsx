@@ -139,6 +139,7 @@ export default function SessionPage() {
 
   // SAFETY FALLBACK: If ref becomes ready and we have a pending stream, assign it immediately
   useEffect(() => {
+    // Try to assign pending stream immediately
     if (remoteVideoRef.current && pendingRemoteStreamRef.current && document.body.contains(remoteVideoRef.current)) {
       const { stream, peerId } = pendingRemoteStreamRef.current;
       console.log('✅ [PENDING-STREAM] Remote video ref is now ready! Assigning pending stream...');
@@ -177,6 +178,18 @@ export default function SessionPage() {
           console.error('❌ [PENDING-STREAM] Error assigning pending stream:', err);
         }
       }
+      return;
+    }
+    
+    // If ref not ready, schedule a retry after a delay
+    if (pendingRemoteStreamRef.current && !remoteVideoRef.current) {
+      console.log('⏳ [PENDING-STREAM] Ref not ready yet, scheduling retry in 100ms...');
+      const timeout = setTimeout(() => {
+        console.log('🔄 [PENDING-STREAM] Retrying pending stream assignment...');
+        setPendingStreamCounter(c => c + 1);
+      }, 100);
+      
+      return () => clearTimeout(timeout);
     }
   }, [pendingStreamCounter]);
 
