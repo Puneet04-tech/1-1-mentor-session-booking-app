@@ -317,6 +317,12 @@ export class WebRTCService {
       const actualPeerId = callerId || peerId || 'unknown-peer';
       console.log(`🔌 Will use peer connection key: ${actualPeerId}`);
       
+      // Store the remote user ID for later matching
+      if (actualPeerId !== 'unknown-peer') {
+        this.remoteUserId = actualPeerId;
+        console.log('💾 Stored remote user ID (offer sender):', this.remoteUserId);
+      }
+      
       // Check if we already have a peer connection for this peer
       let peerConnection = this.peerConnections.get(actualPeerId);
       
@@ -820,47 +826,52 @@ export class WebRTCService {
     // Start monitoring receivers for incoming tracks
     // This is a fallback in case ontrack doesn't fire
     let receiverCheckInterval: ReturnType<typeof setInterval> | null = null;
-    const trackIds = new Set<string>(); // Track which tracks we've already handled
+    const handledTrackIds = new Set<string>(); // Separate from inner scope
 
     const checkReceiversForTracks = () => {
+      if (peerConnection.connectionState === 'closed') return;
+      
       const receivers = peerConnection.getReceivers();
       
       receivers.forEach((receiver) => {
-        if (receiver.track && !trackIds.has(receiver.track.id)) {
-          trackIds.add(receiver.track.id);
+        if (receiver.track && !handledTrackIds.has(receiver.track.id)) {
           console.log(`🎯 [RECEIVER MONITOR] Detected ${receiver.track.kind} track on receiver!`);
-          console.log(`📊 Track: id=${receiver.track.id}, enabled=${receiver.track.enabled}, label=${receiver.track.label}`);
-          webrtcDiagnostics.log('track-receive', 'Track detected via receiver monitor', {
-            kind: receiver.track.kind,
-            trackId: receiver.track.id,
-            method: 'receiver-monitor',
-          });
           
-          // Create a new MediaStream with just this track as a fallback
-          // (normal ontrack should have provided this, but this is our backup)
-          if (this.onRemoteStream) {
-            const fallbackStream = new MediaStream();
-            fallbackStream.addTrack(receiver.track);
-            console.log(`🎯 Created fallback stream with ${receiver.track.kind} track`);
-            console.log('📹 Calling onRemoteStream via receiver monitor');
-            this.onRemoteStream(fallbackStream, peerId);
+          // Verify we actually have media flowing
+          if (receiver.track.readyState === 'live' && receiver.track.enabled) {
+            handledTrackIds.add(receiver.track.id);
+            console.log(`📊 Track is LIVE and ENABLED: id=${receiver.track.id}`);
+            
+            webrtcDiagnostics.log('track-receive', 'Track detected via receiver monitor', {
+              kind: receiver.track.kind,
+              trackId: receiver.track.id,
+              method: 'receiver-monitor',
+            });
+            
+            // Create a new MediaStream with just this track as a fallback
+            if (this.onRemoteStream && receiver.track.kind === 'video') {
+              const fallbackStream = new MediaStream([receiver.track]);
+              console.log('📹 Calling onRemoteStream via receiver monitor with new stream');
+              this.onRemoteStream(fallbackStream, peerId);
+            }
+          } else {
+            console.log(`⏳ Track ${receiver.track.id} (${receiver.track.kind}) exists but state is ${receiver.track.readyState}`);
           }
         }
       });
     };
 
-    // Start checking for receivers every 500ms for 10 seconds
+    // Start checking for receivers every 1000ms for 30 seconds (longer monitor)
     let checkCount = 0;
     receiverCheckInterval = setInterval(() => {
       checkCount++;
-      if (checkCount > 20) {
-        // Stop after 10 seconds
+      if (checkCount > 30 || peerConnection.connectionState === 'closed') {
         if (receiverCheckInterval) clearInterval(receiverCheckInterval);
-        console.log('⏹️ Receiver monitor stopped (10 second timeout)');
+        console.log('⏹️ Receiver monitor stopped');
         return;
       }
       checkReceiversForTracks();
-    }, 500);
+    }, 1000);
 
     this.peerConnections.set(peerId, peerConnection);
     return peerConnection;
