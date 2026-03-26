@@ -215,11 +215,35 @@ export class WebRTCService {
         userId,
       } as any);
 
+      // Trigger re-negotiation for each connection
+      this.peerConnections.forEach((pc, id) => {
+        console.log(`📡 Triggering re-negotiation for screen share: ${id}`);
+        this.createAndSendOffer(pc, id);
+      });
+
       console.log('✅ Screen sharing started event emitted');
       return this.screenStream;
     } catch (err: any) {
       console.error('Screen share error:', err);
       throw err;
+    }
+  }
+
+  private async createAndSendOffer(pc: RTCPeerConnection, peerId: string) {
+    try {
+      console.log(`📡 Manually creating and sending offer to ${peerId}`);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      
+      socketService.emit('video:offer', {
+        sessionId: this.sessionId,
+        fromUserId: this.userId,
+        targetId: peerId,
+        offer: pc.localDescription
+      } as any);
+      console.log(`✅ Manual offer sent to ${peerId}`);
+    } catch (err) {
+      console.error(`❌ Error in manual offer for ${peerId}:`, err);
     }
   }
 
@@ -244,6 +268,10 @@ export class WebRTCService {
               if (videoSender) {
                 await videoSender.replaceTrack(cameraTrack);
                 console.log(`✅ Restored camera track for peer: ${peerId}`);
+                
+                // Re-negotiate after restoration
+                console.log(`📡 Re-negotiating after camera restoration for peer: ${peerId}`);
+                this.createAndSendOffer(peerConnection, peerId);
               }
             }
           }
@@ -329,21 +357,38 @@ export class WebRTCService {
         // Already have a connection - check its state
         console.log(`📊 Existing peer connection found with key ${actualPeerId}, state: ${peerConnection.signalingState}`);
         
-        // COLLISION LOGIC: Mentor priority
-        if (peerConnection.signalingState === 'have-local-offer') {
-          if (this.userRole === 'mentor') {
-            console.log('👑 Mentor (Me) wins connection collision. Ignoring incoming offer.');
-            return;
-          } else {
-            console.warn('⚠️ Student (Me) losing connection collision. Closing local offer to accept mentor offer.');
+      // COLLISION LOGIC: Mentor priority
+      if (peerConnection.signalingState === 'have-local-offer') {
+        const isMentor = this.userRole === 'mentor';
+        // In WebRTC connection collision, the "polite" peer should roll back or accept.
+        // We'll treat the student as the polite peer.
+        if (isMentor) {
+          console.log('👑 Mentor (Me) wins connection collision. Ignoring incoming offer (waiting for our own offer to be accepted).');
+          return;
+        } else {
+          console.warn('⚠️ Student (Me) losing connection collision. Closing local offer to accept mentor offer.');
+          try {
+            // Roll back local offer to accept the new remote offer
+            await peerConnection.setLocalDescription({ type: 'rollback' } as any);
+            console.log('🔄 Rolled back local offer, continuing with remote offer');
+          } catch (e) {
+            console.error('❌ Failed to roll back local offer, resetting peer connection:', e);
             peerConnection.close();
             this.peerConnections.delete(actualPeerId);
             peerConnection = this.createPeerConnection(actualPeerId);
           }
-        } else if (peerConnection.signalingState !== 'stable') {
-          console.warn(`⚠️ Ignoring offer - peer connection in state: ${peerConnection.signalingState}`);
-          return;
         }
+      } else if (peerConnection.signalingState !== 'stable') {
+        // If we're already trying to set a remote description, don't overlap.
+        // But if it's the SAME person (e.g. they sent another offer), we should probably handle it or wait.
+        console.warn(`⚠️ Ignoring offer - peer connection in state: ${peerConnection.signalingState}`);
+        // If it's have-remote-offer, another offer might have come in before we could answer.
+        if (peerConnection.signalingState === 'have-remote-offer') {
+           console.log('🔄 Re-processing newest offer (ignoring old one)');
+        } else {
+           return;
+        }
+      }
       } else {
         console.log(`🔌 Creating NEW peer connection with KEY: ${actualPeerId}`);
         peerConnection = this.createPeerConnection(actualPeerId);
@@ -645,8 +690,9 @@ export class WebRTCService {
       });
       
       // ALSO ADD AN EXTRA VIDEO TRANSCEIVER for receiving potential secondary streams (like screen share)
+      // Use unique transceivers for audio and video to avoid mixing
       try {
-        const screenTransceiver = peerConnection.addTransceiver('video', { 
+        peerConnection.addTransceiver('video', { 
           direction: 'recvonly',
           streams: [] 
         });
@@ -655,7 +701,7 @@ export class WebRTCService {
         console.warn('⚠️ Could not add extra receiver transceiver:', err);
       }
     } else {
-      console.warn('⚠️  No local stream available when creating peer connection! Adding recvonly transceivers.');
+      console.warn('⚠️ No local stream available when creating peer connection! Adding recvonly transceivers.');
       // Add transceivers anyway to be able to receive
       try {
         peerConnection.addTransceiver('audio', { direction: 'recvonly' });
@@ -665,6 +711,9 @@ export class WebRTCService {
         console.error('❌ Error adding recvonly transceivers:', err);
       }
     }
+
+    // Explicitly add STUN/TURN servers for cross-network connectivity if not working
+    // (RTCConfig is already defined above with Google STUNs)
 
     // Handle ICE candidates
     peerConnection.onicecandidate = (event) => {
