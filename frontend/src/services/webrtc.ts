@@ -418,6 +418,7 @@ export class WebRTCService {
         peerId,
         hasAnswer: !!answer,
         currentRemoteUserId: this.remoteUserId,
+        myUserId: this.userId,
       });
       console.log('📊 Current peer connections:', Array.from(this.peerConnections.keys()));
       
@@ -457,6 +458,7 @@ export class WebRTCService {
         
         // Only set remote description if signaling state allows
         if (signalingState === 'have-local-offer') {
+          console.log('✅ Setting remote answer...');
           await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
           console.log('✅ Set remote description (answer) - connection should now be establishing');
           console.log('📊 After setting remote answer:', {
@@ -888,6 +890,14 @@ export class WebRTCService {
     peerConnection.oniceconnectionstatechange = () => {
       const iceState = peerConnection.iceConnectionState;
       console.log(`🧊 ICE connection state with ${peerId}: ${iceState}`);
+      console.log(`🧊 ICE STATE CHANGE - Full diagnosis:`, {
+        iceConnectionState: peerConnection.iceConnectionState,
+        connectionState: peerConnection.connectionState,
+        signalingState: peerConnection.signalingState,
+        sendersCount: peerConnection.getSenders().length,
+        receiversCount: peerConnection.getReceivers().length,
+        receiversWithTracks: peerConnection.getReceivers().filter(r => !!r.track).length,
+      });
       webrtcDiagnostics.log('state-change', `ICE state: ${iceState}`, { peerId });
       
       if (iceState === 'connected' || iceState === 'completed') {
@@ -900,6 +910,7 @@ export class WebRTCService {
           kind: r.track?.kind,
           trackId: r.track?.id,
           trackEnabled: r.track?.enabled,
+          trackReadyState: r.track?.readyState,
           hasTrack: !!r.track,
         })));
         
@@ -917,10 +928,17 @@ export class WebRTCService {
           senderCount: senders.length,
         });
       } else if (iceState === 'failed') {
-        console.warn('⚠️ ICE connection FAILED - Network may be blocked or TURN server needed');
+        console.error('❌ ICE connection FAILED - Network may be blocked or TURN server needed');
+        console.error('❌ ICE FAILED - Checking connection details:', {
+          iceGatheringState: peerConnection.iceGatheringState,
+          connectionState: peerConnection.connectionState,
+          signalingState: peerConnection.signalingState,
+        });
         webrtcDiagnostics.log('error', 'ICE failed', { peerId });
       } else if (iceState === 'checking') {
         console.log('🔍 ICE is gathering and checking candidates...');
+      } else if (iceState === 'disconnected') {
+        console.warn('⚠️ ICE disconnected - connection may be re-establishing');
       }
     };
 
