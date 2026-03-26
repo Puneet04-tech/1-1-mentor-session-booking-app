@@ -822,7 +822,7 @@ export default function SessionPage() {
       if (!isScreenSharingActive) {
         console.log('🎬 Requesting screen share permission...');
         
-        // Request screen share with user gesture
+        // REQUEST SCREEN SHARE ONLY ONCE - get the stream with user gesture
         const stream = await navigator.mediaDevices.getDisplayMedia({ 
           video: true,
           audio: false 
@@ -830,34 +830,25 @@ export default function SessionPage() {
         
         console.log('✅ Screen share stream obtained:', stream);
         
-        // Set to local screen share element immediately
+        // Set to local screen share element immediately for mentor preview
         if (screenShareRef.current) {
           screenShareRef.current.srcObject = stream;
-          console.log('✅ Stream set to screen share video element');
-          
-          screenShareRef.current.setAttribute('playsinline', 'true');
-          screenShareRef.current.muted = true; // Local preview should be muted
-          
+          screenShareRef.current.muted = true;
           await screenShareRef.current.play().catch(e => console.warn('Play error:', e));
+          console.log('✅ Stream set to screen share video element (mentor preview)');
         }
         
         // Set state to show overlay
         setIsScreenSharingActive(true);
         
-        // Add screen share track to WebRTC
+        // PASS THE STREAM TO WEBRTC - Don't call getDisplayMedia again
         if (webrtcService) {
           console.log('🔄 Passing screen stream to WebRTC service');
-          await webrtcService.startScreenShare(sessionId, currentUser?.id || '');
-          console.log('✅ WebRTC service handles track replacement');
+          await webrtcService.startScreenShare(sessionId, currentUser?.id || '', stream);
+          console.log('✅ Screen sharing started through WebRTC');
         }
         
-        // Notify other users via socket
-        socketService.emit('screen:started', {
-          sessionId,
-          userId: currentUser?.id,
-        } as any);
-        
-        // Handle stream end (user clicks Stop Sharing in browser)
+        // Handle stream end (user clicks Stop Sharing in browser dialog)
         const videoTrack = stream.getVideoTracks()[0];
         if (videoTrack) {
           videoTrack.onended = () => {
@@ -877,7 +868,7 @@ export default function SessionPage() {
         
         setIsScreenSharingActive(false);
         
-        // Stop WebRTC screen share (restores camera)
+        // Stop WebRTC screen share
         if (webrtcService) {
           await webrtcService.stopScreenShare();
         }
@@ -888,8 +879,10 @@ export default function SessionPage() {
           userId: currentUser?.id,
         } as any);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error toggling screen share:', err);
+      // Reset state on error
+      setIsScreenSharingActive(false);
     }
   };
 

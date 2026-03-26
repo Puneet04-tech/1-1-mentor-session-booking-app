@@ -160,29 +160,22 @@ export class WebRTCService {
     }
   }
 
-  async startScreenShare(sessionId: string, userId: string): Promise<MediaStream> {
+  async startScreenShare(sessionId: string, userId: string, screenStream: MediaStream): Promise<void> {
     try {
-      console.log('🖥️ WebRTCService.startScreenShare called', { sessionId, userId });
+      console.log('🖥️ WebRTCService.startScreenShare called', { sessionId, userId, hasStream: !!screenStream });
       
-      if (!this.localStream) {
-        console.error('❌ Local stream not initialized. Call startLocalVideo first.');
-        throw new Error('Local stream not initialized. Call startLocalVideo first.');
+      if (!screenStream) {
+        console.error('❌ Screen stream not provided');
+        throw new Error('Screen stream must be provided to startScreenShare');
       }
 
-      console.log(`🖥️ Starting WebRTC screen share - Session: ${sessionId}, User: ${userId}`);
+      this.screenStream = screenStream;
+      console.log('✅ Screen share stream stored');
 
-      // Simple constraints
-      const constraints: DisplayMediaStreamOptions = {
-        audio: false,
-        video: true,
-      };
-
-      console.log('🎬 Getting display media with constraints:', constraints);
-      this.screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
-      console.log('✅ Screen share stream obtained:', this.screenStream);
-
-      // Get the screen track
       const screenTrack = this.screenStream.getVideoTracks()[0];
+      if (!screenTrack) {
+        throw new Error('No video track in screen stream');
+      }
       
       // Send screen through a SEPARATE peer connection for each remote peer
       // This ensures the student gets ontrack event with the screen track
@@ -197,8 +190,8 @@ export class WebRTCService {
         let screenPeerConnection = this.peerConnections.get(screenPeerId);
         
         if (!screenPeerConnection) {
-          console.log(`🖥️ Creating new screen peer connection for: ${peerId}`);
-          screenPeerConnection = this.createPeerConnection(screenPeerId);
+          console.log(`🖥️ Creating new SCREEN-ONLY peer connection for: ${peerId}`);
+          screenPeerConnection = this.createScreenPeerConnection(screenPeerId);
         }
 
         try {
@@ -236,11 +229,51 @@ export class WebRTCService {
       } as any);
 
       console.log('✅ Screen sharing started with separate peer connection');
-      return this.screenStream;
     } catch (err: any) {
       console.error('Screen share error:', err);
       throw err;
     }
+  }
+
+  private createScreenPeerConnection(peerId: string): RTCPeerConnection {
+    console.log(`🖥️ [SCREEN-PC] Creating SCREEN-ONLY peer connection for: ${peerId}`);
+    
+    const peerConnection = new RTCPeerConnection({
+      iceServers: this.rtcConfig.iceServers,
+    });
+
+    // DO NOT add local stream - screen peer connection is SCREEN ONLY
+    // Add RECVONLY video transceiver for receiving screen
+    try {
+      peerConnection.addTransceiver('video', { 
+        direction: 'recvonly',
+        streams: [] 
+      });
+      console.log('✅ [SCREEN-PC] Added recvonly video transceiver');
+    } catch (err) {
+      console.warn('⚠️ [SCREEN-PC] Could not add receiver transceiver:', err);
+    }
+
+    // Handle ICE candidates for screen peer connection
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        console.log('🧊 [SCREEN-PC] Sending screen ICE candidate');
+        socketService.emit('screen:ice-candidate', {
+          sessionId: this.sessionId,
+          peerId: this.userId,
+          targetId: peerId.replace('screen:', ''),
+          candidate: event.candidate,
+        } as any);
+      }
+    };
+
+    // Handle connection state changes
+    peerConnection.onconnectionstatechange = () => {
+      console.log(`🖥️ [SCREEN-PC] Connection state with ${peerId}: ${peerConnection.connectionState}`);
+    };
+
+    this.peerConnections.set(peerId, peerConnection);
+    return peerConnection;
   }
 
   private async createAndSendOffer(pc: RTCPeerConnection, peerId: string) {
@@ -269,13 +302,21 @@ export class WebRTCService {
         this.screenStream = null;
 
         // Close all screen peer connections
-        for (const [peerId, peerConnection] of this.peerConnections) {
+        const screenPeerIds: string[] = [];
+        for (const [peerId] of this.peerConnections) {
           if (peerId.startsWith('screen:')) {
-            console.log(`🛑 Closing screen peer connection: ${peerId}`);
-            peerConnection.close();
-            this.peerConnections.delete(peerId);
+            screenPeerIds.push(peerId);
           }
         }
+        
+        screenPeerIds.forEach(peerId => {
+          const pc = this.peerConnections.get(peerId);
+          if (pc) {
+            console.log(`🛑 Closing screen peer connection: ${peerId}`);
+            pc.close();
+            this.peerConnections.delete(peerId);
+          }
+        });
         
         // Notify backend and peers
         socketService.emit('screen:stopped', {
