@@ -137,6 +137,20 @@ export default function SessionPage() {
       console.log('✅ Remote video ref is ready! Assigning pending stream...');
       try {
         remoteVideoRef.current.srcObject = stream;
+        
+        // CRITICAL: Force video to play
+        const playPromise = remoteVideoRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(error => {
+            console.warn('⚠️ Auto-play was prevented:', error);
+            const playOnInteraction = () => {
+              remoteVideoRef.current?.play().catch(e => console.error('Final play attempt failed:', e));
+              document.removeEventListener('click', playOnInteraction);
+            };
+            document.addEventListener('click', playOnInteraction);
+          });
+        }
+
         console.log('✅ Pending remote stream assigned successfully');
         setRemoteUserName('Remote User');
         pendingRemoteStreamRef.current = null;
@@ -214,6 +228,21 @@ export default function SessionPage() {
             console.log('✅ Remote video ref is ready, assigning stream immediately');
             try {
               remoteVideoRef.current.srcObject = stream;
+              
+              // CRITICAL: Force video to play
+              const playPromise = remoteVideoRef.current.play();
+              if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                  console.warn('⚠️ Auto-play was prevented, trying again on user interaction:', error);
+                  // Attempt to play again if user clicks anywhere
+                  const playOnInteraction = () => {
+                    remoteVideoRef.current?.play().catch(e => console.error('Final play attempt failed:', e));
+                    document.removeEventListener('click', playOnInteraction);
+                  };
+                  document.addEventListener('click', playOnInteraction);
+                });
+              }
+
               console.log('✅ Remote stream assigned to video element');
               setRemoteUserName('Remote User');
               webrtcDiagnostics.log('stream-assigned', 'Remote stream assigned immediately', { peerId });
