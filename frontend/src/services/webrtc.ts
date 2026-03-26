@@ -719,6 +719,15 @@ export class WebRTCService {
     // Handle remote stream - THIS IS CRITICAL
     peerConnection.ontrack = (event) => {
       console.log('✅✅✅ ONTRACK FIRED! ✅✅✅');
+      console.log('🔥 ONTRACK EVENT DETAILS:', {
+        trackKind: event.track.kind,
+        trackId: event.track.id,
+        trackEnabled: event.track.enabled,
+        trackReadyState: event.track.readyState,
+        streamsCount: event.streams.length,
+        peerId: peerId,
+        hasCallback: !!this.onRemoteStream,
+      });
       webrtcDiagnostics.log('track-receive', 'Remote track received', {
         kind: event.track.kind,
         trackId: event.track.id,
@@ -736,7 +745,10 @@ export class WebRTCService {
       
       if (event.streams && event.streams.length > 0) {
         const remoteStream = event.streams[0];
-        console.log(`✅ Remote stream has ${remoteStream.getTracks().length} tracks`);
+        console.log(`✅ Remote stream has ${remoteStream.getTracks().length} tracks`, {
+          streamId: remoteStream.id,
+          tracks: remoteStream.getTracks().map(t => ({ kind: t.kind, id: t.id, enabled: t.enabled }))
+        });
         webrtcDiagnostics.log('track-receive', `Remote stream received with ${remoteStream.getTracks().length} tracks`, {
           streamId: remoteStream.id,
           trackCount: remoteStream.getTracks().length,
@@ -767,6 +779,10 @@ export class WebRTCService {
           isScreenShareTrack,
           trackLabel: videoTrack?.label,
           trackKind: videoTrack?.kind,
+          callbackCheck: {
+            hasRemoteStreamCallback: !!this.onRemoteStream,
+            hasScreenShareCallback: !!this.onScreenShare,
+          }
         });
         
         // VERIFY CALLBACKS ARE SET BEFORE CALLING
@@ -794,11 +810,18 @@ export class WebRTCService {
             trackCount: remoteStream.getTracks().length,
             peerId,
           });
-          this.onRemoteStream(remoteStream, peerId);
-          console.log('✅ onRemoteStream callback called successfully');
-          webrtcDiagnostics.log('callback-fire', 'onRemoteStream callback executed', { peerId });
+          try {
+            console.log('🚀 About to invoke onRemoteStream callback...');
+            this.onRemoteStream(remoteStream, peerId);
+            console.log('✅ onRemoteStream callback called successfully');
+            webrtcDiagnostics.log('callback-fire', 'onRemoteStream callback executed', { peerId });
+          } catch (callbackErr) {
+            console.error('❌ ERROR IN CALLBACK:', callbackErr);
+            webrtcDiagnostics.log('error', 'Error in onRemoteStream callback', { error: String(callbackErr) });
+          }
         } else {
           console.error('❌ NO CALLBACK SET! this.onRemoteStream is:', this.onRemoteStream);
+          console.error('❌ this.onScreenShare is:', this.onScreenShare);
           webrtcDiagnostics.log('error', 'No onRemoteStream callback set', {
             peerId,
             hasCallback: !!this.onRemoteStream,
@@ -806,6 +829,7 @@ export class WebRTCService {
         }
       } else {
         console.warn('⚠️ Remote track received but no streams array');
+        console.warn('⚠️ Event streams:', event.streams);
         webrtcDiagnostics.log('error', 'Remote track received but no streams', { peerId });
       }
     };
