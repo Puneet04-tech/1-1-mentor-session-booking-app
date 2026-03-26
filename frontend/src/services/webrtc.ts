@@ -949,6 +949,57 @@ export class WebRTCService {
     // This simplification fixes the "AbortError: play() request interrupted by new load request" issue.
     console.log('✅ [INFO] Receiver monitor disabled - relying on ontrack handler for incoming media');
 
+    // MENTOR-ONLY FALLBACK: If mentor doesn't receive ontrack within timeout, manually request from receivers
+    // This only affects mentor role - students work fine with ontrack
+    if (this.userRole === 'mentor') {
+      let ontrackFired = false;
+      
+      // Store the original ontrack handler
+      const originalOntrackHandler = peerConnection.ontrack;
+      
+      // Wrap it to track if it fires
+      peerConnection.ontrack = (event: RTCTrackEvent) => {
+        ontrackFired = true;
+        // Call original handler
+        if (originalOntrackHandler) {
+          originalOntrackHandler.call(peerConnection, event);
+        }
+      };
+      
+      // After 5 seconds, if ontrack never fired, manually request from receivers
+      setTimeout(async () => {
+        if (!ontrackFired && peerConnection.connectionState === 'connected') {
+          console.log('⏱️ [MENTOR-FALLBACK] ontrack didn\'t fire within timeout, manually requesting from receivers...');
+          
+          const receivers = peerConnection.getReceivers();
+          const videoReceiver = receivers.find(r => r.track?.kind === 'video');
+          const audioReceiver = receivers.find(r => r.track?.kind === 'audio');
+          
+          if (videoReceiver?.track || audioReceiver?.track) {
+            console.log('📡 [MENTOR-FALLBACK] Found video/audio receivers, creating manual stream');
+            
+            const tracks: MediaStreamTrack[] = [];
+            if (audioReceiver?.track) tracks.push(audioReceiver.track);
+            if (videoReceiver?.track) tracks.push(videoReceiver.track);
+            
+            if (tracks.length > 0) {
+              const fallbackStream = new MediaStream(tracks);
+              console.log('🎯 [MENTOR-FALLBACK] Created fallback stream with', tracks.length, 'tracks');
+              
+              if (this.onRemoteStream) {
+                console.log('📹 [MENTOR-FALLBACK] Calling onRemoteStream with fallback stream');
+                this.onRemoteStream(fallbackStream, peerId);
+              }
+            }
+          } else {
+            console.log('⚠️ [MENTOR-FALLBACK] No video/audio receivers found');
+          }
+        } else if (ontrackFired) {
+          console.log('✅ [MENTOR-FALLBACK] ontrack fired normally, skipping fallback');
+        }
+      }, 5000);
+    }
+
     this.peerConnections.set(peerId, peerConnection);
     return peerConnection;
   }
