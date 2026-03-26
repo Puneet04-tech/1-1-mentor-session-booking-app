@@ -983,8 +983,8 @@ export default function SessionPage() {
 
       {/* Main Content - Responsive layout */}
       <div className="flex-1 min-h-0 flex flex-col lg:grid lg:grid-cols-3 gap-2 md:gap-3 lg:gap-4 p-2 md:p-3 lg:p-4 overflow-y-auto lg:overflow-hidden">
-        {/* Code Editor - Takes full height on mobile, 2/3 on large screens */}
-        <div className="lg:col-span-2 flex flex-col bg-dark-900/40 rounded-lg border border-gray-700/30 overflow-hidden min-h-[40vh] lg:min-h-0">
+        {/* Code Editor - Takes full height on mobile, 1/3 on large screens */}
+        <div className="lg:col-span-1 flex flex-col bg-dark-900/40 rounded-lg border border-gray-700/30 overflow-hidden min-h-[40vh] lg:min-h-0">
           <div className="px-2 md:px-4 py-2 md:py-3 border-b border-gray-700/30 flex flex-col md:flex-row justify-between items-start md:items-center gap-2 flex-shrink-0">
             <h2 className="text-base md:text-lg font-bold text-white">Code Editor</h2>
             <div className="flex items-center gap-1 md:gap-2 w-full md:w-auto">
@@ -1034,9 +1034,9 @@ export default function SessionPage() {
         </div>
 
         {/* Right Panel - Video + Chat */}
-        <div className="flex flex-col gap-2 md:gap-3 lg:gap-4 lg:min-h-0 lg:overflow-hidden lg:col-span-1">
+        <div className="flex flex-col gap-2 md:gap-3 lg:gap-4 lg:min-h-0 lg:overflow-hidden lg:col-span-2">
           {/* Video Panel - Integrated in session page */}
-          <GlowingCard glow="purple" className="flex-shrink-0 h-64 md:h-80 lg:h-96 flex flex-col">
+          <GlowingCard glow="purple" className="flex-shrink-0 lg:flex-1 h-64 md:h-80 lg:min-h-0 flex flex-col">
             <h3 className="font-bold text-white text-xs md:text-base mb-1 md:mb-3 px-2 md:px-4 pt-2 md:pt-4 flex-shrink-0">Video Call</h3>
             <div className="flex-1 min-h-0 bg-black rounded overflow-hidden relative">
               {/* 🔴 CRITICAL FIX: Video elements absolutely positioned and fill container */}
@@ -1221,7 +1221,7 @@ export default function SessionPage() {
           </GlowingCard>
 
           {/* Chat Panel */}
-          <GlowingCard glow="green" className="flex-1 min-h-[120px] md:min-h-0 flex flex-col overflow-hidden">
+          <GlowingCard glow="green" className="flex-shrink-0 h-32 md:h-40 lg:h-48 flex flex-col overflow-hidden">
             <h3 className="font-bold text-white text-xs md:text-base mb-1 md:mb-3 px-2 md:px-4 pt-2 md:pt-4 flex-shrink-0">Chat</h3>
             <div className="flex-1 min-h-0 overflow-y-auto px-2 md:px-4 space-y-2 md:space-y-3 text-xs md:text-sm">
               {messages.map((msg) => (
