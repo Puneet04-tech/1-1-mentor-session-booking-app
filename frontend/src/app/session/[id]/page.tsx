@@ -76,6 +76,9 @@ export default function SessionPage() {
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const screenShareRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  
+  // Store pending streams if elements aren't ready yet
+  const pendingRemoteStreamRef = useRef<{stream: MediaStream, peerId: string} | null>(null);
 
   // Video states
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
@@ -126,6 +129,23 @@ export default function SessionPage() {
     };
     console.log('🔧 WebRTC Diagnostics available: window.webrtcDiag.summary(), .events(), .export(), .clear()');
   }, []);
+
+  // Watch for remoteVideoRef to be ready and assign pending stream
+  useEffect(() => {
+    if (remoteVideoRef.current && pendingRemoteStreamRef.current) {
+      const { stream, peerId } = pendingRemoteStreamRef.current;
+      console.log('✅ Remote video ref is ready! Assigning pending stream...');
+      try {
+        remoteVideoRef.current.srcObject = stream;
+        console.log('✅ Pending remote stream assigned successfully');
+        setRemoteUserName('Remote User');
+        pendingRemoteStreamRef.current = null;
+      } catch (err) {
+        console.error('❌ Error assigning pending stream:', err);
+      }
+    }
+  }, []); // Only run once on mount
+
   useEffect(() => {
     const initializeVideo = async () => {
       try {
@@ -181,137 +201,33 @@ export default function SessionPage() {
         });
 
         webrtcService.setOnRemoteStream((stream: MediaStream, peerId: string) => {
-          console.log('💾 [CRITICAL] Setting remote stream to video element!');
-          webrtcDiagnostics.log('stream-set', 'onRemoteStream callback fired', {
+          console.log('💾 [REMOTE STREAM RECEIVED] Got remote stream from peer:', peerId);
+          webrtcDiagnostics.log('stream-received', 'Remote stream received from WebRTC', {
             streamId: stream.id,
-            trackCount: stream.getTracks().length,
+            videoTracks: stream.getVideoTracks().length,
+            audioTracks: stream.getAudioTracks().length,
             peerId,
           });
           
-          console.log('📊 Stream details:', {
-            streamId: stream.id,
-            audioTracks: stream.getAudioTracks().length,
-            videoTracks: stream.getVideoTracks().length,
-            totalTracks: stream.getTracks().length,
-            trackDetails: stream.getTracks().map(t => ({
-              kind: t.kind,
-              id: t.id,
-              enabled: t.enabled,
-              label: t.label,
-            }))
-          });
-          
-          // CRITICAL FIX: Query DOM directly to find video element by searching for it
-          const assignStreamToElement = (maxRetries = 3) => {
-            let element = remoteVideoRef.current;
-            
-            // If ref is NULL or not valid, search DOM multiple ways
-            if (!element || !document.body.contains(element)) {
-              console.warn('⚠️ remoteVideoRef invalid, searching DOM for video element...');
-              
-              // Method 1: Use data attribute selector (most reliable)
-              let foundElement = document.querySelector('video[data-video="remote"]') as HTMLVideoElement;
-              if (foundElement) {
-                console.log('✅ Found remote video via data-video="remote" selector');
-                element = foundElement;
-              }
-              
-              // Method 2: Find by container with data attribute
-              if (!foundElement) {
-                const container = document.querySelector('[data-video-remote="true"]');
-                if (container) {
-                  const video = container.querySelector('video') as HTMLVideoElement;
-                  if (video) {
-                    console.log('✅ Found remote video inside data-video-remote container');
-                    element = video;
-                  }
-                }
-              }
-              
-              // Method 3: Get all videos and use second one
-              if (!element) {
-                const allVideos = document.querySelectorAll('video');
-                console.log('📺 Found video elements in DOM:', allVideos.length);
-                
-                if (allVideos.length >= 2) {
-                  element = allVideos[1] as HTMLVideoElement;
-                  console.log('✅ Found remote video element in DOM (second video tag)');
-                } else if (allVideos.length === 1) {
-                  element = allVideos[0] as HTMLVideoElement;
-                  console.log('⚠️ Only one video found, using it as remote');
-                }
-              }
+          // Try to assign immediately if ref is ready
+          if (remoteVideoRef.current && document.body.contains(remoteVideoRef.current)) {
+            console.log('✅ Remote video ref is ready, assigning stream immediately');
+            try {
+              remoteVideoRef.current.srcObject = stream;
+              console.log('✅ Remote stream assigned to video element');
+              setRemoteUserName('Remote User');
+              webrtcDiagnostics.log('stream-assigned', 'Remote stream assigned immediately', { peerId });
+            } catch (err) {
+              console.error('❌ Error assigning remote stream:', err);
+              // Store as pending
+              console.log('⏳ Storing as pending stream to retry later...');
+              pendingRemoteStreamRef.current = { stream, peerId };
             }
-            
-            if (element && document.body.contains(element)) {
-              console.log('✅ Remote video element exists and is in DOM!');
-              console.log('📊 Video element info:', {
-                tagName: element.tagName,
-                width: element.width,
-                height: element.height,
-                clientWidth: element.clientWidth,
-                clientHeight: element.clientHeight,
-                dataAttr: element.getAttribute('data-video'),
-              });
-              
-              try {
-                element.srcObject = stream;
-                console.log('✅ Stream assigned successfully!');
-                console.log('📊 After assignment:', {
-                  hasSrcObject: !!element.srcObject,
-                  streamId: (element.srcObject as any)?.id,
-                });
-                setRemoteUserName('Remote User');
-                webrtcDiagnostics.log('stream-set', 'Stream assigned to video element', {
-                  success: true,
-                  streamId: stream.id,
-                  elementFound: !!element,
-                });
-                return true;
-              } catch (err) {
-                console.error('❌ Error assigning stream to element:', err);
-                webrtcDiagnostics.log('error', 'Failed to assign stream', {
-                  error: String(err),
-                });
-                return false;
-              }
-            } else {
-              console.error('❌ Remote video element not found or not in DOM!');
-              console.error('📍 Debugging:', {
-                elementExists: !!element,
-                inDOM: element ? document.body.contains(element) : false,
-                videoCount: document.querySelectorAll('video').length,
-                dataVideoRemoteCount: document.querySelectorAll('[data-video-remote="true"]').length,
-                peerId,
-                streamId: stream.id,
-              });
-              webrtcDiagnostics.log('error', 'Video element not found in DOM', {
-                elementExists: !!element,
-                inDOM: element ? document.body.contains(element) : false,
-              });
-              return false;
-            }
-          };
-          
-          // Try to assign immediately
-          if (!assignStreamToElement()) {
-            // Retry with longer delays to allow React rendering
-            let retries = 0;
-            const retryInterval = setInterval(() => {
-              retries++;
-              const delayMs = 500 * retries; // Exponential backoff: 500ms, 1000ms, 1500ms
-              console.log(`🔄 Retry attempt ${retries}/5 to assign remote stream (waited ${delayMs}ms total)...`);
-              if (assignStreamToElement() || retries >= 5) {
-                clearInterval(retryInterval);
-                if (retries >= 5) {
-                  console.error('❌ Failed to assign stream after 5 retries');
-                  webrtcDiagnostics.log('error', 'Failed to assign stream after retries', {
-                    attempts: retries,
-                    maxWaitTime: '2500ms',
-                  });
-                }
-              }
-            }, 500);
+          } else {
+            // Store as pending - will be assigned when ref becomes ready
+            console.warn('⏳ Video ref not ready yet, storing stream as pending...');
+            pendingRemoteStreamRef.current = { stream, peerId };
+            webrtcDiagnostics.log('stream-pending', 'Remote stream stored as pending, will assign when ref ready', { peerId });
           }
         });
 
@@ -1097,14 +1013,13 @@ export default function SessionPage() {
               {/* IMPORTANT: Must use absolute inset-0 (NOT flex-1) to properly fill the parent */}
               <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2 gap-2 p-2">
                 {/* Local Video - Always rendered */}
-                <div className="relative bg-gray-900 rounded overflow-hidden" data-video-local="true">
+                <div className="relative bg-gray-900 rounded overflow-hidden">
                   <video
                     ref={localVideoRef}
                     autoPlay
                     muted
                     playsInline
                     className="w-full h-full object-cover"
-                    data-video="local"
                   />
                   <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-white text-xs">
                     You
@@ -1112,13 +1027,12 @@ export default function SessionPage() {
                 </div>
                 
                 {/* Remote Video - Always rendered */}
-                <div className="relative bg-gray-900 rounded overflow-hidden" data-video-remote="true">
+                <div className="relative bg-gray-900 rounded overflow-hidden">
                   <video
                     ref={remoteVideoRef}
                     autoPlay
                     playsInline
                     className="w-full h-full object-cover"
-                    data-video="remote"
                   />
                   
                   {/* Waiting message - only show if no remote stream yet */}
