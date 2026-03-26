@@ -313,7 +313,8 @@ export class WebRTCService {
       // Use callerId (offerer's user ID) as the peer connection key
       // This way when the offerer sends us their answer with callerId matching their user ID,
       // we'll look for PC with that ID
-      const actualPeerId = fromUserId || 'unknown-peer';
+      const senderUserId = fromUserId;
+      const actualPeerId = senderUserId || 'unknown-peer';
       console.log(`🔌 Will use peer connection key: ${actualPeerId}`);
       
       // Store the remote user ID for matching
@@ -328,13 +329,17 @@ export class WebRTCService {
         // Already have a connection - check its state
         console.log(`📊 Existing peer connection found with key ${actualPeerId}, state: ${peerConnection.signalingState}`);
         
-        // If we are in have-local-offer, there's a collision! 
-        // Logic: Mentor usually wins, but for simplicity, let's close the old one if it's stale
-        if (peerConnection.signalingState === 'have-local-offer' && this.userRole === 'student') {
-          console.warn('⚠️ Collision detected! Student closing its pending local offer to accept remote offer.');
-          peerConnection.close();
-          this.peerConnections.delete(actualPeerId);
-          peerConnection = this.createPeerConnection(actualPeerId);
+        // COLLISION LOGIC: Mentor priority
+        if (peerConnection.signalingState === 'have-local-offer') {
+          if (this.userRole === 'mentor') {
+            console.log('👑 Mentor (Me) wins connection collision. Ignoring incoming offer.');
+            return;
+          } else {
+            console.warn('⚠️ Student (Me) losing connection collision. Closing local offer to accept mentor offer.');
+            peerConnection.close();
+            this.peerConnections.delete(actualPeerId);
+            peerConnection = this.createPeerConnection(actualPeerId);
+          }
         } else if (peerConnection.signalingState !== 'stable') {
           console.warn(`⚠️ Ignoring offer - peer connection in state: ${peerConnection.signalingState}`);
           return;
@@ -353,17 +358,13 @@ export class WebRTCService {
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       console.log('✅ Created and set local description (answer)');
-      console.log('📊 Peer connection after creating answer:', {
-        signalingState: peerConnection.signalingState,
-        localTracks: peerConnection.getSenders().length,
-        remoteTracks: peerConnection.getReceivers().length,
-      });
 
       // Send answer with user IDs so remote can match
       socketService.emit('video:answer', {
         sessionId: this.sessionId,
         callerId: this.userId,        // My user ID (answer sender)
         targetId: actualPeerId,       // Offer sender's user ID
+        userId: this.userId,          // Standard field
         answer,
       } as any);
       console.log('📤 Sent video answer', {
@@ -377,10 +378,11 @@ export class WebRTCService {
 
   async handleVideoAnswer(data: any) {
     try {
-      const { answer, callerId, targetId, peerId } = data;
+      const { answer, callerId, targetId, userId, peerId } = data;
       console.log('📨 Received video answer', {
         callerId,
         targetId,
+        userId,
         peerId,
         hasAnswer: !!answer,
         currentRemoteUserId: this.remoteUserId,
@@ -388,7 +390,7 @@ export class WebRTCService {
       console.log('📊 Current peer connections:', Array.from(this.peerConnections.keys()));
       
       // The answer is from callerId (answer sender). Match it with our initiated connection
-      const actualPeerId = callerId || targetId || peerId || this.remoteUserId;
+      const actualPeerId = callerId || userId || targetId || peerId || this.remoteUserId;
       
       if (!actualPeerId) {
         console.warn('⚠️ Could not determine peer ID for answer');
@@ -400,9 +402,14 @@ export class WebRTCService {
       
       if (!peerConnection) {
         console.warn('⚠️ Peer connection NOT found with key:', actualPeerId);
-        console.log('📋 Available keys:', Array.from(this.peerConnections.keys()));
-      } else {
-        console.log('✅ Found peer connection with key:', actualPeerId);
+        // Fallback: search for any connection that is in have-local-offer state
+        for (const [id, pc] of this.peerConnections) {
+          if (pc.signalingState === 'have-local-offer') {
+            console.log(`🔄 Found pending connection with ID ${id}, using as fallback for answer`);
+            peerConnection = pc;
+            break;
+          }
+        }
       }
       
       if (peerConnection) {
@@ -619,14 +626,16 @@ export class WebRTCService {
       // Use addTransceiver with sendrecv to both send our stream AND receive remote stream
       tracks.forEach((track) => {
         try {
-          // IMPORTANT: Mark transceiver direction as 'sendrecv' to allow bidirectional flow
+          // IMPORTANT: Explicitly set direction and ensure streams are correctly assigned
           const transceiver = peerConnection.addTransceiver(track, {
             streams: [this.localStream!],
             direction: 'sendrecv',
           });
           console.log(`✅ Added ${track.kind} transceiver (enabled: ${track.enabled}, direction: ${transceiver.direction})`);
           
-          // Debugging transceiver state
+          // Force track to be enabled
+          track.enabled = true;
+          
           if (transceiver.receiver && transceiver.receiver.track) {
             console.log(`📡 Receiver for ${track.kind} track initialized: ID=${transceiver.receiver.track.id}`);
           }
@@ -635,7 +644,7 @@ export class WebRTCService {
         }
       });
       
-      // ALSO ADD AN EXTRA VIDEO TRANSCEIVER for receiving potential secondary streams
+      // ALSO ADD AN EXTRA VIDEO TRANSCEIVER for receiving potential secondary streams (like screen share)
       try {
         const screenTransceiver = peerConnection.addTransceiver('video', { 
           direction: 'recvonly',
@@ -646,8 +655,15 @@ export class WebRTCService {
         console.warn('⚠️ Could not add extra receiver transceiver:', err);
       }
     } else {
-      console.warn('⚠️  No local stream available when creating peer connection!');
-      webrtcDiagnostics.log('error', 'No local stream available', { peerId });
+      console.warn('⚠️  No local stream available when creating peer connection! Adding recvonly transceivers.');
+      // Add transceivers anyway to be able to receive
+      try {
+        peerConnection.addTransceiver('audio', { direction: 'recvonly' });
+        peerConnection.addTransceiver('video', { direction: 'recvonly' });
+        peerConnection.addTransceiver('video', { direction: 'recvonly' }); // For screen share
+      } catch (err) {
+        console.error('❌ Error adding recvonly transceivers:', err);
+      }
     }
 
     // Handle ICE candidates
@@ -658,6 +674,7 @@ export class WebRTCService {
           sessionId: this.sessionId,
           peerId: this.userId,
           callerId: this.userId,
+          targetId: peerId, // Ensure targetId is sent back for matching
           candidate: event.candidate,
         } as any);
       }
