@@ -77,8 +77,9 @@ export default function SessionPage() {
   const screenShareRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   
-  // Store pending streams if elements aren't ready yet
-  const pendingRemoteStreamRef = useRef<{stream: MediaStream, peerId: string} | null>(null);
+  // Track which streams have already been assigned to prevent duplicates
+  const assignedRemoteStreamIds = useRef<Set<string>>(new Set());
+  const assignedScreenStreamIds = useRef<Set<string>>(new Set());
 
   // Video states
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
@@ -130,35 +131,8 @@ export default function SessionPage() {
     console.log('🔧 WebRTC Diagnostics available: window.webrtcDiag.summary(), .events(), .export(), .clear()');
   }, []);
 
-  // Watch for remoteVideoRef to be ready and assign pending stream
-  useEffect(() => {
-    if (remoteVideoRef.current && pendingRemoteStreamRef.current) {
-      const { stream, peerId } = pendingRemoteStreamRef.current;
-      console.log('✅ Remote video ref is ready! Assigning pending stream...');
-      try {
-        remoteVideoRef.current.srcObject = stream;
-        
-        // CRITICAL: Force video to play
-        const playPromise = remoteVideoRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise.catch(error => {
-            console.warn('⚠️ Auto-play was prevented:', error);
-            const playOnInteraction = () => {
-              remoteVideoRef.current?.play().catch(e => console.error('Final play attempt failed:', e));
-              document.removeEventListener('click', playOnInteraction);
-            };
-            document.addEventListener('click', playOnInteraction);
-          });
-        }
-
-        console.log('✅ Pending remote stream assigned successfully');
-        setRemoteUserName('Remote User');
-        pendingRemoteStreamRef.current = null;
-      } catch (err) {
-        console.error('❌ Error assigning pending stream:', err);
-      }
-    }
-  }, []); // Only run once on mount
+  // NOTE: Removed old pending stream handling - now handled directly in setOnRemoteStream callback
+  // with deduplication using assignedRemoteStreamIds to prevent multiple assignments // Only run once on mount
 
   useEffect(() => {
     const initializeVideo = async () => {
@@ -223,40 +197,52 @@ export default function SessionPage() {
             peerId,
           });
           
-          // Try to assign immediately if ref is ready
-          if (remoteVideoRef.current && document.body.contains(remoteVideoRef.current)) {
-            console.log('✅ Remote video ref is ready, assigning stream immediately');
+          // PREVENT DUPLICATE ASSIGNMENTS: Check if we've already assigned this stream
+          if (assignedRemoteStreamIds.current.has(stream.id)) {
+            console.log('⏭️ [STREAM-DUPLICATE] Stream already assigned, skipping:', stream.id);
+            return;
+          }
+          
+          // Mark as assigned IMMEDIATELY to prevent duplicate processing while we're setting it up
+          assignedRemoteStreamIds.current.add(stream.id);
+          
+          // Assign immediately - ref should always be ready by now
+          if (remoteVideoRef.current) {
+            console.log('✅ [STREAM-ASSIGN] Assigning remote stream immediately');
             try {
               remoteVideoRef.current.srcObject = stream;
               
-              // CRITICAL: Force video to play
+              // Force video to play - but handle the AbortError gracefully
               const playPromise = remoteVideoRef.current.play();
               if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                  console.warn('⚠️ Auto-play was prevented, trying again on user interaction:', error);
-                  // Attempt to play again if user clicks anywhere
-                  const playOnInteraction = () => {
-                    remoteVideoRef.current?.play().catch(e => console.error('Final play attempt failed:', e));
-                    document.removeEventListener('click', playOnInteraction);
-                  };
-                  document.addEventListener('click', playOnInteraction);
-                });
+                playPromise
+                  .then(() => {
+                    console.log('✅ [STREAM-PLAY] Video playing successfully');
+                  })
+                  .catch(error => {
+                    console.warn('⚠️ [STREAM-PLAY] Auto-play was prevented:', error.name);
+                    // Try again on user interaction
+                    const playOnClick = async () => {
+                      try {
+                        await remoteVideoRef.current?.play();
+                        console.log('✅ [STREAM-PLAY] Video playing after user interaction');
+                        document.removeEventListener('click', playOnClick);
+                      } catch (e) {
+                        console.error('❌ [STREAM-PLAY] Failed to play even after interaction:', e);
+                      }
+                    };
+                    document.addEventListener('click', playOnClick);
+                  });
               }
 
-              console.log('✅ Remote stream assigned to video element');
+              console.log('✅ [STREAM-ASSIGNED] Remote stream set to video element');
               setRemoteUserName('Remote User');
               webrtcDiagnostics.log('stream-assigned', 'Remote stream assigned immediately', { peerId });
             } catch (err) {
-              console.error('❌ Error assigning remote stream:', err);
-              // Store as pending
-              console.log('⏳ Storing as pending stream to retry later...');
-              pendingRemoteStreamRef.current = { stream, peerId };
+              console.error('❌ [STREAM-ASSIGN] Error assigning remote stream:', err);
             }
           } else {
-            // Store as pending - will be assigned when ref becomes ready
-            console.warn('⏳ Video ref not ready yet, storing stream as pending...');
-            pendingRemoteStreamRef.current = { stream, peerId };
-            webrtcDiagnostics.log('stream-pending', 'Remote stream stored as pending, will assign when ref ready', { peerId });
+            console.error('❌ [STREAM-ASSIGN] Remote video ref not found!', { refNull: !remoteVideoRef.current });
           }
         });
 

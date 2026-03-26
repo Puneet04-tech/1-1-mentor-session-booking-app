@@ -101,7 +101,7 @@ export class WebRTCService {
       this.sessionId = sessionId;
       this.userId = userId;
 
-      console.log(`🎥 Starting local video - Session: ${sessionId}, User: ${userId}`);
+      console.log(`� Starting local video - Session: ${sessionId}, User: ${userId}`);
 
       // Setup socket listeners now (lazy initialization)
       this.setupSocketListeners();
@@ -942,55 +942,12 @@ export class WebRTCService {
       }
     };
 
-    // Start monitoring receivers for incoming tracks
-    // This is a fallback in case ontrack doesn't fire
-    let receiverCheckInterval: ReturnType<typeof setInterval> | null = null;
-    const handledTrackIds = new Set<string>(); // Separate from inner scope
-
-    const checkReceiversForTracks = () => {
-      if (peerConnection.connectionState === 'closed') return;
-      
-      const receivers = peerConnection.getReceivers();
-      
-      receivers.forEach((receiver) => {
-        if (receiver.track && !handledTrackIds.has(receiver.track.id)) {
-          console.log(`🎯 [RECEIVER MONITOR] Detected ${receiver.track.kind} track on receiver!`);
-          
-          // Verify we actually have media flowing
-          if (receiver.track.readyState === 'live' && receiver.track.enabled) {
-            handledTrackIds.add(receiver.track.id);
-            console.log(`📊 Track is LIVE and ENABLED: id=${receiver.track.id}`);
-            
-            webrtcDiagnostics.log('track-receive', 'Track detected via receiver monitor', {
-              kind: receiver.track.kind,
-              trackId: receiver.track.id,
-              method: 'receiver-monitor',
-            });
-            
-            // Create a new MediaStream with just this track as a fallback
-            if (this.onRemoteStream && receiver.track.kind === 'video') {
-              const fallbackStream = new MediaStream([receiver.track]);
-              console.log('📹 Calling onRemoteStream via receiver monitor with new stream');
-              this.onRemoteStream(fallbackStream, peerId);
-            }
-          } else {
-            console.log(`⏳ Track ${receiver.track.id} (${receiver.track.kind}) exists but state is ${receiver.track.readyState}`);
-          }
-        }
-      });
-    };
-
-    // Start checking for receivers every 1000ms for 30 seconds (longer monitor)
-    let checkCount = 0;
-    receiverCheckInterval = setInterval(() => {
-      checkCount++;
-      if (checkCount > 30 || peerConnection.connectionState === 'closed') {
-        if (receiverCheckInterval) clearInterval(receiverCheckInterval);
-        console.log('⏹️ Receiver monitor stopped');
-        return;
-      }
-      checkReceiversForTracks();
-    }, 1000);
+    // NOTE: Receiver monitor is DISABLED because ontrack handler is reliable and works properly.
+    // Having both enabled causes duplicate stream assignments which interrupt play() requests.
+    // The ontrack event (via RTCRtpReceiver) is the standard way to handle incoming media and fires
+    // when the browser receives the remote stream, which happens correctly in modern browsers.
+    // This simplification fixes the "AbortError: play() request interrupted by new load request" issue.
+    console.log('✅ [INFO] Receiver monitor disabled - relying on ontrack handler for incoming media');
 
     this.peerConnections.set(peerId, peerConnection);
     return peerConnection;
