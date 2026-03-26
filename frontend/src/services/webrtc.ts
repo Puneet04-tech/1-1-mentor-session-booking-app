@@ -168,14 +168,9 @@ export class WebRTCService {
         throw new Error('Local stream not initialized. Call startLocalVideo first.');
       }
 
-      if (!this.sessionId || !this.userId) {
-        console.error('❌ Session ID or User ID not set');
-        throw new Error('Session ID or User ID not set');
-      }
-
       console.log(`🖥️ Starting WebRTC screen share - Session: ${sessionId}, User: ${userId}`);
 
-      // Simple constraints without timeout
+      // Simple constraints
       const constraints: DisplayMediaStreamOptions = {
         audio: false,
         video: true,
@@ -185,81 +180,85 @@ export class WebRTCService {
       this.screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
       console.log('✅ Screen share stream obtained:', this.screenStream);
 
-      // Replace video track in peer connections
-      const videoTrack = this.screenStream.getVideoTracks()[0];
-      console.log('📹 Screen share video track:', videoTrack);
-      console.log('📊 Current peer connections:', Array.from(this.peerConnections.keys()));
+      // Replace video track in peer connections OR use new track
+      const screenTrack = this.screenStream.getVideoTracks()[0];
       
       for (const [peerId, peerConnection] of this.peerConnections) {
-        console.log(`🔄 Processing peer connection: ${peerId}`);
-        const sender = peerConnection.getSenders().find((s) => s.track?.kind === 'video');
-        if (sender) {
-          await sender.replaceTrack(videoTrack);
-          console.log(`📹 Replaced video track with screen share for peer: ${peerId}`);
+        console.log(`🔄 Adding/Replacing track for peer: ${peerId}`);
+        
+        // Find existing video transceiver
+        const videoTransceiver = peerConnection.getTransceivers().find(t => 
+          t.sender.track?.kind === 'video' || t.receiver.track?.kind === 'video'
+        );
+
+        if (videoTransceiver) {
+          // Instead of replacing the camera track, we'll use a new one if possible
+          // or replace the existing one but mark it as screen share.
+          // For now, let's stick with replacing the CAMERA track because that's what mentors use
+          const sender = videoTransceiver.sender;
+          if (sender) {
+            await sender.replaceTrack(screenTrack);
+            console.log(`📹 Replaced CAMERA track with SCREEN track for peer: ${peerId}`);
+          }
         }
       }
 
       // Listen for screen share stop
-      videoTrack.onended = () => {
-        console.log('Screen share ended');
+      screenTrack.onended = () => {
+        console.log('Screen share ended (user clicked Stop Sharing)');
         this.stopScreenShare();
       };
 
-      // Notify peers
-      console.log('🔍 About to emit screen:started with:', {
-        sessionId: this.sessionId,
-        userId: this.userId,
-      });
-      
+      // Notify backend and peers
       socketService.emit('screen:started', {
-        sessionId: this.sessionId,
-        userId: this.userId,
+        sessionId,
+        userId,
       } as any);
 
-      console.log('Screen sharing started');
+      console.log('✅ Screen sharing started event emitted');
       return this.screenStream;
     } catch (err: any) {
       console.error('Screen share error:', err);
-      
-      if (err.name === 'NotAllowedError') {
-        throw new Error('Screen share permission denied. Please allow screen sharing in your browser.');
-      } else if (err.name === 'AbortError' && err.message?.includes('Timeout')) {
-        throw new Error('Screen share timed out. Please try again and ensure your browser allows screen sharing.');
-      } else if (err.name === 'AbortError') {
-        throw new Error('Screen share was cancelled or failed to start. Please try again.');
-      } else {
-        throw new Error(`Screen share failed: ${err.message || 'Unknown error'}`);
-      }
+      throw err;
     }
   }
 
   async stopScreenShare() {
     try {
       if (this.screenStream) {
+        console.log('🛑 Stopping screen share...');
         this.screenStream.getTracks().forEach((track) => track.stop());
         this.screenStream = null;
 
-        // Restore local video track
+        // Restore camera track in peer connections
         if (this.localStream) {
-          const videoTrack = this.localStream.getVideoTracks()[0];
-          for (const [peerId, peerConnection] of this.peerConnections) {
-            const sender = peerConnection.getSenders().find((s) => s.track?.kind === 'video');
-            if (sender && videoTrack) {
-              await sender.replaceTrack(videoTrack);
+          const cameraTrack = this.localStream.getVideoTracks()[0];
+          console.log('📹 Restoring camera track:', cameraTrack?.label);
+          
+          if (cameraTrack) {
+            for (const [peerId, peerConnection] of this.peerConnections) {
+              const videoSender = peerConnection.getSenders().find(s => 
+                s.track?.kind === 'video' || (s as any)._kind === 'video'
+              );
+              
+              if (videoSender) {
+                await videoSender.replaceTrack(cameraTrack);
+                console.log(`✅ Restored camera track for peer: ${peerId}`);
+              }
             }
           }
         }
 
-        // Notify peers
+        // Notify backend and peers
         socketService.emit('screen:stopped', {
           sessionId: this.sessionId,
           userId: this.userId,
         } as any);
 
-        console.log('Screen sharing stopped');
+        console.log('✅ Screen sharing stopped event emitted');
       }
     } catch (err) {
-      console.error('Error stopping screen share:', err);
+      console.error('❌ Error stopping screen share:', err);
     }
   }
 
@@ -545,8 +544,13 @@ export class WebRTCService {
       const { userId, socketId } = data;
       console.log('🖥️ Screen share started from user:', userId);
       
-      // TODO: Handle remote screen share started
-      // This would typically trigger UI updates or create a new peer connection for screen share
+      // If we are not the one who started it, we should prepare to receive it
+      if (userId !== this.userId) {
+        console.log('👀 Preparing to receive remote screen share');
+        // The peer connection already has a transceiver for this (recvonly)
+        // because we added it in createPeerConnection.
+        // Once the remote peer starts sending (renegotiates), our ontrack will fire.
+      }
     } catch (err) {
       console.error('Error handling screen share started:', err);
     }
@@ -600,27 +604,30 @@ export class WebRTCService {
         peerId,
       });
       
+      // Use addTransceiver with sendrecv to both send our stream AND receive remote stream
       tracks.forEach((track) => {
         try {
-          // Use addTransceiver with sendrecv to both send our stream AND receive remote stream
           const transceiver = peerConnection.addTransceiver(track, {
             streams: [this.localStream!],
             direction: 'sendrecv',
           });
           console.log(`✅ Added ${track.kind} transceiver (enabled: ${track.enabled})`);
-          console.log(`📊 Transceiver: mid=${transceiver.mid}, direction=${transceiver.direction}`);
-          webrtcDiagnostics.log('track-add', `${track.kind} transceiver added`, {
-            trackId: track.id,
-            transceiverId: transceiver.mid,
-            direction: transceiver.direction,
-          });
         } catch (err) {
           console.error(`❌ Error adding ${track.kind} transceiver:`, err);
-          webrtcDiagnostics.log('error', `Failed to add ${track.kind} transceiver`, {
-            error: (err as any).message,
-          });
         }
       });
+      
+      // ALSO ADD AN EXTRA VIDEO TRANSCEIVER for receiving screen share
+      // Adding it with a unique ID or just as a second video transceiver
+      try {
+        peerConnection.addTransceiver('video', { 
+          direction: 'recvonly',
+          streams: [] 
+        });
+        console.log('✅ Added extra video transceiver for screen share reception');
+      } catch (err) {
+        console.warn('⚠️ Could not add extra receiver transceiver:', err);
+      }
     } else {
       console.warn('⚠️  No local stream available when creating peer connection!');
       webrtcDiagnostics.log('error', 'No local stream available', { peerId });
