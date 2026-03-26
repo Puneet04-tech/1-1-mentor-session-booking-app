@@ -205,19 +205,41 @@ export default function SessionPage() {
           const assignStreamToElement = (maxRetries = 3) => {
             let element = remoteVideoRef.current;
             
-            // If ref is NULL, try to find it in the DOM
-            if (!element) {
-              console.warn('⚠️ remoteVideoRef is NULL, searching DOM for video element...');
-              // Find all video elements and use the second one (first is local, second is remote)
-              const allVideos = document.querySelectorAll('video');
-              console.log('📺 Found video elements in DOM:', allVideos.length);
+            // If ref is NULL or not valid, search DOM multiple ways
+            if (!element || !document.body.contains(element)) {
+              console.warn('⚠️ remoteVideoRef invalid, searching DOM for video element...');
               
-              if (allVideos.length >= 2) {
-                element = allVideos[1] as HTMLVideoElement;
-                console.log('✅ Found remote video element in DOM (second video tag)');
-              } else if (allVideos.length === 1) {
-                element = allVideos[0] as HTMLVideoElement;
-                console.log('⚠️ Only one video found, using it as remote');
+              // Method 1: Use data attribute selector (most reliable)
+              let foundElement = document.querySelector('video[data-video="remote"]') as HTMLVideoElement;
+              if (foundElement) {
+                console.log('✅ Found remote video via data-video="remote" selector');
+                element = foundElement;
+              }
+              
+              // Method 2: Find by container with data attribute
+              if (!foundElement) {
+                const container = document.querySelector('[data-video-remote="true"]');
+                if (container) {
+                  const video = container.querySelector('video') as HTMLVideoElement;
+                  if (video) {
+                    console.log('✅ Found remote video inside data-video-remote container');
+                    element = video;
+                  }
+                }
+              }
+              
+              // Method 3: Get all videos and use second one
+              if (!element) {
+                const allVideos = document.querySelectorAll('video');
+                console.log('📺 Found video elements in DOM:', allVideos.length);
+                
+                if (allVideos.length >= 2) {
+                  element = allVideos[1] as HTMLVideoElement;
+                  console.log('✅ Found remote video element in DOM (second video tag)');
+                } else if (allVideos.length === 1) {
+                  element = allVideos[0] as HTMLVideoElement;
+                  console.log('⚠️ Only one video found, using it as remote');
+                }
               }
             }
             
@@ -229,6 +251,7 @@ export default function SessionPage() {
                 height: element.height,
                 clientWidth: element.clientWidth,
                 clientHeight: element.clientHeight,
+                dataAttr: element.getAttribute('data-video'),
               });
               
               try {
@@ -257,7 +280,8 @@ export default function SessionPage() {
               console.error('📍 Debugging:', {
                 elementExists: !!element,
                 inDOM: element ? document.body.contains(element) : false,
-                nodeCount: document.querySelectorAll('video').length,
+                videoCount: document.querySelectorAll('video').length,
+                dataVideoRemoteCount: document.querySelectorAll('[data-video-remote="true"]').length,
                 peerId,
                 streamId: stream.id,
               });
@@ -271,21 +295,23 @@ export default function SessionPage() {
           
           // Try to assign immediately
           if (!assignStreamToElement()) {
-            // Retry with exponential backoff
+            // Retry with longer delays to allow React rendering
             let retries = 0;
             const retryInterval = setInterval(() => {
               retries++;
-              console.log(`🔄 Retry attempt ${retries}/3 to assign remote stream...`);
-              if (assignStreamToElement() || retries >= 3) {
+              const delayMs = 500 * retries; // Exponential backoff: 500ms, 1000ms, 1500ms
+              console.log(`🔄 Retry attempt ${retries}/5 to assign remote stream (waited ${delayMs}ms total)...`);
+              if (assignStreamToElement() || retries >= 5) {
                 clearInterval(retryInterval);
-                if (retries >= 3) {
-                  console.error('❌ Failed to assign stream after 3 retries');
+                if (retries >= 5) {
+                  console.error('❌ Failed to assign stream after 5 retries');
                   webrtcDiagnostics.log('error', 'Failed to assign stream after retries', {
                     attempts: retries,
+                    maxWaitTime: '2500ms',
                   });
                 }
               }
-            }, 300);
+            }, 500);
           }
         });
 
@@ -1071,13 +1097,14 @@ export default function SessionPage() {
               {/* IMPORTANT: Must use absolute inset-0 (NOT flex-1) to properly fill the parent */}
               <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2 gap-2 p-2">
                 {/* Local Video - Always rendered */}
-                <div className="relative bg-gray-900 rounded overflow-hidden">
+                <div className="relative bg-gray-900 rounded overflow-hidden" data-video-local="true">
                   <video
                     ref={localVideoRef}
                     autoPlay
                     muted
                     playsInline
                     className="w-full h-full object-cover"
+                    data-video="local"
                   />
                   <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-white text-xs">
                     You
@@ -1085,12 +1112,13 @@ export default function SessionPage() {
                 </div>
                 
                 {/* Remote Video - Always rendered */}
-                <div className="relative bg-gray-900 rounded overflow-hidden">
+                <div className="relative bg-gray-900 rounded overflow-hidden" data-video-remote="true">
                   <video
                     ref={remoteVideoRef}
                     autoPlay
                     playsInline
                     className="w-full h-full object-cover"
+                    data-video="remote"
                   />
                   
                   {/* Waiting message - only show if no remote stream yet */}
