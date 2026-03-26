@@ -360,34 +360,29 @@ export class WebRTCService {
       // COLLISION LOGIC: Mentor priority
       if (peerConnection.signalingState === 'have-local-offer') {
         const isMentor = this.userRole === 'mentor';
-        // In WebRTC connection collision, the "polite" peer should roll back or accept.
+        console.log('⚠️ COLLISION DETECTED: Peer connection already has local offer in flight');
+        console.log('📊 Collision details:', { isMentor, offererRole: isMentor ? 'mentor' : 'student', signalingState: peerConnection.signalingState });
+        
+        // In WebRTC connection collision, the "polite" peer should defer.
         // We'll treat the student as the polite peer.
         if (isMentor) {
           console.log('👑 Mentor (Me) wins connection collision. Ignoring incoming offer (waiting for our own offer to be accepted).');
           return;
         } else {
-          console.warn('⚠️ Student (Me) losing connection collision. Closing local offer to accept mentor offer.');
+          console.warn('⚠️ Student (Me) losing connection collision. Trying to reset and accept mentor offer.');
+          // Try to close the connection and recreate it fresh
           try {
-            // Roll back local offer to accept the new remote offer
-            await peerConnection.setLocalDescription({ type: 'rollback' } as any);
-            console.log('🔄 Rolled back local offer, continuing with remote offer');
-          } catch (e) {
-            console.error('❌ Failed to roll back local offer, resetting peer connection:', e);
             peerConnection.close();
-            this.peerConnections.delete(actualPeerId);
-            peerConnection = this.createPeerConnection(actualPeerId);
+          } catch (e) {
+            console.warn('Error closing connection:', e);
           }
+          this.peerConnections.delete(actualPeerId);
+          peerConnection = this.createPeerConnection(actualPeerId);
+          console.log('✅ Recreated peer connection, ready for incoming offer');
         }
       } else if (peerConnection.signalingState !== 'stable') {
-        // If we're already trying to set a remote description, don't overlap.
-        // But if it's the SAME person (e.g. they sent another offer), we should probably handle it or wait.
         console.warn(`⚠️ Ignoring offer - peer connection in state: ${peerConnection.signalingState}`);
-        // If it's have-remote-offer, another offer might have come in before we could answer.
-        if (peerConnection.signalingState === 'have-remote-offer') {
-           console.log('🔄 Re-processing newest offer (ignoring old one)');
-        } else {
-           return;
-        }
+        return;
       }
       } else {
         console.log(`🔌 Creating NEW peer connection with KEY: ${actualPeerId}`);
@@ -726,6 +721,26 @@ export class WebRTCService {
           targetId: peerId, // Ensure targetId is sent back for matching
           candidate: event.candidate,
         } as any);
+      }
+    };
+
+    // Handle renegotiation needed - CRITICAL for state changes and track updates
+    peerConnection.onnegotiationneeded = async () => {
+      console.log('📡 NEGOTIATION NEEDED - Creating new offer');
+      try {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        
+        socketService.emit('video:offer', {
+          sessionId: this.sessionId,
+          callerId: this.userId,
+          targetId: peerId,
+          peerId: this.userId,
+          offer,
+        } as any);
+        console.log('✅ Re-offer sent due to negotiation needed');
+      } catch (err) {
+        console.error('❌ Error creating re-offer:', err);
       }
     };
 

@@ -295,6 +295,15 @@ export default function SessionPage() {
         }
         console.log('✅ Found remote user:', remoteUserId);
 
+        // CRITICAL: Join the session room so we receive WebRTC events
+        console.log('🚪 Joining session room...');
+        socketService.emit('session:join', {
+          sessionId,
+          userId: currentUser?.id,
+          userName: currentUser?.name || 'User',
+        } as any);
+        console.log('✅ Session room join emitted');
+
         // Start local video (this will setup socket listeners)
         console.log('📹 Starting local video...');
         const localStream = await webrtcService.startLocalVideo(sessionId, currentUser?.id || '');
