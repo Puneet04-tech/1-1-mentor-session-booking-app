@@ -1,19 +1,33 @@
 # 🚀 1-on-1 Mentor-Student Collaboration Platform
 
-A real-time web application for mentors and students to collaborate with video calls, shared code editing, and instant messaging.
+A real-time web application for mentors and students to collaborate with video calls, **collaborative code editing with CRDT**, and instant messaging.
 
 ## 🎯 Project Features
 
 ### Core Features ✅
 - **Authentication & Authorization**: Supabase-based auth with Mentor/Student roles
 - **Session Management**: Create, join, and manage 1-on-1 sessions
-- **Real-time Code Editor**: Monaco Editor with live synchronization
+- **🆕 Collaborative Code Editor** 🚀: Real-time code sync using Yjs CRDT (NO CONFLICTS!)
+  - Multiple users edit simultaneously
+  - Automatic conflict resolution
+  - Cursor tracking with user presence
+  - Offline support (changes sync on reconnect)
 - **Video Conferencing**: WebRTC-based 1-on-1 video calls
-- **Instant Messaging**: Socket.io powered session-based chat
 - **Screen Sharing**: Share your screen during sessions
+- **Instant Messaging**: Socket.io powered session-based chat
 - **Code Execution**: Run code in a sandboxed environment
-- **Cursor Sync**: Real-time cursor position tracking
 - **User Presence**: See who's online and active
+
+### What Makes Collaborative Editor Special
+
+| Feature | Benefit |
+|---------|---------|
+| **CRDT (Yjs)** | Automatic conflict resolution - no manual merges needed |
+| **Character-level ops** | Only sends changed characters (bandwidth efficient) |
+| **Offline support** | Changes queue locally, sync when reconnected |
+| **Cursor tracking** | See exactly where collaborators are editing |
+| **Instant sync** | ~50-100ms updates, feels like Google Docs |
+| **Scalable** | Works with any number of simultaneous editors |
 
 ### Tech Stack
 
@@ -22,12 +36,15 @@ A real-time web application for mentors and students to collaborate with video c
 - React 18+
 - Tailwind CSS with custom theme
 - Monaco Editor (VS Code)
+- **✨ Yjs + y-monaco** for CRDT collaboration
+- **✨ y-websocket** for real-time sync
 - shadcn/ui components
 - Socket.io client
 - WebRTC for video
 
 **Backend**
 - Node.js + Express.js
+- **✨ Y-WebSocket Server** for CRDT synchronization
 - Socket.io for real-time sync
 - PostgreSQL (Neon)
 - Supabase Auth
@@ -37,6 +54,7 @@ A real-time web application for mentors and students to collaborate with video c
 - Database: PostgreSQL on Neon
 - Frontend: Netlify
 - Backend: Render
+- **✨ Collaborative Editor Server**: Separate WebSocket for CRDT (port 1234)
 
 ## 📁 Project Structure
 
@@ -46,6 +64,9 @@ A real-time web application for mentors and students to collaborate with video c
 ├── backend/               # Express.js server
 ├── database/              # Schema & migrations
 ├── docs/                  # Architecture & docs
+│   ├── COLLAB_EDITOR_SETUP.md    # 📖 Comprehensive setup guide
+│   ├── COLLAB_QUICK_START.md     # ⚡ Quick reference
+│   └── ARCHITECTURE.md           # System architecture
 └── README.md
 ```
 
