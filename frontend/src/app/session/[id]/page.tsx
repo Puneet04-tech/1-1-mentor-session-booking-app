@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { webrtcService } from '@/services/webrtc';
 import { apiClient } from '@/services/api';
@@ -9,6 +9,7 @@ import { setupVideoDebug } from '@/services/webrtcDebug';
 import { webrtcDiagnostics } from '@/services/webrtcDiagnostics';
 import { useSessionStore, useEditorStore, useVideoStore, useAuthStore } from '@/store';
 import { GlowingButton, GlowingCard, Badge, Avatar } from '@/components/ui/GlowingComponents';
+import { CollaborativeEditor } from '@/components/CollaborativeEditor';
 import dynamic from 'next/dynamic';
 
 // Configure Monaco Editor - disable workers to avoid network errors
@@ -21,15 +22,6 @@ if (typeof window !== 'undefined') {
     }
   };
 }
-
-// Dynamically import Monaco Editor to avoid SSR issues
-const Editor = dynamic(
-  () => import('@monaco-editor/react').then(mod => mod.Editor),
-  { 
-    ssr: false,
-    loading: () => <div className="w-full h-full flex items-center justify-center bg-black">Loading editor...</div>
-  }
-);
 
 interface Session {
   id: string;
@@ -1060,26 +1052,22 @@ export default function SessionPage() {
             </div>
           </div>
           <div className="flex-1 min-h-0 overflow-hidden">
-            <Editor
-              height="100%"
+            {/* 
+              CollaborativeEditor with CRDT (Yjs)
+              - Real-time code sync using Operational Transformation
+              - Multiple users can edit simultaneously without conflicts
+              - Automatic conflict resolution at character level
+              - Preserves cursor positions for remote users
+            */}
+            <CollaborativeEditor
+              sessionId={sessionId}
+              userId={currentUser?.id || 'unknown'}
+              initialCode={code}
               language={language}
-              value={code}
-              onChange={handleCodeChange}
               theme="vs-dark"
-              options={{
-                minimap: { enabled: false },
-                fontSize: 14,
-                lineNumbers: 'on',
-                folding: false,
-                automaticLayout: true,
-                formatOnPaste: false,
-                formatOnType: false,
-                wordWrap: 'on',
-              }}
-              onMount={(editor: any, monaco: any) => {
-                editor?.layout();
-                console.log('Editor mounted');
-              }}
+              onCodeChange={handleCodeChange}
+              height="100%"
+              wsUrl={process.env.NEXT_PUBLIC_COLLAB_WS_URL || 'ws://localhost:1234'}
             />
           </div>
         </div>
