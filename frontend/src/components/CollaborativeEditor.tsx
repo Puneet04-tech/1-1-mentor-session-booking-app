@@ -5,7 +5,6 @@ import dynamic from 'next/dynamic';
 import * as Y from 'yjs';
 import { MonacoBinding } from 'y-monaco';
 import { createNewCollaborativeEditorService } from '@/services/collaborativeEditorService';
-import type { IStandaloneCodeEditor } from 'monaco-editor';
 import type { WebsocketProvider } from 'y-websocket';
 
 // Dynamically import Monaco Editor to avoid SSR issues
@@ -52,7 +51,7 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
   height = '100%',
   wsUrl,
 }) => {
-  const editorRef = useRef<IStandaloneCodeEditor | null>(null);
+  const editorRef = useRef<any>(null);  // Monaco IStandaloneCodeEditor
   const monacoRef = useRef<any>(null);
   const bindingRef = useRef<MonacoBinding | null>(null);
   const collaborativeEditorRef = useRef<any>(null);
@@ -113,7 +112,7 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
 
   // Setup Monaco binding with Yjs
   const handleEditorDidMount = useCallback(
-    (editor: IStandaloneCodeEditor, monaco: any) => {
+    (editor: any, monaco: any) => {
       console.log('🎨 [EDITOR] Monaco editor mounted');
 
       editorRef.current = editor;
@@ -159,7 +158,7 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
           isLocalChange = true;
         });
 
-        yText.observe((event) => {
+        yText.observe((event: Y.YTextEvent) => {
           if (!isLocalChange) {
             const currentCode = yText.toString();
             setLocalCode(currentCode);
@@ -181,20 +180,6 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
     },
     [initialCode, onCodeChange]
   );
-
-  // Track cursor position for presence
-  const handleEditorSelection = useCallback((e: any) => {
-    if (!collaborativeEditorRef.current) return;
-
-    const position = editorRef.current?.getPosition();
-    if (position) {
-      console.log('👆 [EDITOR] Cursor moved:', { line: position.lineNumber, column: position.column });
-      collaborativeEditorRef.current.setUserPresence({
-        line: position.lineNumber,
-        column: position.column,
-      });
-    }
-  }, []);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -253,7 +238,6 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
         theme={theme}
         value={localCode}
         onMount={handleEditorDidMount}
-        onSelectionChange={handleEditorSelection}
         options={{
           // Editor options
           minimap: { enabled: false },
