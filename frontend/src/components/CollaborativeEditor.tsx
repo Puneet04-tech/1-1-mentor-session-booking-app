@@ -152,6 +152,96 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
           yText.insert(0, initialCode);
         }
 
+        // Update cursor position in awareness when selection changes
+        editor.onDidChangeCursorSelection((e: any) => {
+          const selection = editor.getSelection();
+          if (selection) {
+            awareness.setLocalState({
+              ...awareness.getLocalState(),
+              user: {
+                ...awareness.getLocalState()?.user,
+                line: selection.startLineNumber,
+                column: selection.startColumn,
+              },
+            });
+            console.log(`📌 [EDITOR] Cursor updated: Line ${selection.startLineNumber}, Col ${selection.startColumn}`);
+          }
+        });
+
+        // Update remote cursor decorations
+        const updateRemoteCursorDecorations = () => {
+          const states = awareness.getStates();
+          const decorations: any[] = [];
+          
+          // Create decorations for each remote user
+          states.forEach((state: any, clientID: number) => {
+            // Skip local user
+            if (clientID === awareness.clientID) return;
+            
+            const userState = state.user;
+            if (!userState || userState.line === undefined) return;
+            
+            const userName = userState.name || 'Guest';
+            const userColor = userState.color || '#888888';
+            const line = userState.line;
+            const column = userState.column || 0;
+            
+            // Create cursor line decoration
+            decorations.push({
+              range: new monaco.Range(line, column, line, column + 1),
+              options: {
+                isWholeLine: false,
+                className: 'remote-cursor',
+                glyphMarginClassName: 'remote-cursor-glyph',
+                glyphMarginHoverMessage: { value: userName },
+                overviewRulerColor: userColor,
+                overviewRulerLane: monaco.editor.OverviewRulerLane.Full,
+              },
+            });
+            
+            // Create name label decoration (displayed above cursor)
+            decorations.push({
+              range: new monaco.Range(line, column, line, column),
+              options: {
+                isWholeLine: false,
+                after: {
+                  content: ` ${userName} `,
+                  inlineClassName: `remote-cursor-label`,
+                  inlineStyle: `
+                    background: ${userColor};
+                    color: white;
+                    padding: 2px 8px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    margin-left: 2px;
+                    margin-right: 4px;
+                    white-space: nowrap;
+                    display: inline-block;
+                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+                  `,
+                },
+              },
+            });
+          });
+          
+          // Apply decorations to editor
+          editor.deltaDecorations(
+            editor.getModel()?.getAllDecorations().map((d: any) => d.id) || [],
+            decorations
+          );
+        };
+
+        // Listen for awareness changes to update cursor decorations
+        const handleAwarenessChange = () => {
+          updateRemoteCursorDecorations();
+        };
+        
+        awareness.on('change', handleAwarenessChange);
+        
+        // Initial update
+        updateRemoteCursorDecorations();
+
         // Observe code changes for local callback
         let isLocalChange = false;
         editor.onDidChangeModelContent(() => {
