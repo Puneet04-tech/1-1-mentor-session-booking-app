@@ -18,7 +18,7 @@ class CollaborativeEditorService {
    * @param userId - Current user's ID for presence tracking
    * @param wsUrl - WebSocket server URL (e.g., ws://localhost:1234)
    */
-  async initialize(sessionId: string, userId: string, wsUrl: string = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:1234') {
+  async initialize(sessionId: string, userId: string, wsUrl: string = process.env.NEXT_PUBLIC_COLLAB_WS_URL || 'ws://localhost:1234') {
     try {
       console.log('🚀 [COLLAB] Initializing collaborative editor:', { sessionId, userId, wsUrl });
 
@@ -49,13 +49,20 @@ class CollaborativeEditorService {
 
       console.log('✅ [COLLAB] WebSocket provider connected:', `session:${sessionId}`);
 
-      // Listen to provider events
+      // Listen to provider events - suppress errors in production if server unavailable
       this.provider.on('connection-error', (error: Error) => {
-        console.error('❌ [COLLAB] Provider connection error:', error);
+        // In production, Y-WebSocket server might not be available - socket.io handles fallback
+        if (process.env.NODE_ENV === 'production') {
+          console.log('⚠️ [COLLAB] Collaborative server unavailable (using Socket.IO fallback)');
+        } else {
+          console.error('❌ [COLLAB] Provider connection error:', error);
+        }
       });
 
       this.provider.on('connection-close', () => {
-        console.warn('⚠️ [COLLAB] Provider connection closed');
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('⚠️ [COLLAB] Provider connection closed');
+        }
       });
 
       this.provider.on('sync', (isSynced: boolean) => {
