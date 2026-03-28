@@ -962,75 +962,118 @@ export class WebRTCService {
           console.log('🎯 [MENTOR-FALLBACK] Checking if ontrack fired or if we need to use receiver fallback...');
           
           // Wait a moment for ontrack to fire
-          // Try to use receiver fallback, but retry if tracks aren't ready
-          const tryReceiverFallback = (attempt = 1) => {
+          // Try to use receiver fallback, but wait for tracks to have data
+          const setupReceiverFallback = () => {
             // Check if stream was already assigned
             if (this.mentorStreamCreated?.has(peerId)) {
               console.log('✅ [MENTOR-FALLBACK] ontrack already handled, stream assigned');
               return;
             }
             
-            // Get all receivers with any video/audio tracks (regardless of state)
+            // Get all receivers with any video/audio tracks
             const videoReceivers = receivers.filter(r => r.track?.kind === 'video');
             const audioReceivers = receivers.filter(r => r.track?.kind === 'audio');
             
-            console.log(`🔍 [MENTOR-FALLBACK] Attempt ${attempt}: Checking receivers`, {
-              totalReceivers: receivers.length,
+            console.log('🔍 [MENTOR-FALLBACK] Setting up receiver monitors', {
               videoReceivers: videoReceivers.length,
               audioReceivers: audioReceivers.length,
-              videoStates: videoReceivers.map(r => ({ id: r.track?.id, state: r.track?.readyState, enabled: r.track?.enabled })),
-              audioStates: audioReceivers.map(r => ({ id: r.track?.id, state: r.track?.readyState, enabled: r.track?.enabled })),
             });
             
-            const tracks: MediaStreamTrack[] = [];
+            // Listen for tracks to unm ute (start receiving data)
+            const trackListeners: Map<MediaStreamTrack, () => void> = new Map();
+            let videoHasData = false;
+            let audioHasData = false;
             
-            // Add audio track (prefer enabled, but accept any)
-            const audioTrack = audioReceivers.find(r => r.track?.enabled)?.track || audioReceivers[0]?.track;
-            if (audioTrack) {
-              console.log('🎧 [MENTOR-FALLBACK] Adding audio track:', { id: audioTrack.id, state: audioTrack.readyState });
-              tracks.push(audioTrack);
-            }
-            
-            // Add video track (prefer enabled, but accept any) - prioritize first instead of 'live'
-            const videoTrack = videoReceivers.find(r => r.track?.enabled)?.track || videoReceivers[0]?.track;
-            if (videoTrack) {
-              console.log('📹 [MENTOR-FALLBACK] Adding video track:', { id: videoTrack.id, state: videoTrack.readyState });
-              tracks.push(videoTrack);
-            }
-            
-            // CRITICAL: Only create stream if video track is in "live" state (has actual data)
-            const hasLiveVideo = videoTrack?.readyState === 'live';
-            
-            if (tracks.length > 0 && videoTrack && hasLiveVideo) {
-              console.log('🎯 [MENTOR-FALLBACK] Creating stream from', tracks.length, 'receiver tracks (video LIVE)');
-              const fallbackStream = new MediaStream(tracks);
-              
-              if (!this.mentorStreamCreated) {
-                this.mentorStreamCreated = new Map();
+            const createStreamFromReceivers = () => {
+              if (this.mentorStreamCreated?.has(peerId)) {
+                console.log('✅ [MENTOR-FALLBACK] Stream already created, skipping');
+                return;
               }
-              this.mentorStreamCreated.set(peerId, true);
               
-              try {
-                console.log('📤 [MENTOR-FALLBACK] Calling onRemoteStream with receiver-based stream');
-                if (this.onRemoteStream) {
-                  this.onRemoteStream(fallbackStream, peerId);
+              const tracks: MediaStreamTrack[] = [];
+              
+              // Add audio track with data
+              for (const receiver of audioReceivers) {
+                if (receiver.track && !receiver.track.muted) {
+                  console.log('🎧 [MENTOR-FALLBACK] Adding unmuted audio track');
+                  tracks.push(receiver.track);
+                  audioHasData = true;
+                  break;
                 }
-                console.log('✅ [MENTOR-FALLBACK] Mentor received video via receiver fallback!');
-              } catch (err) {
-                console.error('❌ [MENTOR-FALLBACK] Error calling onRemoteStream:', err);
               }
-            } else if (attempt < 6) {
-              // Retry - wait longer for tracks to become live (max 2.5 seconds total)
-              const delayMs = attempt <= 2 ? 300 : 500;
-              console.log(`⏳ [MENTOR-FALLBACK] Video not yet live (state: ${videoTrack?.readyState}), retrying in ${delayMs}ms (attempt ${attempt}/6)`);
-              setTimeout(() => tryReceiverFallback(attempt + 1), delayMs);
-            } else {
-              console.log('❌ [MENTOR-FALLBACK] Video track never became live after 6 attempts - may need ontrack event');
+              
+              // Add video track with data
+              let videoTrack: MediaStreamTrack | undefined;
+              for (const receiver of videoReceivers) {
+                if (receiver.track && !receiver.track.muted) {
+                  console.log('📹 [MENTOR-FALLBACK] Adding unmuted video track');
+                  videoTrack = receiver.track;
+                  tracks.push(receiver.track);
+                  videoHasData = true;
+                  break;
+                }
+              }
+              
+              if (tracks.length > 0 && videoTrack) {
+                console.log('🎯 [MENTOR-FALLBACK] Creating stream from', tracks.length, 'unmuted receiver tracks');
+                const fallbackStream = new MediaStream(tracks);
+                
+                if (!this.mentorStreamCreated) {
+                  this.mentorStreamCreated = new Map();
+                }
+                this.mentorStreamCreated.set(peerId, true);
+                
+                // Clean up listeners
+                trackListeners.forEach((listener, track) => {
+                  track.removeEventListener('unmute', listener as EventListener);
+                });
+                
+                try {
+                  console.log('📤 [MENTOR-FALLBACK] Calling onRemoteStream with receiver-based stream');
+                  if (this.onRemoteStream) {
+                    this.onRemoteStream(fallbackStream, peerId);
+                  }
+                  console.log('✅ [MENTOR-FALLBACK] Mentor received video via receiver fallback!');
+                } catch (err) {
+                  console.error('❌ [MENTOR-FALLBACK] Error calling onRemoteStream:', err);
+                }
+              }
+            };
+            
+            // Set up unmute listeners on all tracks
+            for (const receiver of videoReceivers) {
+              if (receiver.track) {
+                const listener = () => {
+                  console.log('📹 [MENTOR-FALLBACK] Video track unmuted - creating stream');
+                  createStreamFromReceivers();
+                };
+                receiver.track.addEventListener('unmute', listener as EventListener);
+                trackListeners.set(receiver.track, listener);
+              }
             }
+            
+            for (const receiver of audioReceivers) {
+              if (receiver.track) {
+                const listener = () => {
+                  console.log('🎧 [MENTOR-FALLBACK] Audio track unmuted');
+                  createStreamFromReceivers();
+                };
+                receiver.track.addEventListener('unmute', listener as EventListener);
+                trackListeners.set(receiver.track, listener);
+              }
+            }
+            
+            // Fallback timeout: if unmute never fires, try using receiver tracks anyway after 2 seconds
+            setTimeout(() => {
+              if (!this.mentorStreamCreated?.has(peerId)) {
+                console.log('⏳ [MENTOR-FALLBACK] Unmute event not fired in 2s, using receiver tracks anyway');
+                createStreamFromReceivers();
+              }
+            }, 2000);
           };
           
-          // Wait 500ms for ontrack to fire, then try fallback
-          setTimeout(tryReceiverFallback, 500);
+          // Wait 500ms for ontrack to fire, then setup receiver fallback monitors
+          setTimeout(setupReceiverFallback, 500);
         }
       }
       
