@@ -998,8 +998,11 @@ export class WebRTCService {
               tracks.push(videoTrack);
             }
             
-            if (tracks.length > 0 && videoTrack) {
-              console.log('🎯 [MENTOR-FALLBACK] Creating stream from', tracks.length, 'receiver tracks');
+            // CRITICAL: Only create stream if video track is in "live" state (has actual data)
+            const hasLiveVideo = videoTrack?.readyState === 'live';
+            
+            if (tracks.length > 0 && videoTrack && hasLiveVideo) {
+              console.log('🎯 [MENTOR-FALLBACK] Creating stream from', tracks.length, 'receiver tracks (video LIVE)');
               const fallbackStream = new MediaStream(tracks);
               
               if (!this.mentorStreamCreated) {
@@ -1016,12 +1019,13 @@ export class WebRTCService {
               } catch (err) {
                 console.error('❌ [MENTOR-FALLBACK] Error calling onRemoteStream:', err);
               }
-            } else if (attempt < 3) {
-              // Retry if no video track found yet
-              console.log(`⏳ [MENTOR-FALLBACK] No video track yet, retrying in 300ms (attempt ${attempt}/3)`);
-              setTimeout(() => tryReceiverFallback(attempt + 1), 300);
+            } else if (attempt < 6) {
+              // Retry - wait longer for tracks to become live (max 2.5 seconds total)
+              const delayMs = attempt <= 2 ? 300 : 500;
+              console.log(`⏳ [MENTOR-FALLBACK] Video not yet live (state: ${videoTrack?.readyState}), retrying in ${delayMs}ms (attempt ${attempt}/6)`);
+              setTimeout(() => tryReceiverFallback(attempt + 1), delayMs);
             } else {
-              console.log('❌ [MENTOR-FALLBACK] No video tracks found after 3 attempts');
+              console.log('❌ [MENTOR-FALLBACK] Video track never became live after 6 attempts - may need ontrack event');
             }
           };
           
