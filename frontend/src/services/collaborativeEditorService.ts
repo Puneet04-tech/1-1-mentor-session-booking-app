@@ -17,8 +17,10 @@ class CollaborativeEditorService {
    * @param sessionId - Room identifier
    * @param userId - Current user's ID for presence tracking
    * @param wsUrl - WebSocket server URL (e.g., ws://localhost:1234)
+   * @param userName - Current user's name for presence display
+   * @param userEmail - Current user's email for presence display
    */
-  async initialize(sessionId: string, userId: string, wsUrl: string = process.env.NEXT_PUBLIC_COLLAB_WS_URL || 'ws://localhost:1234') {
+  async initialize(sessionId: string, userId: string, wsUrl: string = process.env.NEXT_PUBLIC_COLLAB_WS_URL || 'ws://localhost:1234', userName?: string, userEmail?: string) {
     try {
       console.log('🚀 [COLLAB] Initializing collaborative editor:', { sessionId, userId, wsUrl });
 
@@ -39,9 +41,11 @@ class CollaborativeEditorService {
       );
 
       // Set user awareness (for presence + cursor tracking)
+      const displayName = userName || userEmail || userId;
       this.provider.awareness?.setLocalState({
         user: {
-          name: userId,
+          name: displayName,
+          email: userEmail,
           id: userId,
           color: this.generateUserColor(userId),
         },

@@ -16,6 +16,8 @@ const Editor = dynamic(
 interface CollaborativeEditorProps {
   sessionId: string;
   userId: string;
+  userName?: string;
+  userEmail?: string;
   initialCode?: string;
   language?: string;
   theme?: string;
@@ -42,6 +44,8 @@ interface RemoteUserCursor {
 export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
   sessionId,
   userId,
+  userName,
+  userEmail,
   initialCode = '// Start collaborating...',
   language = 'javascript',
   theme = 'vs-dark',
@@ -64,10 +68,10 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
   useEffect(() => {
     const initializeCollaborativeEditor = async () => {
       try {
-        console.log('🎯 [EDITOR] Initializing collaborative editor:', { sessionId, userId });
+        console.log('🎯 [EDITOR] Initializing collaborative editor:', { sessionId, userId, userName, userEmail });
 
         const collaborativeEditor = createNewCollaborativeEditorService();
-        await collaborativeEditor.initialize(sessionId, userId, wsUrl);
+        await collaborativeEditor.initialize(sessionId, userId, wsUrl, userName, userEmail);
 
         collaborativeEditorRef.current = collaborativeEditor;
 
@@ -108,7 +112,7 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
     return () => {
       // Cleanup will happen in editor unmount
     };
-  }, [sessionId, userId, wsUrl]);
+  }, [sessionId, userId, userName, userEmail, wsUrl]);
 
   // Setup Monaco binding with Yjs
   const handleEditorDidMount = useCallback(
@@ -182,9 +186,13 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
             if (!userState || userState.line === undefined) return;
             
             const userName = userState.name || 'Guest';
+            const userEmail = userState.email;
             const userColor = userState.color || '#888888';
             const line = userState.line;
             const column = userState.column || 0;
+            
+            // Display label with name and/or email
+            const displayLabel = userEmail ? `${userName} (${userEmail})` : userName;
             
             // Create cursor line decoration
             decorations.push({
@@ -193,7 +201,7 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
                 isWholeLine: false,
                 className: 'remote-cursor',
                 glyphMarginClassName: 'remote-cursor-glyph',
-                glyphMarginHoverMessage: { value: userName },
+                glyphMarginHoverMessage: { value: displayLabel },
                 overviewRulerColor: userColor,
                 overviewRulerLane: monaco.editor.OverviewRulerLane.Full,
               },
@@ -205,7 +213,7 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
               options: {
                 isWholeLine: false,
                 after: {
-                  content: ` ${userName} `,
+                  content: ` ${displayLabel} `,
                   inlineClassName: `remote-cursor-label`,
                   inlineStyle: `
                     background: ${userColor};

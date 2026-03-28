@@ -1062,6 +1062,8 @@ export default function SessionPage() {
             <CollaborativeEditor
               sessionId={sessionId}
               userId={currentUser?.id || 'unknown'}
+              userName={currentUser?.name}
+              userEmail={currentUser?.email}
               initialCode={code}
               language={language}
               theme="vs-dark"
