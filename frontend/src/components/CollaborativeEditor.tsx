@@ -172,7 +172,11 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
           }
         });
 
-        // Update remote cursor decorations
+        // Track previous decoration IDs to avoid recursive calls
+        let previousDecorationIds: string[] = [];
+        let decorationUpdateTimeout: NodeJS.Timeout | null = null;
+
+        // Update remote cursor decorations with debouncing
         const updateRemoteCursorDecorations = () => {
           const states = awareness.getStates();
           const decorations: any[] = [];
@@ -233,16 +237,26 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
             });
           });
           
-          // Apply decorations to editor
-          editor.deltaDecorations(
-            editor.getModel()?.getAllDecorations().map((d: any) => d.id) || [],
-            decorations
-          );
+          // Apply decorations to editor - use tracked previous IDs
+          try {
+            previousDecorationIds = editor.deltaDecorations(previousDecorationIds, decorations);
+          } catch (error) {
+            console.warn('⚠️ [EDITOR] Error updating decorations:', error);
+          }
         };
 
-        // Listen for awareness changes to update cursor decorations
-        const handleAwarenessChange = () => {
-          updateRemoteCursorDecorations();
+        // Debounced handler for awareness changes - only update on remote changes
+        const handleAwarenessChange = (change: any) => {
+          // Clear existing timeout
+          if (decorationUpdateTimeout) {
+            clearTimeout(decorationUpdateTimeout);
+          }
+          
+          // Debounce decoration updates by 100ms to avoid recursive calls
+          decorationUpdateTimeout = setTimeout(() => {
+            updateRemoteCursorDecorations();
+            decorationUpdateTimeout = null;
+          }, 50);
         };
         
         awareness.on('change', handleAwarenessChange);
@@ -272,6 +286,14 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
         const currentCode = yText.toString();
         setLocalCode(currentCode);
         onCodeChange?.(currentCode);
+        
+        // Cleanup function - clear timeout and remove listeners
+        return () => {
+          if (decorationUpdateTimeout) {
+            clearTimeout(decorationUpdateTimeout);
+          }
+          awareness.off('change', handleAwarenessChange);
+        };
       } catch (error) {
         console.error('❌ [EDITOR] Error setting up binding:', error);
       }
