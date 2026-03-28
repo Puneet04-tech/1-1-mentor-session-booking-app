@@ -956,6 +956,56 @@ export class WebRTCService {
         webrtcDiagnostics.log('state-change', 'Connection established, checking receivers', {
           receiverCount: receivers.length,
         });
+        
+        // MENTOR FALLBACK: If ontrack didn't fire, use receivers directly
+        if (this.userRole === 'mentor' && this.onRemoteStream && receivers.length > 0) {
+          console.log('🎯 [MENTOR-FALLBACK] Checking if ontrack fired or if we need to use receiver fallback...');
+          
+          // Wait a moment for ontrack to fire
+          setTimeout(() => {
+            // Check if stream was already assigned
+            if (this.mentorStreamCreated?.has(peerId)) {
+              console.log('✅ [MENTOR-FALLBACK] ontrack already handled, stream assigned');
+              return;
+            }
+            
+            // If not, use receivers as fallback
+            const videoReceiver = receivers.find(r => r.track?.kind === 'video' && r.track?.readyState === 'live');
+            const audioReceiver = receivers.find(r => r.track?.kind === 'audio' && r.track?.readyState === 'live');
+            
+            const tracks: MediaStreamTrack[] = [];
+            if (audioReceiver?.track) {
+              console.log('🎧 [MENTOR-FALLBACK] Adding audio track from receiver');
+              tracks.push(audioReceiver.track);
+            }
+            if (videoReceiver?.track) {
+              console.log('📹 [MENTOR-FALLBACK] Adding video track from receiver');
+              tracks.push(videoReceiver.track);
+            }
+            
+            if (tracks.length > 0) {
+              console.log('🎯 [MENTOR-FALLBACK] Creating stream from', tracks.length, 'receiver tracks');
+              const fallbackStream = new MediaStream(tracks);
+              
+              if (!this.mentorStreamCreated) {
+                this.mentorStreamCreated = new Map();
+              }
+              this.mentorStreamCreated.set(peerId, true);
+              
+              try {
+                console.log('📤 [MENTOR-FALLBACK] Calling onRemoteStream with receiver-based stream');
+                if (this.onRemoteStream) {
+                  this.onRemoteStream(fallbackStream, peerId);
+                }
+                console.log('✅ [MENTOR-FALLBACK] Mentor received video via receiver fallback!');
+              } catch (err) {
+                console.error('❌ [MENTOR-FALLBACK] Error calling onRemoteStream:', err);
+              }
+            } else {
+              console.log('⏳ [MENTOR-FALLBACK] No live tracks yet, will wait for ontrack');
+            }
+          }, 500);
+        }
       }
       
       // Only close on truly failed states
@@ -1038,73 +1088,9 @@ export class WebRTCService {
 
     // MENTOR-ONLY: Use alternative media acquisition if needed
     // Some browsers don't fire ontrack reliably for initiators, so we have a fallback
+    // This runs AFTER the main onconnectionstatechange handler is set
     if (this.userRole === 'mentor') {
-      // Monitor connection state for mentor
-      const checkMentorReceivers = () => {
-        if (peerConnection.connectionState === 'connected' && this.onRemoteStream) {
-          const receivers = peerConnection.getReceivers();
-          const videoReceiver = receivers.find(r => r.track?.kind === 'video');
-          const audioReceiver = receivers.find(r => r.track?.kind === 'audio');
-          
-          if ((videoReceiver?.track || audioReceiver?.track) && !this.mentorStreamCreated?.has(peerId)) {
-            console.log('⏱️ [MENTOR-MEDIA] Mentor detected - checking for remote media streams...');
-            
-            const tracks: MediaStreamTrack[] = [];
-            if (audioReceiver?.track && audioReceiver.track.readyState === 'live') {
-              tracks.push(audioReceiver.track);
-            }
-            if (videoReceiver?.track && videoReceiver.track.readyState === 'live') {
-              tracks.push(videoReceiver.track);
-            }
-            
-            if (tracks.length > 0) {
-              const mentorStream = new MediaStream(tracks);
-              console.log('🎯 [MENTOR-MEDIA] Found live tracks, creating mentor stream with', tracks.length, 'tracks');
-              
-              // Mark as created to avoid duplicates
-              if (!this.mentorStreamCreated) {
-                this.mentorStreamCreated = new Map();
-              }
-              this.mentorStreamCreated.set(peerId, true);
-              
-              try {
-                this.onRemoteStream(mentorStream, peerId);
-                console.log('✅ [MENTOR-MEDIA] Mentor stream created and assigned');
-              } catch (err) {
-                console.error('❌ [MENTOR-MEDIA] Error calling onRemoteStream:', err);
-              }
-              
-              // Stop checking after successful creation
-              return true;
-            }
-          }
-        }
-        return false;
-      };
-      
-      // Check immediately when connection becomes connected
-      const onConnectionReady = () => {
-        if (peerConnection.connectionState === 'connected') {
-          peerConnection.onconnectionstatechange = null; // Remove listener
-          
-          // Wait a brief moment for receivers to populate
-          setTimeout(() => {
-            if (!checkMentorReceivers()) {
-              // If check failed, try again after a longer delay
-              setTimeout(() => checkMentorReceivers(), 1000);
-            }
-          }, 100);
-        }
-      };
-      
-      // Intercept connection state change to trigger check
-      const originalConnectionStateHandler = peerConnection.onconnectionstatechange;
-      peerConnection.onconnectionstatechange = () => {
-        if (originalConnectionStateHandler) {
-          originalConnectionStateHandler.call(peerConnection, new Event('connectionstatechange'));
-        }
-        onConnectionReady();
-      };
+      console.log('✅ [MENTOR-SETUP] Mentor mode enabled - will use receiver fallback if ontrack doesn\'t fire');
     }
 
     this.peerConnections.set(peerId, peerConnection);
