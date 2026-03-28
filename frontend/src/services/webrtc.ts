@@ -962,28 +962,43 @@ export class WebRTCService {
           console.log('🎯 [MENTOR-FALLBACK] Checking if ontrack fired or if we need to use receiver fallback...');
           
           // Wait a moment for ontrack to fire
-          setTimeout(() => {
+          // Try to use receiver fallback, but retry if tracks aren't ready
+          const tryReceiverFallback = (attempt = 1) => {
             // Check if stream was already assigned
             if (this.mentorStreamCreated?.has(peerId)) {
               console.log('✅ [MENTOR-FALLBACK] ontrack already handled, stream assigned');
               return;
             }
             
-            // If not, use receivers as fallback
-            const videoReceiver = receivers.find(r => r.track?.kind === 'video' && r.track?.readyState === 'live');
-            const audioReceiver = receivers.find(r => r.track?.kind === 'audio' && r.track?.readyState === 'live');
+            // Get all receivers with any video/audio tracks (regardless of state)
+            const videoReceivers = receivers.filter(r => r.track?.kind === 'video');
+            const audioReceivers = receivers.filter(r => r.track?.kind === 'audio');
+            
+            console.log(`🔍 [MENTOR-FALLBACK] Attempt ${attempt}: Checking receivers`, {
+              totalReceivers: receivers.length,
+              videoReceivers: videoReceivers.length,
+              audioReceivers: audioReceivers.length,
+              videoStates: videoReceivers.map(r => ({ id: r.track?.id, state: r.track?.readyState, enabled: r.track?.enabled })),
+              audioStates: audioReceivers.map(r => ({ id: r.track?.id, state: r.track?.readyState, enabled: r.track?.enabled })),
+            });
             
             const tracks: MediaStreamTrack[] = [];
-            if (audioReceiver?.track) {
-              console.log('🎧 [MENTOR-FALLBACK] Adding audio track from receiver');
-              tracks.push(audioReceiver.track);
-            }
-            if (videoReceiver?.track) {
-              console.log('📹 [MENTOR-FALLBACK] Adding video track from receiver');
-              tracks.push(videoReceiver.track);
+            
+            // Add audio track (prefer enabled, but accept any)
+            const audioTrack = audioReceivers.find(r => r.track?.enabled)?.track || audioReceivers[0]?.track;
+            if (audioTrack) {
+              console.log('🎧 [MENTOR-FALLBACK] Adding audio track:', { id: audioTrack.id, state: audioTrack.readyState });
+              tracks.push(audioTrack);
             }
             
-            if (tracks.length > 0) {
+            // Add video track (prefer enabled, but accept any) - prioritize first instead of 'live'
+            const videoTrack = videoReceivers.find(r => r.track?.enabled)?.track || videoReceivers[0]?.track;
+            if (videoTrack) {
+              console.log('📹 [MENTOR-FALLBACK] Adding video track:', { id: videoTrack.id, state: videoTrack.readyState });
+              tracks.push(videoTrack);
+            }
+            
+            if (tracks.length > 0 && videoTrack) {
               console.log('🎯 [MENTOR-FALLBACK] Creating stream from', tracks.length, 'receiver tracks');
               const fallbackStream = new MediaStream(tracks);
               
@@ -1001,10 +1016,17 @@ export class WebRTCService {
               } catch (err) {
                 console.error('❌ [MENTOR-FALLBACK] Error calling onRemoteStream:', err);
               }
+            } else if (attempt < 3) {
+              // Retry if no video track found yet
+              console.log(`⏳ [MENTOR-FALLBACK] No video track yet, retrying in 300ms (attempt ${attempt}/3)`);
+              setTimeout(() => tryReceiverFallback(attempt + 1), 300);
             } else {
-              console.log('⏳ [MENTOR-FALLBACK] No live tracks yet, will wait for ontrack');
+              console.log('❌ [MENTOR-FALLBACK] No video tracks found after 3 attempts');
             }
-          }, 500);
+          };
+          
+          // Wait 500ms for ontrack to fire, then try fallback
+          setTimeout(tryReceiverFallback, 500);
         }
       }
       
