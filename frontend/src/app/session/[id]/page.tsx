@@ -10,6 +10,7 @@ import { webrtcDiagnostics } from '@/services/webrtcDiagnostics';
 import { useSessionStore, useEditorStore, useVideoStore, useAuthStore } from '@/store';
 import { GlowingButton, GlowingCard, Badge, Avatar } from '@/components/ui/GlowingComponents';
 import { CollaborativeEditor } from '@/components/CollaborativeEditor';
+import { SharedNotes } from '@/components/SharedNotes';
 import dynamic from 'next/dynamic';
 
 // Configure Monaco Editor - disable workers to avoid network errors
@@ -84,6 +85,7 @@ export default function SessionPage() {
   const [remoteUserName, setRemoteUserName] = useState<string | null>(null);
   const [showDebugInfo, setShowDebugInfo] = useState(false);
   const [pendingStreamCounter, setPendingStreamCounter] = useState(0);
+  const [notesOpen, setNotesOpen] = useState(false);
 
   // Setup diagnostics and services in global window (FIRST - before anything else)
   useEffect(() => {
@@ -1057,6 +1059,13 @@ export default function SessionPage() {
           </div>
           <div className="flex items-center gap-4">
             <Badge color="purple">{session?.status}</Badge>
+            <GlowingButton
+              variant={notesOpen ? 'secondary' : 'outline'}
+              className="text-sm"
+              onClick={() => setNotesOpen((o) => !o)}
+            >
+              📝 Notes
+            </GlowingButton>
             <GlowingButton 
               variant="outline" 
               className="text-sm"
@@ -1068,8 +1077,9 @@ export default function SessionPage() {
         </div>
       </header>
 
-      {/* Main Content - Responsive layout */}
-      <div className="flex-1 min-h-0 flex flex-col lg:grid lg:grid-cols-3 gap-2 md:gap-3 lg:gap-4 p-2 md:p-3 lg:p-4 overflow-y-auto lg:overflow-hidden">
+      {/* Main Content */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col lg:grid lg:grid-cols-3 gap-2 md:gap-3 lg:gap-4 p-2 md:p-3 lg:p-4 overflow-y-auto lg:overflow-hidden">
         {/* Code Editor - Takes full height on mobile, 2/3 on large screens */}
         <div className="lg:col-span-2 flex flex-col bg-dark-900/40 rounded-lg border border-gray-700/30 overflow-hidden min-h-[40vh] lg:min-h-0">
           <div className="px-2 md:px-4 py-2 md:py-3 border-b border-gray-700/30 flex flex-col md:flex-row justify-between items-start md:items-center gap-2 flex-shrink-0">
@@ -1344,6 +1354,14 @@ export default function SessionPage() {
           <pre className="text-xs md:text-sm text-green-400 font-mono whitespace-pre-wrap break-words">{executionOutput}</pre>
         </div>
       )}
+
+      {/* Shared Notes — collapsible right sidebar */}
+      <SharedNotes
+        sessionId={sessionId}
+        currentUserId={currentUser?.id ?? ''}
+        isOpen={notesOpen}
+        onToggle={() => setNotesOpen((o) => !o)}
+      />
     </div>
   );
 }

@@ -390,4 +390,37 @@ router.post('/:id/verify-video-code', authMiddleware, async (req: AuthRequest, r
   }
 });
 
+// ── Shared Notes ────────────────────────────────────────────────────────────
+
+// GET /sessions/:id/notes — load saved notes
+router.get('/:id/notes', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const sessionId = req.params.id;
+    const result = await queryOne<{ notes: string }>(
+      'SELECT notes FROM sessions WHERE id = $1',
+      [sessionId]
+    );
+    res.json({ success: true, notes: result?.notes ?? '' });
+  } catch (err) {
+    console.error('❌ Get notes error:', err);
+    res.status(500).json({ error: 'Failed to get notes' });
+  }
+});
+
+// PATCH /sessions/:id/notes — save notes
+router.patch('/:id/notes', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const sessionId = req.params.id;
+    const { notes } = req.body;
+    await query(
+      'UPDATE sessions SET notes = $1, updated_at = NOW() WHERE id = $2',
+      [notes ?? '', sessionId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Save notes error:', err);
+    res.status(500).json({ error: 'Failed to save notes' });
+  }
+});
+
 export default router;

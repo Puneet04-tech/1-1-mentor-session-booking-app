@@ -25,6 +25,10 @@ import {
 import {
   handlePresenceUpdate,
 } from './handlers/presence';
+import {
+  handleNotesUpdate,
+  handleNotesSave,
+} from './handlers/notes';
 
 export function setupSocketHandlers(io: SocketIOServer) {
   io.on('connection', (socket: Socket) => {
@@ -76,6 +80,10 @@ export function setupSocketHandlers(io: SocketIOServer) {
 
     // Presence events
     socket.on('presence:update', (data) => handlePresenceUpdate(socket, io, data));
+
+    // Shared notes events
+    socket.on('notes:update', (data) => handleNotesUpdate(socket, io, data));
+    socket.on('notes:save',   (data) => handleNotesSave(socket, io, data));
 
     socket.on('disconnect', () => {
       console.log(`❌ User disconnected: ${socket.id} (userId: ${userId})`);

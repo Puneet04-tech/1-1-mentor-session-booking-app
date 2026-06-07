@@ -312,6 +312,15 @@ class ApiClient {
     return this.client.post(`/sessions/${sessionId}/verify-video-code`, { code });
   }
 
+  // Session Notes endpoints
+  async getSessionNotes(sessionId: string): Promise<ApiResponse<{ notes: string }>> {
+    return this.client.get(`/sessions/${sessionId}/notes`);
+  }
+
+  async saveSessionNotes(sessionId: string, notes: string): Promise<ApiResponse<any>> {
+    return this.client.patch(`/sessions/${sessionId}/notes`, { notes });
+  }
+
   // Analytics endpoints
   async getMentorAnalytics(): Promise<ApiResponse<any>> {
     return this.client.get('/analytics/mentor');
