@@ -20,7 +20,7 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      data: notifications,
+      data: notifications.rows,
     });
   } catch (err) {
     console.error('Get notifications error:', err);

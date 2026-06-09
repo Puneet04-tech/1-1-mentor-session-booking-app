@@ -28,7 +28,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      data: { ...user, skills },
+      data: { ...user, skills: skills.rows },
     });
   } catch (err) {
     console.error('Get profile error:', err);
@@ -87,7 +87,7 @@ router.put('/profile/update', authMiddleware, async (req: AuthRequest, res: Resp
 
     res.json({
       success: true,
-      data: { ...updatedUser, skills: updatedSkills },
+      data: { ...updatedUser, skills: updatedSkills.rows },
     });
   } catch (err) {
     console.error('Update profile error:', err);

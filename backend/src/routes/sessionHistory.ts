@@ -99,7 +99,7 @@ router.get('/:session_id/feedback', async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      data: feedback,
+      data: feedback.rows,
     });
   } catch (err) {
     console.error('Get feedback error:', err);

@@ -100,14 +100,14 @@
 └─────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────┐
-│       USER_RATINGS                      │
+│         RATINGS                         │
 ├─────────────────────────────────────────┤
 │ id (UUID)                               │
-│ rater_id (FK → users)                   │
-│ ratee_id (FK → users)                   │
+│ student_id (FK → users)                 │
+│ mentor_id (FK → users)                  │
 │ session_id (FK → sessions)              │
 │ rating (1-5)                            │
-│ feedback                                │
+│ review                                  │
 │ created_at                              │
 └─────────────────────────────────────────┘
 ```
@@ -202,15 +202,15 @@ CREATE TABLE notifications (
 );
 ```
 
-### User Ratings Table
+### Ratings Table
 ```sql
-CREATE TABLE user_ratings (
+CREATE TABLE ratings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  rater_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  ratee_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  mentor_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   rating INT NOT NULL CHECK (rating >= 1 AND rating <= 5),
-  feedback TEXT,
+  review TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 ```

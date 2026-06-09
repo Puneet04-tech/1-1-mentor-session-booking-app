@@ -201,7 +201,7 @@ const legacyTemplates: Record<string, (data: any) => string> = {
     <h2>You Received a New Rating!</h2>
     <p>Hi ${d.mentorName},</p>
     <p>${d.studentName} left you a <strong>${d.rating}⭐</strong> rating after your session.</p>
-    <p><strong>Feedback:</strong> "${d.comment}"</p>
+    <p><strong>Feedback:</strong> "${d.comment || d.review || ''}"</p>
     <p><a href="${process.env.CLIENT_URL}/profile">View Your Profile</a></p>
   `,
   'session-ended': (d) => `

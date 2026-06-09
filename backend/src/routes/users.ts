@@ -34,7 +34,7 @@ router.get('/students', async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      data: students,
+      data: students.rows,
     });
   } catch (err) {
     console.error('Get students error:', err);

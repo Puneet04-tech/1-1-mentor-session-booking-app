@@ -98,7 +98,7 @@ router.get('/moderation/queue', authMiddleware, async (req: Request, res: Respon
     }
 
     const result = await db.query(`
-      SELECT s.id, s.title, u.name as mentor_name, r.rating, r.comment, r.created_at
+      SELECT s.id, s.title, u.name as mentor_name, r.rating, r.review as comment, r.created_at
       FROM sessions s
       JOIN users u ON s.mentor_id = u.id
       LEFT JOIN ratings r ON s.id = r.session_id

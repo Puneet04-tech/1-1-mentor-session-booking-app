@@ -66,7 +66,7 @@ router.get('/mentor/:mentor_id', async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      data: ratings,
+      data: ratings.rows,
     });
   } catch (err) {
     console.error('Get ratings error:', err);

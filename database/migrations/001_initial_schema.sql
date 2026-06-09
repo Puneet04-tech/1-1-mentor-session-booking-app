@@ -79,13 +79,13 @@ CREATE TABLE notifications (
 );
 
 -- User ratings table
-CREATE TABLE user_ratings (
+CREATE TABLE ratings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  rater_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  ratee_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  mentor_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   rating INT NOT NULL CHECK (rating >= 1 AND rating <= 5),
-  feedback TEXT,
+  review TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -98,7 +98,7 @@ CREATE INDEX idx_messages_created_at ON messages(created_at DESC);
 CREATE INDEX idx_code_snapshots_session_id ON code_snapshots(session_id);
 CREATE INDEX idx_user_availability_user_id ON user_availability(user_id);
 CREATE INDEX idx_notifications_user_id ON notifications(user_id);
-CREATE INDEX idx_user_ratings_session_id ON user_ratings(session_id);
+CREATE INDEX idx_ratings_session_id ON ratings(session_id);
 
 -- Add comments
 COMMENT ON TABLE sessions IS 'Stores mentoring sessions between mentor and student';
@@ -106,4 +106,4 @@ COMMENT ON TABLE messages IS 'Stores chat messages within sessions';
 COMMENT ON TABLE code_snapshots IS 'Stores code snapshots during sessions for backup';
 COMMENT ON TABLE user_availability IS 'Stores mentor availability for scheduling';
 COMMENT ON TABLE notifications IS 'Stores user notifications for session invites, messages, etc';
-COMMENT ON TABLE user_ratings IS 'Stores ratings and feedback after sessions';
+COMMENT ON TABLE ratings IS 'Stores ratings and reviews after sessions';
