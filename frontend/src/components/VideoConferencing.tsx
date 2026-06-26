@@ -180,25 +180,7 @@ export function VideoConferencing({ sessionId, userId, userName, onClose }: Vide
     };
   }, [sessionId, userId]);
 
-  const toggleVideo = () => {
-    const stream = webrtcService.getLocalStream();
-    if (stream) {
-      stream.getVideoTracks().forEach((track) => {
-        track.enabled = !track.enabled;
-      });
-      setIsVideoEnabled(!isVideoEnabled);
-    }
-  };
-
-  const toggleAudio = () => {
-    const stream = webrtcService.getLocalStream();
-    if (stream) {
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = !track.enabled;
-      });
-      setIsAudioEnabled(!isAudioEnabled);
-    }
-  };
+  
 
   const handleScreenShare = async () => {
     // Disable screen share in VideoConferencing component
