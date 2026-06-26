@@ -24,6 +24,48 @@ export function VideoConferencing({ sessionId, userId, userName, onClose }: Vide
   const [error, setError] = useState<string | null>(null);
   const [remoteUserName, setRemoteUserName] = useState<string | null>(null);
   const [waitingTimeout, setWaitingTimeout] = useState(false);
+// Toggle Audio (Mic)
+// Toggle Audio (Mic)
+  const toggleAudio = () => {
+    if (localVideoRef.current && localVideoRef.current.srcObject) {
+      const stream = localVideoRef.current.srcObject as MediaStream;
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !isAudioEnabled;
+      });
+      setIsAudioEnabled(!isAudioEnabled);
+    }
+  };
+
+  // Toggle Video (Camera)
+  const toggleVideo = () => {
+    if (localVideoRef.current && localVideoRef.current.srcObject) {
+      const stream = localVideoRef.current.srcObject as MediaStream;
+      stream.getVideoTracks().forEach((track) => {
+        track.enabled = !isVideoEnabled;
+      });
+      setIsVideoEnabled(!isVideoEnabled);
+    }
+  };
+  const toggleAudio = () => {
+    if (localVideoRef.current && localVideoRef.current.srcObject) {
+      const stream = localVideoRef.current.srcObject as MediaStream;
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !isAudioEnabled;
+      });
+      setIsAudioEnabled(!isAudioEnabled);
+    }
+  };
+
+  // Toggle Video (Camera)
+  const toggleVideo = () => {
+    if (localVideoRef.current && localVideoRef.current.srcObject) {
+      const stream = localVideoRef.current.srcObject as MediaStream;
+      stream.getVideoTracks().forEach((track) => {
+        track.enabled = !isVideoEnabled;
+      });
+      setIsVideoEnabled(!isVideoEnabled);
+    }
+  };
 
   // Initialize video on mount
   useEffect(() => {
@@ -176,6 +218,26 @@ export function VideoConferencing({ sessionId, userId, userName, onClose }: Vide
     return (
       <div className="w-full h-full flex items-center justify-center bg-black/80 rounded-lg">
         <div className="text-center">
+        {/* Media Controls Panel */}
+    <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex space-x-4 bg-gray-900/90 p-3 rounded-2xl backdrop-blur-md border border-gray-700/60 z-50 shadow-2xl">
+      <button
+        onClick={toggleAudio}
+        className={`p-3 rounded-xl text-white font-medium transition-all duration-200 flex items-center gap-2 ${
+          isAudioEnabled ? 'bg-gray-800 hover:bg-gray-700' : 'bg-red-500/90 hover:bg-red-600'
+        }`}
+      >
+        {isAudioEnabled ? "🎤 Mic On" : "🎙️ Mic Off"}
+      </button>
+
+      <button
+        onClick={toggleVideo}
+        className={`p-3 rounded-xl text-white font-medium transition-all duration-200 flex items-center gap-2 ${
+          isVideoEnabled ? 'bg-gray-800 hover:bg-gray-700' : 'bg-red-500/90 hover:bg-red-600'
+        }`}
+      >
+        {isVideoEnabled ? "📹 Cam On" : "❌ Cam Off"}
+      </button>
+    </div>
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-cyan-500 mx-auto mb-4"></div>
           <p className="text-white">Initializing video conference...</p>
         </div>
