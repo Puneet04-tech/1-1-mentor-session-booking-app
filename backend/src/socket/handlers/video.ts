@@ -33,7 +33,7 @@ export async function handleVideoConnectionRequest(socket: Socket, io: SocketIOS
 export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data: any) {
   try {
     const { sessionId, peerId, offer, remoteUserId, initiatorId, callerId, targetId } = data;
-    
+
     console.log('📨 Video offer received:', {
       sessionId,
       peerId,
@@ -44,11 +44,14 @@ export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data:
       socketId: socket.id,
       offerType: offer?.type
     });
-    
-    // Check room members
+
+    // Validate that caller is part of the session
     const room = io.sockets.adapter.rooms.get(`session:${sessionId}`);
-    console.log('👥 Room members when video offer received:', room ? Array.from(room) : 'No members');
-    
+    if (!room || !room.has(callerId || socket.id)) {
+      console.warn('⚠️ Video offer rejected: caller not in session', { callerId, sessionId });
+      return;
+    }
+
     // Broadcast offer to session, preserving user IDs (callerId, targetId)
     socket.to(`session:${sessionId}`).emit('video:offer', {
       peerId: peerId || socket.id, // Use provided peerId or fallback to socket.id
@@ -59,7 +62,7 @@ export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data:
       initiatorId: initiatorId || peerId || socket.id,
       timestamp: Date.now(),
     });
-    
+
     console.log(`📤 Video offer forwarded in session ${sessionId} to ${room ? room.size - 1 : 0} other users`);
   } catch (err) {
     console.error('Video offer error:', err);
@@ -69,7 +72,7 @@ export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data:
 export async function handleVideoAnswer(socket: Socket, io: SocketIOServer, data: any) {
   try {
     const { sessionId, peerId, answer, initiatorId, callerId, targetId } = data;
-    
+
     console.log('📨 Video answer received:', {
       sessionId,
       peerId,
@@ -78,7 +81,14 @@ export async function handleVideoAnswer(socket: Socket, io: SocketIOServer, data
       initiatorId,
       socketId: socket.id
     });
-    
+
+    // Validate that caller is part of the session
+    const room = io.sockets.adapter.rooms.get(`session:${sessionId}`);
+    if (!room || !room.has(callerId || socket.id)) {
+      console.warn('⚠️ Video answer rejected: caller not in session', { callerId, sessionId });
+      return;
+    }
+
     // Broadcast answer to session, preserving user IDs (callerId, targetId)
     socket.to(`session:${sessionId}`).emit('video:answer', {
       peerId: peerId || socket.id, // Use provided peerId or fallback to socket.id
@@ -88,7 +98,7 @@ export async function handleVideoAnswer(socket: Socket, io: SocketIOServer, data
       initiatorId: initiatorId || peerId || socket.id,
       timestamp: Date.now(),
     });
-    
+
     console.log(`📤 Video answer forwarded in session ${sessionId}`);
   } catch (err) {
     console.error('Video answer error:', err);
@@ -98,13 +108,20 @@ export async function handleVideoAnswer(socket: Socket, io: SocketIOServer, data
 export async function handleICECandidate(socket: Socket, io: SocketIOServer, data: any) {
   try {
     const { sessionId, peerId, candidate, callerId, targetId } = data;
-    
+
+    // Validate that caller is part of the session
+    const room = io.sockets.adapter.rooms.get(`session:${sessionId}`);
+    if (!room || !room.has(callerId || socket.id)) {
+      console.warn('⚠️ ICE candidate rejected: caller not in session', { callerId, sessionId });
+      return;
+    }
+
     // Broadcast ICE candidate to session, preserving user IDs
     socket.to(`session:${sessionId}`).emit('video:ice-candidate', {
       peerId: peerId || socket.id, // Use provided peerId or fallback to socket.id
       candidate,
       callerId: callerId || peerId || socket.id, // Preserve user ID of candidate sender
-      targetId: targetId,
+      targetId: targetId, // Preserve target ID
       timestamp: Date.now(),
     });
   } catch (err) {

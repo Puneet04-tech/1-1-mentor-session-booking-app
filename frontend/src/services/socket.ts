@@ -72,6 +72,11 @@ class SocketService {
         this.resolveConnection();
       }
       this.emit('connected');
++      // Rejoin session automatically after reconnection if we have a session ID
++      if (this.currentSessionId) {
++        console.log('🔁 Rejoining session after reconnect:', this.currentSessionId);
++        this.emit('session:join', { sessionId: this.currentSessionId, userId: useAuthStore.getState().user?.id, userName: useAuthStore.getState().user?.name } as any);
++      }
     });
 
     this.socket.on('disconnect', () => {

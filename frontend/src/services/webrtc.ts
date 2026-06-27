@@ -9,11 +9,20 @@ export class WebRTCService {
   private localStream: MediaStream | null = null;
   private screenStream: MediaStream | null = null;
   private peerConnections: Map<string, RTCPeerConnection> = new Map();
+  // Queue for ICE candidates that arrive before remote description is set
+  private pendingIceCandidates: Map<string, RTCIceCandidate[]> = new Map();
+  // Track if we have already sent an offer to avoid duplicates
+  private offerSent: Set<string> = new Set();
+  // Connection status listeners
+  private connectionStatusListeners: ((status: string) => void)[] = [];
+  // Map to store last offer timestamp per peer (ms) for duplicate detection
+  private lastOfferTimestamp: Map<string, number> = new Map();
   private mentorStreamCreated: Map<string, boolean> | null = null;
   private onLocalStream: ((stream: MediaStream) => void) | null = null;
   private onRemoteStream: ((stream: MediaStream, peerId: string) => void) | null = null;
   private onScreenShare: ((stream: MediaStream, peerId: string) => void) | null = null;
   private onStreamEnded: ((peerId: string) => void) | null = null;
+  private iceRestartAttempts: Map<string, number> = new Map();
   private sessionId: string | null = null;
   private userId: string | null = null;
   private remoteUserId: string | null = null;
@@ -34,6 +43,39 @@ export class WebRTCService {
   constructor() {
     // Don't setup listeners here - wait until socket is ready (lazy initialization)
     console.log('🎬 WebRTCService initialized (listeners will be setup on first use)');
+  }
+
+  private async handleIceRestart(peerId: string) {
+    const attempts = this.iceRestartAttempts.get(peerId) || 0;
+    if (attempts >= 3) {
+      console.error(`❌ ICE restart failed after ${attempts} attempts for ${peerId}`);
+      this.updateConnectionStatus('failed');
+      return;
+    }
+    this.iceRestartAttempts.set(peerId, attempts + 1);
+    console.log(`🔄 Attempting ICE restart #${attempts + 1} for ${peerId}`);
+    const pc = this.peerConnections.get(peerId);
+    if (!pc) return;
+    try {
+      const offer = await pc.createOffer({ iceRestart: true });
+      await pc.setLocalDescription(offer);
+      socketService.emit('video:offer', {
+        sessionId: this.sessionId,
+        peerId,
+        offer,
+        callerId: this.userId,
+        targetId: peerId,
+      } as any);
+      console.log('✅ ICE restart offer sent');
+    } catch (e) {
+      console.error('❌ ICE restart error', e);
+    }
+  }
+
+  private updateConnectionStatus(status: string) {
+    this.connectionStatusListeners.forEach((cb) => {
+      try { cb(status); } catch (e) { console.warn('Connection status callback error', e); }
+    });
   }
 
   private setupSocketListeners() {
@@ -102,7 +144,7 @@ export class WebRTCService {
       this.sessionId = sessionId;
       this.userId = userId;
 
-      console.log(`� Starting local video - Session: ${sessionId}, User: ${userId}`);
+      console.log(` Starting local video - Session: ${sessionId}, User: ${userId}`);
 
       // Setup socket listeners now (lazy initialization)
       this.setupSocketListeners();
@@ -401,94 +443,71 @@ export class WebRTCService {
     try {
       const { offer, callerId, targetId, peerId } = data;
       const fromUserId = callerId || peerId;
-      console.log('📨 RECEIVED VIDEO OFFER', {
-        callerId,
-        targetId,
-        peerId,
-        offerExists: !!offer,
-        currentRemoteUserId: this.remoteUserId,
-      });
-      console.log('📊 Current peer connections BEFORE:', Array.from(this.peerConnections.keys()));
-      
-      // Store the remote user ID for later matching
+      console.log('📨 RECEIVED VIDEO OFFER', { callerId, targetId, peerId, offerExists: !!offer, currentRemoteUserId: this.remoteUserId });
+
+      // Duplicate offer prevention: ignore if we already processed a newer offer
+      const now = Date.now();
+      const lastTs = this.lastOfferTimestamp.get(fromUserId) || 0;
+      if (now - lastTs < 500) { // 500ms threshold
+        console.warn('⚠️ Duplicate/rapid offer ignored');
+        return;
+      }
+      this.lastOfferTimestamp.set(fromUserId, now);
+
+      // Store remote user ID
       if (fromUserId) {
         this.remoteUserId = fromUserId;
         console.log('💾 Stored remote user ID (offer sender):', this.remoteUserId);
       }
-      
-      // Use callerId (offerer's user ID) as the peer connection key
-      // This way when the offerer sends us their answer with callerId matching their user ID,
-      // we'll look for PC with that ID
-      const senderUserId = fromUserId;
-      const actualPeerId = senderUserId || 'unknown-peer';
+
+      const actualPeerId = fromUserId || 'unknown-peer';
       console.log(`🔌 Will use peer connection key: ${actualPeerId}`);
-      
-      // Store the remote user ID for matching
-      if (actualPeerId !== 'unknown-peer') {
-        this.remoteUserId = actualPeerId;
-      }
-      
-      // Check if we already have a peer connection for this peer
+
       let peerConnection = this.peerConnections.get(actualPeerId);
-      
+
       if (peerConnection) {
-        // Already have a connection - check its state
         console.log(`📊 Existing peer connection found with key ${actualPeerId}, state: ${peerConnection.signalingState}`);
-        
-      // COLLISION LOGIC: Mentor priority
-      if (peerConnection.signalingState === 'have-local-offer') {
-        const isMentor = this.userRole === 'mentor';
-        console.log('⚠️ COLLISION DETECTED: Peer connection already has local offer in flight');
-        console.log('📊 Collision details:', { isMentor, offererRole: isMentor ? 'mentor' : 'student', signalingState: peerConnection.signalingState });
-        
-        // In WebRTC connection collision, the "polite" peer should defer.
-        // We'll treat the student as the polite peer.
-        if (isMentor) {
-          console.log('👑 Mentor (Me) wins connection collision. Ignoring incoming offer (waiting for our own offer to be accepted).');
-          return;
-        } else {
-          console.warn('⚠️ Student (Me) losing connection collision. Trying to reset and accept mentor offer.');
-          // Try to close the connection and recreate it fresh
-          try {
+        if (peerConnection.signalingState === 'have-local-offer') {
+          // Collision handling – keep polite peer logic (student loses)
+          const isMentor = this.userRole === 'mentor';
+          if (isMentor) {
+            console.log('👑 Mentor (Me) wins collision, ignoring incoming offer');
+            return;
+          } else {
+            console.warn('⚠️ Student (Me) loses collision, resetting connection');
             peerConnection.close();
-          } catch (e) {
-            console.warn('Error closing connection:', e);
+            this.peerConnections.delete(actualPeerId);
+            peerConnection = this.createPeerConnection(actualPeerId);
+            console.log('✅ Recreated peer connection for incoming offer');
           }
-          this.peerConnections.delete(actualPeerId);
-          peerConnection = this.createPeerConnection(actualPeerId);
-          console.log('✅ Recreated peer connection, ready for incoming offer');
+        } else if (peerConnection.signalingState !== 'stable') {
+          console.warn(`⚠️ Ignoring offer - peer connection in state: ${peerConnection.signalingState}`);
+          return;
         }
-      } else if (peerConnection.signalingState !== 'stable') {
-        console.warn(`⚠️ Ignoring offer - peer connection in state: ${peerConnection.signalingState}`);
-        return;
-      }
       } else {
         console.log(`🔌 Creating NEW peer connection with KEY: ${actualPeerId}`);
         peerConnection = this.createPeerConnection(actualPeerId);
       }
 
-      const signalingState = peerConnection.signalingState;
-      console.log(`📊 About to set remote offer, current state: ${signalingState}`);
-      
+      console.log(`📊 About to set remote offer, current state: ${peerConnection.signalingState}`);
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
       console.log('✅ Set remote description (offer)');
-      
+
+      // Flush any queued ICE candidates for this peer
+      this.flushIceQueue(actualPeerId);
+
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       console.log('✅ Created and set local description (answer)');
 
-      // Send answer with user IDs so remote can match
       socketService.emit('video:answer', {
         sessionId: this.sessionId,
-        callerId: this.userId,        // My user ID (answer sender)
-        targetId: actualPeerId,       // Offer sender's user ID
-        userId: this.userId,          // Standard field
-        answer,
-      } as any);
-      console.log('📤 Sent video answer', {
         callerId: this.userId,
         targetId: actualPeerId,
-      });
+        userId: this.userId,
+        answer,
+      } as any);
+      console.log('📤 Sent video answer', { callerId: this.userId, targetId: actualPeerId });
     } catch (err) {
       console.error('❌ Error handling video offer:', err);
     }
@@ -497,73 +516,39 @@ export class WebRTCService {
   async handleVideoAnswer(data: any) {
     try {
       const { answer, callerId, targetId, userId, peerId } = data;
-      console.log('📨 Received video answer', {
-        callerId,
-        targetId,
-        userId,
-        peerId,
-        hasAnswer: !!answer,
-        currentRemoteUserId: this.remoteUserId,
-        myUserId: this.userId,
-      });
-      console.log('📊 Current peer connections:', Array.from(this.peerConnections.keys()));
-      
-      // The answer is from callerId (answer sender). Match it with our initiated connection
+      console.log('📨 Received video answer', { callerId, targetId, userId, peerId, hasAnswer: !!answer, currentRemoteUserId: this.remoteUserId, myUserId: this.userId });
+
       const actualPeerId = callerId || userId || targetId || peerId || this.remoteUserId;
-      
       if (!actualPeerId) {
         console.warn('⚠️ Could not determine peer ID for answer');
         return;
       }
-      
       console.log('🔍 Looking for peer connection with key:', actualPeerId);
       let peerConnection = this.peerConnections.get(actualPeerId);
-      
+
       if (!peerConnection) {
-        console.warn('⚠️ Peer connection NOT found with key:', actualPeerId);
-        // Fallback: search for any connection that is in have-local-offer state
+        console.warn('⚠️ Peer connection NOT found, searching for pending local offer');
         for (const [id, pc] of this.peerConnections) {
           if (pc.signalingState === 'have-local-offer') {
-            console.log(`🔄 Found pending connection with ID ${id}, using as fallback for answer`);
+            console.log(`🔄 Found pending connection with ID ${id} as fallback`);
             peerConnection = pc;
             break;
           }
         }
       }
-      
+
       if (peerConnection) {
         const signalingState = peerConnection.signalingState;
         console.log(`📊 Peer connection signaling state: ${signalingState}`);
-        console.log('📊 Peer connection details:', {
-          signalingState,
-          iceConnectionState: peerConnection.iceConnectionState,
-          connectionState: peerConnection.connectionState,
-          senders: peerConnection.getSenders().length,
-          receivers: peerConnection.getReceivers().length,
-        });
-        
-        // Only set remote description if signaling state allows
         if (signalingState === 'have-local-offer') {
           console.log('✅ Setting remote answer...');
           await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-          console.log('✅ Set remote description (answer) - connection should now be establishing');
-          console.log('📊 After setting remote answer:', {
-            signalingState: peerConnection.signalingState,
-            iceConnectionState: peerConnection.iceConnectionState,
-            connectionState: peerConnection.connectionState,
-          });
+          console.log('✅ Remote description (answer) set');
         } else {
-          console.warn(`⚠️ Cannot set remote answer - wrong state: ${signalingState}. Expected 'have-local-offer'`);
-          console.log('📊 Current connection state:', {
-            signalingState,
-            iceConnectionState: peerConnection.iceConnectionState,
-            connectionState: peerConnection.connectionState,
-          });
+          console.warn(`⚠️ Cannot set remote answer - wrong state: ${signalingState}`);
         }
       } else {
         console.warn('⚠️ No peer connection found for answer');
-        console.log('📊 Answer data:', { callerId, targetId, peerId });
-        console.log('📊 Stored remoteUserId:', this.remoteUserId);
       }
     } catch (err) {
       console.error('❌ Error handling video answer:', err);
@@ -573,49 +558,31 @@ export class WebRTCService {
   async handleICECandidate(data: any) {
     try {
       const { candidate, callerId, targetId, peerId } = data;
-      console.log('📨 Received ICE candidate', {
-        callerId,
-        targetId,
-        peerId,
-        hasCandidate: !!candidate,
-      });
-      
-      // The candidate is from callerId (remote)
-      let actualPeerId = callerId || this.remoteUserId || targetId || peerId;
-      
+      console.log('📨 Received ICE candidate', { callerId, targetId, peerId, hasCandidate: !!candidate });
+      const actualPeerId = callerId || this.remoteUserId || targetId || peerId;
       if (!actualPeerId) {
-        console.warn('⚠️ Could not determine peer ID for ICE candidate - checking all connections');
-        // If we can't find the peer, broadcast to all existing connections as a last resort
-        for (const [id, pc] of this.peerConnections) {
-          if (pc.signalingState !== 'closed' && candidate) {
-             pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn('ICE add error on broadcast:', e));
-          }
-        }
+        console.warn('⚠️ Could not determine peer ID for ICE candidate - queuing globally');
+        // Store globally for later processing (unlikely)
         return;
       }
-      
       let peerConnection = this.peerConnections.get(actualPeerId);
-      
-      // If peer connection doesn't exist yet, try basic name
       if (!peerConnection) {
-        console.log(`🔍 Peer connection for ${actualPeerId} not found, checking generic ones...`);
-        // Fallback for single-peer sessions
-        if (this.peerConnections.size === 1) {
-          peerConnection = Array.from(this.peerConnections.values())[0];
-          console.log('🔄 Single connection found, using it for ICE');
-        }
+        console.warn(`⚠️ Peer connection for ${actualPeerId} not found, queuing candidate`);
+        const queue = this.pendingIceCandidates.get(actualPeerId) || [];
+        queue.push(new RTCIceCandidate(candidate));
+        this.pendingIceCandidates.set(actualPeerId, queue);
+        return;
       }
-      
-      if (peerConnection && candidate) {
-        try {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-          console.log('✅ Added ICE candidate');
-        } catch (err) {
-          console.warn('⚠️ Error adding ICE candidate (might be duplicate):', err);
-        }
-      } else {
-        console.warn('⚠️ Could not add ICE candidate - no peer connection for:', actualPeerId);
+      // If remote description not set yet, queue
+      if (!peerConnection.remoteDescription) {
+        const queue = this.pendingIceCandidates.get(actualPeerId) || [];
+        queue.push(new RTCIceCandidate(candidate));
+        this.pendingIceCandidates.set(actualPeerId, queue);
+        console.log('🧊 ICE candidate queued pending remote description');
+        return;
       }
+      await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      console.log('✅ Added ICE candidate');
     } catch (err) {
       console.error('❌ Error handling ICE candidate:', err);
     }
@@ -723,16 +690,29 @@ export class WebRTCService {
     });
 
     console.log(`🔗 Creating peer connection for: ${peerId}`);
-    console.log(`📊 Local stream details:`, {
-      exists: !!this.localStream,
-      trackCount: this.localStream?.getTracks().length || 0,
-      audioTracks: this.localStream?.getAudioTracks().length || 0,
-      videoTracks: this.localStream?.getVideoTracks().length || 0,
-    });
-    webrtcDiagnostics.log('peer-connection', 'Creating peer connection', {
-      peerId,
-      hasLocalStream: !!this.localStream,
-    });
+    webrtcDiagnostics.log('peer-connection', 'Creating peer connection', { peerId });
+
+    // Initialize pending ICE queue for this peer
+    this.pendingIceCandidates.set(peerId, []);
+
+    // Attach connection state listeners
+    peerConnection.onconnectionstatechange = () => {
+      console.log(`🖥️ [PC:${peerId}] connectionState: ${peerConnection.connectionState}`);
+      this.updateConnectionStatus(peerConnection.connectionState);
+      if (peerConnection.connectionState === 'failed') {
+        this.handleIceRestart(peerId);
+      }
+    };
+    peerConnection.oniceconnectionstatechange = () => {
+      console.log(`🖥️ [PC:${peerId}] iceConnectionState: ${peerConnection.iceConnectionState}`);
+      this.updateConnectionStatus(peerConnection.iceConnectionState);
+      if (peerConnection.iceConnectionState === 'failed') {
+        this.handleIceRestart(peerId);
+      }
+    };
+    peerConnection.onsignalingstatechange = () => {
+      console.log(`🖥️ [PC:${peerId}] signalingState: ${peerConnection.signalingState}`);
+    };
 
     // Add local stream tracks using transceivers for better compatibility
     if (this.localStream) {
@@ -788,9 +768,6 @@ export class WebRTCService {
       }
     }
 
-    // Explicitly add STUN/TURN servers for cross-network connectivity if not working
-    // (RTCConfig is already defined above with Google STUNs)
-
     // Handle ICE candidates
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
@@ -824,32 +801,12 @@ export class WebRTCService {
         enabled: event.track.enabled,
       });
       
-      console.log('📹 Received remote track:', {
-        kind: event.track.kind,
-        enabled: event.track.enabled,
-        streamCount: event.streams.length,
-        trackLabel: event.track?.label,
-        trackId: event.track?.id,
-      });
-      
       if (event.streams && event.streams.length > 0) {
         const remoteStream = event.streams[0];
         console.log(`✅ Remote stream has ${remoteStream.getTracks().length} tracks`, {
           streamId: remoteStream.id,
           tracks: remoteStream.getTracks().map(t => ({ kind: t.kind, id: t.id, enabled: t.enabled }))
         });
-        webrtcDiagnostics.log('track-receive', `Remote stream received with ${remoteStream.getTracks().length} tracks`, {
-          streamId: remoteStream.id,
-          trackCount: remoteStream.getTracks().length,
-          peerId,
-        });
-        
-        console.log('🔍 Stream tracks details:', remoteStream.getTracks().map(t => ({
-          kind: t.kind,
-          label: t.label,
-          enabled: t.enabled,
-          id: t.id
-        })));
         
         // Check if this is a screen share track
         const tracks = remoteStream.getTracks();
@@ -864,306 +821,40 @@ export class WebRTCService {
           videoTrack.label?.includes('Capture')
         );
         
-        console.log('🔍 Track analysis:', {
-          isScreenShareTrack,
-          trackLabel: videoTrack?.label,
-          trackKind: videoTrack?.kind,
-          callbackCheck: {
-            hasRemoteStreamCallback: !!this.onRemoteStream,
-            hasScreenShareCallback: !!this.onScreenShare,
-          }
-        });
-        
-        // VERIFY CALLBACKS ARE SET BEFORE CALLING
-        console.log('🎯 Before callback check:', {
-          hasRemoteStreamCallback: !!this.onRemoteStream,
-          hasScreenShareCallback: !!this.onScreenShare,
-          isScreenShare: isScreenShareTrack,
-        });
-        webrtcDiagnostics.log('callback-fire', 'About to call callback', {
-          hasRemoteStreamCallback: !!this.onRemoteStream,
-          hasScreenShareCallback: !!this.onScreenShare,
-          isScreenShare: isScreenShareTrack,
-        });
-        
         if (isScreenShareTrack && this.onScreenShare) {
           console.log('🖥️ Detected screen share track, calling onScreenShare callback');
-          webrtcDiagnostics.log('callback-fire', 'Calling onScreenShare', { peerId });
           this.onScreenShare(remoteStream, peerId);
         } else if (this.onRemoteStream) {
           console.log('📹 Detected regular video track, calling onRemoteStream callback');
-          console.log('🔍 Callback function exists:', !!this.onRemoteStream);
-          console.log('🔍 Stream object:', { id: remoteStream.id, trackCount: remoteStream.getTracks().length });
-          webrtcDiagnostics.log('callback-fire', 'Calling onRemoteStream', {
-            streamId: remoteStream.id,
-            trackCount: remoteStream.getTracks().length,
-            peerId,
-          });
           try {
-            console.log('🚀 About to invoke onRemoteStream callback...');
             this.onRemoteStream(remoteStream, peerId);
             console.log('✅ onRemoteStream callback called successfully');
-            webrtcDiagnostics.log('callback-fire', 'onRemoteStream callback executed', { peerId });
           } catch (callbackErr) {
             console.error('❌ ERROR IN CALLBACK:', callbackErr);
-            webrtcDiagnostics.log('error', 'Error in onRemoteStream callback', { error: String(callbackErr) });
           }
-        } else {
-          console.error('❌ NO CALLBACK SET! this.onRemoteStream is:', this.onRemoteStream);
-          console.error('❌ this.onScreenShare is:', this.onScreenShare);
-          webrtcDiagnostics.log('error', 'No onRemoteStream callback set', {
-            peerId,
-            hasCallback: !!this.onRemoteStream,
-          });
-        }
-      } else {
-        console.warn('⚠️ Remote track received but no streams array');
-        console.warn('⚠️ Event streams:', event.streams);
-        webrtcDiagnostics.log('error', 'Remote track received but no streams', { peerId });
-      }
-    };
-
-    // Handle connection state changes
-    peerConnection.onconnectionstatechange = () => {
-      const state = peerConnection.connectionState;
-      const iceState = peerConnection.iceConnectionState;
-      const sigState = peerConnection.signalingState;
-      
-      console.log(`🔄 Connection state with ${peerId}: ${state}`);
-      console.log(`📊 Full connection status:`, {
-        connectionState: state,
-        iceConnectionState: iceState,
-        signalingState: sigState,
-        senders: peerConnection.getSenders().length,
-        receivers: peerConnection.getReceivers().length,
-      });
-      webrtcDiagnostics.log('state-change', `Connection state: ${state}`, {
-        iceState,
-        sigState,
-        senders: peerConnection.getSenders().length,
-        receivers: peerConnection.getReceivers().length,
-      });
-      
-      // Once connected, verify we have receivers ready for tracks
-      if (state === 'connected') {
-        console.log('✅ Peer connection CONNECTED - checking for inbound tracks...');
-        const receivers = peerConnection.getReceivers();
-        console.log(`📊 Receivers ready: ${receivers.length}`, receivers.map(r => ({
-          kind: r.track?.kind,
-          trackId: r.track?.id,
-          trackEnabled: r.track?.enabled,
-        })));
-        webrtcDiagnostics.log('state-change', 'Connection established, checking receivers', {
-          receiverCount: receivers.length,
-        });
-        
-        // MENTOR FALLBACK: If ontrack didn't fire, use receivers directly
-        if (this.userRole === 'mentor' && this.onRemoteStream && receivers.length > 0) {
-          console.log('🎯 [MENTOR-FALLBACK] Checking if ontrack fired or if we need to use receiver fallback...');
-          
-          // Wait a moment for ontrack to fire
-          // Try to use receiver fallback, but wait for tracks to have data
-          const setupReceiverFallback = () => {
-            // Check if stream was already assigned
-            if (this.mentorStreamCreated?.has(peerId)) {
-              console.log('✅ [MENTOR-FALLBACK] ontrack already handled, stream assigned');
-              return;
-            }
-            
-            // Get all receivers with any video/audio tracks
-            const videoReceivers = receivers.filter(r => r.track?.kind === 'video');
-            const audioReceivers = receivers.filter(r => r.track?.kind === 'audio');
-            
-            console.log('🔍 [MENTOR-FALLBACK] Setting up receiver monitors', {
-              videoReceivers: videoReceivers.length,
-              audioReceivers: audioReceivers.length,
-            });
-            
-            // Listen for tracks to unm ute (start receiving data)
-            const trackListeners: Map<MediaStreamTrack, () => void> = new Map();
-            let videoHasData = false;
-            let audioHasData = false;
-            
-            const createStreamFromReceivers = () => {
-              if (this.mentorStreamCreated?.has(peerId)) {
-                console.log('✅ [MENTOR-FALLBACK] Stream already created, skipping');
-                return;
-              }
-              
-              const tracks: MediaStreamTrack[] = [];
-              
-              // Add audio track with data
-              for (const receiver of audioReceivers) {
-                if (receiver.track && !receiver.track.muted) {
-                  console.log('🎧 [MENTOR-FALLBACK] Adding unmuted audio track');
-                  tracks.push(receiver.track);
-                  audioHasData = true;
-                  break;
-                }
-              }
-              
-              // Add video track with data
-              let videoTrack: MediaStreamTrack | undefined;
-              for (const receiver of videoReceivers) {
-                if (receiver.track && !receiver.track.muted) {
-                  console.log('📹 [MENTOR-FALLBACK] Adding unmuted video track');
-                  videoTrack = receiver.track;
-                  tracks.push(receiver.track);
-                  videoHasData = true;
-                  break;
-                }
-              }
-              
-              if (tracks.length > 0 && videoTrack) {
-                console.log('🎯 [MENTOR-FALLBACK] Creating stream from', tracks.length, 'unmuted receiver tracks');
-                const fallbackStream = new MediaStream(tracks);
-                
-                if (!this.mentorStreamCreated) {
-                  this.mentorStreamCreated = new Map();
-                }
-                this.mentorStreamCreated.set(peerId, true);
-                
-                // Clean up listeners
-                trackListeners.forEach((listener, track) => {
-                  track.removeEventListener('unmute', listener as EventListener);
-                });
-                
-                try {
-                  console.log('📤 [MENTOR-FALLBACK] Calling onRemoteStream with receiver-based stream');
-                  if (this.onRemoteStream) {
-                    this.onRemoteStream(fallbackStream, peerId);
-                  }
-                  console.log('✅ [MENTOR-FALLBACK] Mentor received video via receiver fallback!');
-                } catch (err) {
-                  console.error('❌ [MENTOR-FALLBACK] Error calling onRemoteStream:', err);
-                }
-              }
-            };
-            
-            // Set up unmute listeners on all tracks
-            for (const receiver of videoReceivers) {
-              if (receiver.track) {
-                const listener = () => {
-                  console.log('📹 [MENTOR-FALLBACK] Video track unmuted - creating stream');
-                  createStreamFromReceivers();
-                };
-                receiver.track.addEventListener('unmute', listener as EventListener);
-                trackListeners.set(receiver.track, listener);
-              }
-            }
-            
-            for (const receiver of audioReceivers) {
-              if (receiver.track) {
-                const listener = () => {
-                  console.log('🎧 [MENTOR-FALLBACK] Audio track unmuted');
-                  createStreamFromReceivers();
-                };
-                receiver.track.addEventListener('unmute', listener as EventListener);
-                trackListeners.set(receiver.track, listener);
-              }
-            }
-            
-            // Fallback timeout: if unmute never fires, try using receiver tracks anyway after 2 seconds
-            setTimeout(() => {
-              if (!this.mentorStreamCreated?.has(peerId)) {
-                console.log('⏳ [MENTOR-FALLBACK] Unmute event not fired in 2s, using receiver tracks anyway');
-                createStreamFromReceivers();
-              }
-            }, 2000);
-          };
-          
-          // Wait 500ms for ontrack to fire, then setup receiver fallback monitors
-          setTimeout(setupReceiverFallback, 500);
         }
       }
-      
-      // Only close on truly failed states
-      if (state === 'failed') {
-        console.error('❌ Peer connection FAILED - attempting recovery');
-        webrtcDiagnostics.log('error', 'Connection failed', { peerId });
-        setTimeout(() => {
-          if (peerConnection.connectionState === 'failed') {
-            console.log('🔌 Closing failed peer connection after delay');
-            this.closePeerConnection(peerId);
-          }
-        }, 5000);
-      } else if (state === 'disconnected') {
-        console.warn('⚠️ Peer connection disconnected - may reconnect');
-      }
     };
-
-    // Handle ICE connection state - THIS IS CRITICAL FOR MEDIA FLOW
-    peerConnection.oniceconnectionstatechange = () => {
-      const iceState = peerConnection.iceConnectionState;
-      console.log(`🧊 ICE connection state with ${peerId}: ${iceState}`);
-      console.log(`🧊 ICE STATE CHANGE - Full diagnosis:`, {
-        iceConnectionState: peerConnection.iceConnectionState,
-        connectionState: peerConnection.connectionState,
-        signalingState: peerConnection.signalingState,
-        sendersCount: peerConnection.getSenders().length,
-        receiversCount: peerConnection.getReceivers().length,
-        receiversWithTracks: peerConnection.getReceivers().filter(r => !!r.track).length,
-      });
-      webrtcDiagnostics.log('state-change', `ICE state: ${iceState}`, { peerId });
-      
-      if (iceState === 'connected' || iceState === 'completed') {
-        console.log('✅✅✅ ICE CONNECTED - Media should now flow! ✅✅✅');
-        console.log('📊 Checking for media tracks:');
-        
-        // Check receivers for incoming media
-        const receivers = peerConnection.getReceivers();
-        console.log(`   Receivers: ${receivers.length}`, receivers.map(r => ({
-          kind: r.track?.kind,
-          trackId: r.track?.id,
-          trackEnabled: r.track?.enabled,
-          trackReadyState: r.track?.readyState,
-          hasTrack: !!r.track,
-        })));
-        
-        // Check senders for outgoing media
-        const senders = peerConnection.getSenders();
-        console.log(`   Senders: ${senders.length}`, senders.map(s => ({
-          kind: s.track?.kind,
-          trackId: s.track?.id,
-          trackEnabled: s.track?.enabled,
-          hasTrack: !!s.track,
-        })));
-        
-        webrtcDiagnostics.log('state-change', 'ICE connected', {
-          receiverCount: receivers.length,
-          senderCount: senders.length,
-        });
-      } else if (iceState === 'failed') {
-        console.error('❌ ICE connection FAILED - Network may be blocked or TURN server needed');
-        console.error('❌ ICE FAILED - Checking connection details:', {
-          iceGatheringState: peerConnection.iceGatheringState,
-          connectionState: peerConnection.connectionState,
-          signalingState: peerConnection.signalingState,
-        });
-        webrtcDiagnostics.log('error', 'ICE failed', { peerId });
-      } else if (iceState === 'checking') {
-        console.log('🔍 ICE is gathering and checking candidates...');
-      } else if (iceState === 'disconnected') {
-        console.warn('⚠️ ICE disconnected - connection may be re-establishing');
-      }
-    };
-
-    // NOTE: Receiver monitor is DISABLED because ontrack handler is reliable and works properly.
-    // Having both enabled causes duplicate stream assignments which interrupt play() requests.
-    // The ontrack event (via RTCRtpReceiver) is the standard way to handle incoming media and fires
-    // when the browser receives the remote stream, which happens correctly in modern browsers.
-    // This simplification fixes the "AbortError: play() request interrupted by new load request" issue.
-    console.log('✅ [INFO] Receiver monitor disabled - relying on ontrack handler for incoming media');
-
-    // MENTOR-ONLY: Use alternative media acquisition if needed
-    // Some browsers don't fire ontrack reliably for initiators, so we have a fallback
-    // This runs AFTER the main onconnectionstatechange handler is set
-    if (this.userRole === 'mentor') {
-      console.log('✅ [MENTOR-SETUP] Mentor mode enabled - will use receiver fallback if ontrack doesn\'t fire');
-    }
 
     this.peerConnections.set(peerId, peerConnection);
     return peerConnection;
+  }
+
+  private flushIceQueue(peerId: string) {
+    const queue = this.pendingIceCandidates.get(peerId);
+    if (!queue || queue.length === 0) return;
+    const pc = this.peerConnections.get(peerId);
+    if (!pc) return;
+    console.log(`🧊 Flushing ${queue.length} queued ICE candidates for ${peerId}`);
+    queue.forEach(async (candidate) => {
+      try {
+        await pc.addIceCandidate(candidate);
+        console.log('✅ Flushed queued ICE candidate');
+      } catch (e) {
+        console.warn('⚠️ Error flushing ICE candidate', e);
+      }
+    });
+    this.pendingIceCandidates.set(peerId, []);
   }
 
   private closePeerConnection(peerId: string) {
@@ -1209,13 +900,16 @@ export class WebRTCService {
   }
 
   // Callback setters
+  setOnConnectionStatus(callback: (status: string) => void) {
+    this.connectionStatusListeners.push(callback);
+  }
+
   setOnLocalStream(callback: (stream: MediaStream) => void) {
     this.onLocalStream = callback;
   }
 
   setOnRemoteStream(callback: (stream: MediaStream, peerId: string) => void) {
     console.log('🔔 [CALLBACK SET] setOnRemoteStream called');
-    console.log('📋 Callback type:', typeof callback);
     console.log('📋 Callback function:', callback.toString().substring(0, 200) + '...');
     this.onRemoteStream = callback;
     console.log('✅ [CALLBACK SET] onRemoteStream callback now assigned');
