@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/services/api';
 import { GlowingButton, GlowingInput, GlowingSelect, GlowingCard, LoadingSpinner } from '@/components/ui/GlowingComponents';
+import { formatSessionDateTime } from '@/utils/formatDateTime';
 
 export default function CreateSessionPage() {
   const router = useRouter();
@@ -23,6 +24,14 @@ export default function CreateSessionPage() {
   const [frequency, setFrequency] = useState<'weekly' | 'biweekly' | 'monthly'>('weekly');
   const [occurrences, setOccurrences] = useState(4);
   const [skippedDates, setSkippedDates] = useState<string[]>([]);
+
+  // datetime-local's `min` needs local-time "YYYY-MM-DDTHH:mm", not an ISO
+  // string, to actually block past selections in the native picker.
+  const minScheduledAt = (() => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
+  })();
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -46,6 +55,11 @@ export default function CreateSessionPage() {
 
     if (isRecurring && !formData.scheduled_at) {
       setError('Please choose a start date/time for the recurring series');
+      return;
+    }
+
+    if (formData.scheduled_at && new Date(formData.scheduled_at).getTime() <= Date.now()) {
+      setError('Start date/time must be in the future');
       return;
     }
 
@@ -141,6 +155,7 @@ export default function CreateSessionPage() {
                 onChange={handleChange}
                 disabled={loading}
                 required={isRecurring}
+                min={minScheduledAt}
                 className="w-full px-4 py-3 bg-white dark:bg-dark-800/50 border border-gray-300 dark:border-gray-700/50 rounded-lg text-gray-900 dark:text-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/50 transition-all duration-200"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -266,7 +281,7 @@ export default function CreateSessionPage() {
                 <p className="font-medium mb-1">Series created, but {skippedDates.length} slot(s) were skipped due to conflicts:</p>
                 <ul className="list-disc pl-5 space-y-0.5">
                   {skippedDates.map((d) => (
-                    <li key={d}>{new Date(d).toLocaleString()}</li>
+                    <li key={d}>{formatSessionDateTime(d)}</li>
                   ))}
                 </ul>
                 <GlowingButton variant="primary" type="button" onClick={() => router.push('/dashboard')}>

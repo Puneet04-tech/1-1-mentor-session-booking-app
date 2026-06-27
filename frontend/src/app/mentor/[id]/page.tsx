@@ -5,12 +5,14 @@ import Link from 'next/link';
 import { useParams, notFound } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/services/api';
-import { User, Session } from '@/types';
+import { socketService } from '@/services/socket';
+import { User, Session, SocketEvents } from '@/types';
 import {
   GlowingButton,
   GlowingCard,
   Badge,
   LoadingSpinner,
+  ErrorRetryBanner,
 } from '@/components/ui/GlowingComponents';
 import { RatingsSection } from '@/components/RatingsSection';
 
@@ -43,7 +45,7 @@ function formatTime(t: string): string {
 export default function MentorProfilePage() {
   const params = useParams();
   const mentorId = params.id as string;
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, token, isAuthenticated, isLoading: authLoading } = useAuth();
   const [mentor, setMentor] = useState<User | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [ratings, setRatings] = useState<Rating[]>([]);
@@ -52,59 +54,115 @@ export default function MentorProfilePage() {
   const [totalReviews, setTotalReviews] = useState(0);
   const [loading, setLoading] = useState(true);
   const [notFoundError, setNotFoundError] = useState(false);
+  const [fetchError, setFetchError] = useState('');
+
+  // Re-fetches just the availability/sessions data, without touching the
+  // mentor/ratings state — used both on initial mount and whenever the
+  // server tells us this mentor's availability changed elsewhere (a
+  // booking or cancellation by another viewer).
+  const refetchAvailability = async () => {
+    const [availResult, sessionsResult] = await Promise.allSettled([
+      apiClient.getMentorAvailability(mentorId),
+      apiClient.getAvailableSessions(),
+    ]);
+
+    if (availResult.status === 'fulfilled') {
+      setAvailability((availResult.value as any).data || []);
+    }
+
+    if (sessionsResult.status === 'fulfilled') {
+      const all = (sessionsResult.value as any).data || [];
+      setSessions(all.filter((s: Session) => s.mentor_id === mentorId));
+    }
+  };
 
   useEffect(() => {
     if (!mentorId) return;
+    fetchData();
+  }, [mentorId]);
 
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const mentorRes = await apiClient.getUser(mentorId);
-        const mentorData = mentorRes.data;
+  const fetchData = async () => {
+    setLoading(true);
+    setFetchError('');
+    try {
+      const mentorRes = await apiClient.getUser(mentorId);
+      const mentorData = mentorRes.data;
 
-        if (!mentorData || mentorData.role !== 'mentor') {
-          setNotFoundError(true);
-          return;
-        }
-        setMentor(mentorData);
-        setAvgRating(Number(mentorData.avg_rating ?? 0));
-        setTotalReviews(Number(mentorData.total_sessions ?? 0));
-
-        const [ratingsResult, availResult, sessionsResult] = await Promise.allSettled([
-          apiClient.getRatings(mentorId),
-          apiClient.getMentorAvailability(mentorId),
-          apiClient.getAvailableSessions(),
-        ]);
-
-        if (ratingsResult.status === 'fulfilled') {
-          const r = ratingsResult.value as any;
-          setRatings((r.data || []).slice(0, 5));
-          if (r.avg_rating !== undefined) setAvgRating(Number(r.avg_rating));
-          if (r.total_reviews !== undefined) setTotalReviews(Number(r.total_reviews));
-        }
-
-        if (availResult.status === 'fulfilled') {
-          setAvailability((availResult.value as any).data || []);
-        }
-
-        if (sessionsResult.status === 'fulfilled') {
-          const all = (sessionsResult.value as any).data || [];
-          setSessions(all.filter((s: Session) => s.mentor_id === mentorId));
-        }
-      } catch {
+      if (!mentorData || mentorData.role !== 'mentor') {
         setNotFoundError(true);
-      } finally {
-        setLoading(false);
+        return;
+      }
+      setMentor(mentorData);
+      setAvgRating(Number(mentorData.avg_rating ?? 0));
+      setTotalReviews(Number(mentorData.total_sessions ?? 0));
+
+      const ratingsResult = await apiClient.getRatings(mentorId).catch(() => null);
+      if (ratingsResult) {
+        const r = ratingsResult as any;
+        setRatings((r.data || []).slice(0, 5));
+        if (r.avg_rating !== undefined) setAvgRating(Number(r.avg_rating));
+        if (r.total_reviews !== undefined) setTotalReviews(Number(r.total_reviews));
+      }
+
+      await refetchAvailability();
+    } catch (err: any) {
+      // A failed request here (network error, 5xx, etc.) is not the same as
+      // the mentor genuinely not existing — surface a retryable error
+      // instead of routing into Next's 404 page.
+      console.error('Error fetching mentor profile:', err);
+      setFetchError(err.response?.data?.error || err.message || 'Failed to load mentor profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Watch this mentor's availability for live changes (booking/cancellation
+  // by anyone, in any tab) so the slot list doesn't go stale until a reload.
+  useEffect(() => {
+    if (!mentorId || !isAuthenticated || !token) return;
+
+    if (!socketService.isConnected()) {
+      socketService.connect(token);
+    }
+
+    socketService.watchMentorAvailability(mentorId);
+
+    const handleAvailabilityChanged = (data: SocketEvents['mentor:availability-changed']) => {
+      if (data.mentorId === mentorId) {
+        refetchAvailability();
       }
     };
 
-    fetchData();
-  }, [mentorId]);
+    socketService.on('mentor:availability-changed', handleAvailabilityChanged);
+
+    return () => {
+      socketService.off('mentor:availability-changed', handleAvailabilityChanged);
+      socketService.unwatchMentorAvailability(mentorId);
+    };
+  }, [mentorId, isAuthenticated, token]);
 
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950 flex items-center justify-center">
         <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950">
+        <header className="border-b border-gray-200 dark:border-gray-700/30 backdrop-blur-sm">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <h1 className="text-2xl font-bold gradient-text">Mentor Profile</h1>
+            <Link href="/browse">
+              <GlowingButton variant="outline" className="text-sm">Back to Browse</GlowingButton>
+            </Link>
+          </div>
+        </header>
+        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <ErrorRetryBanner message={fetchError} onRetry={fetchData} />
+        </main>
       </div>
     );
   }

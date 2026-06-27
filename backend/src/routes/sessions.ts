@@ -5,6 +5,11 @@ import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import { requireRole } from '@/middleware/requireRole';
 import { v4 as uuidv4 } from 'uuid';
 import { sendEmail } from '@/services/emailService';
+import { resolveJoinDecision } from '@/utils/sessionBooking';
+import { mentorAvailabilityRoom } from '@/socket/handlers/mentorAvailability';
+import { isWithinCancellationWindow } from '@/utils/cancellationPolicy';
+import { validateSessionInput } from '@/utils/sessionValidation';
+import { formatSessionTime } from '@/utils/formatSessionTime';
 
 class HttpError extends Error {
   constructor(public statusCode: number, message: string) {
@@ -27,6 +32,11 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
   try {
     const { title, description, topic, scheduled_at, duration_minutes, language, code_language, recording_enabled } =
       req.body;
+
+    const validation = validateSessionInput({ title, scheduled_at, duration_minutes });
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
 
     const sessionId = uuidv4();
     const now = new Date().toISOString();
@@ -165,20 +175,14 @@ router.post('/:id/join', authMiddleware, requireRole('student'), async (req: Aut
 
       const session = lockResult.rows[0];
 
-      if (session.mentor_id === studentId) {
-        throw new HttpError(400, 'Mentors cannot join their own sessions');
+      const decision = resolveJoinDecision(session, studentId as string);
+
+      if (decision.action === 'reject') {
+        throw new HttpError(decision.status, decision.error);
       }
 
-      if (session.status === 'completed' || session.status === 'cancelled') {
-        throw new HttpError(400, 'This session is no longer available to join');
-      }
-
-      if (session.student_id === studentId) {
+      if (decision.action === 'noop') {
         return { session, justBooked: false };
-      }
-
-      if (session.student_id) {
-        throw new HttpError(409, 'This session has already been joined by another student');
       }
 
       await client.query(
@@ -209,11 +213,11 @@ router.post('/:id/join', authMiddleware, requireRole('student'), async (req: Aut
     // transition (not on idempotent re-joins of an already-booked session).
     if (justBooked) {
       const participants = await query(
-        `SELECT id, name, email, email_notifications_enabled FROM users WHERE id = ANY($1::uuid[])`,
+        `SELECT id, name, email, email_notifications_enabled, timezone FROM users WHERE id = ANY($1::uuid[])`,
         [[sessionData.mentor_id, sessionData.student_id]]
       );
       const joinLink = `${process.env.CLIENT_URL}/session/${sessionData.id}`;
-      for (const p of participants.rows as { id: string; name: string; email: string; email_notifications_enabled: boolean }[]) {
+      for (const p of participants.rows as { id: string; name: string; email: string; email_notifications_enabled: boolean; timezone?: string }[]) {
         if (p.email_notifications_enabled === false) continue;
         const otherParty = participants.rows.find((u: any) => u.id !== p.id);
         await sendEmail(
@@ -225,9 +229,18 @@ router.post('/:id/join', authMiddleware, requireRole('student'), async (req: Aut
             sessionTitle: sessionData.title as string,
             sessionTopic: sessionData.topic as string | undefined,
             scheduledAt: sessionData.scheduled_at as string | undefined,
+            recipientTimezone: p.timezone,
             joinLink,
           })
         );
+      }
+
+      // Notify anyone currently viewing this mentor's profile that the slot
+      // they're looking at is gone, so they don't need to reload to see it.
+      if (io) {
+        io.to(mentorAvailabilityRoom(sessionData.mentor_id as string)).emit('mentor:availability-changed', {
+          mentorId: sessionData.mentor_id,
+        });
       }
     }
 
@@ -578,9 +591,10 @@ function buildBookingConfirmationEmailHTML(params: {
   sessionTitle: string;
   sessionTopic?: string;
   scheduledAt?: string;
+  recipientTimezone?: string;
   joinLink: string;
 }): string {
-  const { recipientName, otherPartyName, sessionTitle, sessionTopic, scheduledAt, joinLink } = params;
+  const { recipientName, otherPartyName, sessionTitle, sessionTopic, scheduledAt, recipientTimezone, joinLink } = params;
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -615,7 +629,7 @@ function buildBookingConfirmationEmailHTML(params: {
           <div class="lbl">Session</div>
           <div class="val">${sessionTitle}</div>
           ${sessionTopic ? `<div class="lbl">Topic</div><div class="val">${sessionTopic}</div>` : ''}
-          ${scheduledAt ? `<div class="lbl">Scheduled Time</div><div class="val">${new Date(scheduledAt).toLocaleString()}</div>` : ''}
+          ${scheduledAt ? `<div class="lbl">Scheduled Time</div><div class="val">${formatSessionTime(new Date(scheduledAt), recipientTimezone)}</div>` : ''}
         </div>
         <a href="${joinLink}" class="btn">🚀 View Session</a>
       </div>
@@ -703,14 +717,10 @@ router.post('/:id/cancel', authMiddleware, async (req: AuthRequest, res: Respons
       });
     }
 
-    if (session.scheduled_at) {
-      const hoursUntil =
-        (new Date(session.scheduled_at as string).getTime() - Date.now()) / (1000 * 60 * 60);
-      if (hoursUntil < minNoticeHours) {
-        return res.status(400).json({
-          error: `Sessions must be cancelled at least ${minNoticeHours} hours before they start`,
-        });
-      }
+    if (session.scheduled_at && isWithinCancellationWindow(session.scheduled_at as string, minNoticeHours)) {
+      return res.status(400).json({
+        error: `Sessions must be cancelled at least ${minNoticeHours} hours before they start`,
+      });
     }
 
     const now = new Date().toISOString();
@@ -751,6 +761,12 @@ router.post('/:id/cancel', authMiddleware, async (req: AuthRequest, res: Respons
       if (session.mentor_id) io.to(session.mentor_id as string).emit('session:cancelled', payload);
       if (session.student_id) io.to(session.student_id as string).emit('session:cancelled', payload);
       io.to(`session:${id}`).emit('session:cancelled', payload);
+
+      // Cancelling frees up this mentor's slot again — tell anyone watching
+      // the mentor's profile so it doesn't show stale "booked" state.
+      io.to(mentorAvailabilityRoom(session.mentor_id as string)).emit('mentor:availability-changed', {
+        mentorId: session.mentor_id,
+      });
     }
 
     return res.status(200).json({
