@@ -1,19 +1,38 @@
 import { Router, Response } from 'express';
 import jwt, { Secret, SignOptions } from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import { config } from '@/config';
 import { v4 as uuidv4 } from 'uuid';
+
+// Rate limiter for login: 10 attempts per 15 minutes per IP
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,  // Return RateLimit-* headers (RFC 6585)
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again after 15 minutes.' },
+});
+
+// Rate limiter for signup: 5 accounts per hour per IP
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many accounts created from this IP. Please try again after an hour.' },
+});
 
 const router = Router();
 const jwtSecret: Secret = config.JWT_SECRET as Secret;
 const jwtOptions: SignOptions = { expiresIn: config.JWT_EXPIRY as any };
 
 // Signup
-router.post('/signup',  async (req: AuthRequest, res: Response) => {
+router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) => {
   try {
-    const { email, password, name, role } = req.body;
+    const { email, password, name, role, timezone } = req.body;
 
     // Validate input
     if (!email || !password || !name || !role) {
@@ -23,6 +42,21 @@ router.post('/signup',  async (req: AuthRequest, res: Response) => {
     // Validate password strength (minimum 8 characters)
     if (password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters long' });
+    }
+
+    // Validate role - never trust client input blindly
+    if (!['mentor', 'student'].includes(role)) {
+      return res.status(400).json({ error: "Invalid role. Must be 'mentor' or 'student'." });
+    }
+
+    let resolvedTimezone = 'UTC';
+    if (timezone) {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+        resolvedTimezone = timezone;
+      } catch {
+        return res.status(400).json({ error: 'Invalid timezone' });
+      }
     }
 
     // Check if user exists
@@ -44,9 +78,9 @@ router.post('/signup',  async (req: AuthRequest, res: Response) => {
 
     // Create user in users table
     await query(
-      `INSERT INTO users (id, email, name, role, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [userId, email, name, role, now, now]
+      `INSERT INTO users (id, email, name, role, timezone, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [userId, email, name, role, resolvedTimezone, now, now]
     );
     console.log('✅ User created:', { id: userId, email, role });
 
@@ -69,7 +103,7 @@ router.post('/signup',  async (req: AuthRequest, res: Response) => {
       success: true,
       message: 'Signup successful',
       data: {
-        user: { id: userId, email, name, role },
+        user: { id: userId, email, name, role, timezone: resolvedTimezone },
         token,
       },
     });
@@ -80,7 +114,7 @@ router.post('/signup',  async (req: AuthRequest, res: Response) => {
 });
 
 // Login
-router.post('/login', async (req: AuthRequest, res: Response) => {
+router.post('/login', loginLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const { email, password } = req.body;
 
@@ -90,7 +124,7 @@ router.post('/login', async (req: AuthRequest, res: Response) => {
 
     // Find user
     const user = await queryOne(
-      'SELECT id, email, name, role FROM users WHERE email = $1',
+      'SELECT id, email, name, role, timezone, is_suspended, suspension_reason FROM users WHERE email = $1',
       [email]
     );
 
@@ -120,6 +154,15 @@ router.post('/login', async (req: AuthRequest, res: Response) => {
 
     console.log('✅ Password verified successfully for user:', email);
 
+    if (user.is_suspended) {
+      console.warn('⚠️  Login attempt for suspended user:', email);
+      return res.status(403).json({
+        error: user.suspension_reason
+          ? `Account suspended: ${user.suspension_reason}`
+          : 'Account suspended',
+      });
+    }
+
     // Generate JWT token
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
@@ -145,7 +188,7 @@ router.post('/login', async (req: AuthRequest, res: Response) => {
 router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const user = await queryOne(
-      'SELECT id, email, name, role FROM users WHERE id = $1',
+      'SELECT id, email, name, role, timezone FROM users WHERE id = $1',
       [req.user?.id]
     );
 

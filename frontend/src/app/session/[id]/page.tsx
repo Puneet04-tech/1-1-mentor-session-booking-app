@@ -3,13 +3,20 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { webrtcService } from '@/services/webrtc';
-import { apiClient } from '@/services/api';
+import { apiClient, resolveServerUrl } from '@/services/api';
 import { socketService } from '@/services/socket';
 import { setupVideoDebug } from '@/services/webrtcDebug';
 import { webrtcDiagnostics } from '@/services/webrtcDiagnostics';
 import { useSessionStore, useEditorStore, useVideoStore, useAuthStore } from '@/store';
 import { GlowingButton, GlowingCard, Badge, Avatar } from '@/components/ui/GlowingComponents';
 import { CollaborativeEditor } from '@/components/CollaborativeEditor';
+import { Whiteboard } from '@/components/Whiteboard';
+import { PostSessionFeedbackModal } from '@/components/PostSessionFeedbackModal';
+import { RecordingConsentModal } from '@/components/RecordingConsentModal';
+import { RecordingIndicator } from '@/components/RecordingIndicator';
+import { RecordingToast } from '@/components/RecordingToast';
+import { useRecorder } from '@/hooks/useRecorder';
+import { MessageAttachment } from '@/types';
 import dynamic from 'next/dynamic';
 
 // Configure Monaco Editor - disable workers to avoid network errors
@@ -49,7 +56,11 @@ export default function SessionPage() {
   const [loading, setLoading] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [cameraError, setCameraError] = useState<string>('');
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratingMentorName, setRatingMentorName] = useState('your mentor');
+  const [ratingMentorAvatar, setRatingMentorAvatar] = useState<string | undefined>(undefined);
   const messageEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const listenerRef = useRef<any>(null);
 
   const {
@@ -60,7 +71,7 @@ export default function SessionPage() {
   } = useSessionStore();
 
   const { code, language, setCode, setLanguage, executionOutput } = useEditorStore();
-  const { isCameraOn, isMicOn } = useVideoStore(); // Remove screen share from global store
+  const { isCameraOn, isMicOn, localStream, setLocalStream } = useVideoStore(); // Remove screen share from global store
   const currentUser = useAuthStore((state) => state.user);
 
   // Ref for video elements
@@ -84,6 +95,38 @@ export default function SessionPage() {
   const [remoteUserName, setRemoteUserName] = useState<string | null>(null);
   const [showDebugInfo, setShowDebugInfo] = useState(false);
   const [pendingStreamCounter, setPendingStreamCounter] = useState(0);
+
+  // Left panel tab (code editor vs whiteboard) — both stay mounted so
+  // whiteboard strokes and editor content survive switching back and forth.
+  const [leftPanelTab, setLeftPanelTab] = useState<'code' | 'whiteboard'>('code');
+
+  // Chat attachment state
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [attachmentError, setAttachmentError] = useState('');
+
+  // Recording state
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [consentRequesterName, setConsentRequesterName] = useState('');
+  const [awaitingConsent, setAwaitingConsent] = useState(false);
+  const [recordingToasts, setRecordingToasts] = useState<{ id: number; message: string }[]>([]);
+
+  const {
+    recordingState,
+    isRecording,
+    downloadUrl,
+    downloadFilename,
+    startRecording,
+    stopRecording,
+    revokeDownloadUrl,
+  } = useRecorder(localStream);
+
+  const showRecordingToast = useCallback((message: string) => {
+    const id = Date.now();
+    setRecordingToasts((prev) => [...prev, { id, message }]);
+    setTimeout(() => {
+      setRecordingToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
 
   // Setup diagnostics and services in global window (FIRST - before anything else)
   useEffect(() => {
@@ -461,6 +504,8 @@ export default function SessionPage() {
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = localStream;
         }
+        localStreamRef.current = localStream;
+        setLocalStream(localStream);
 
         // Initiate WebRTC connection
         console.log('🔗 Checking if should initiate WebRTC connection...');
@@ -505,6 +550,26 @@ export default function SessionPage() {
     }
   }, [currentUser, sessionId]);
 
+  // If the session is completed and the current user is the student who
+  // hasn't reviewed it yet, prompt them with the post-session rating modal.
+  const checkSessionCompletion = async (sessionData: any) => {
+    const user = useAuthStore.getState().user;
+    if (!sessionData || sessionData.status !== 'completed') return;
+    if (!user || user.role !== 'student' || sessionData.student_id !== user.id) return;
+
+    try {
+      const ratingRes = await apiClient.getSessionRating(sessionId);
+      if (!ratingRes.data) {
+        const mentorRes = await apiClient.getUser(sessionData.mentor_id);
+        setRatingMentorName(mentorRes.data?.name || 'your mentor');
+        setRatingMentorAvatar(mentorRes.data?.avatar_url ?? undefined);
+        setShowRatingModal(true);
+      }
+    } catch (err) {
+      console.error('Error checking session rating:', err);
+    }
+  };
+
   useEffect(() => {
     const fetchSession = async () => {
       setLoading(true);
@@ -513,6 +578,7 @@ export default function SessionPage() {
         if (res.data) {
           setSession(res.data as Session);
           setCurrentSession(res.data);
+          checkSessionCompletion(res.data);
         }
 
         const messagesRes = await apiClient.getMessages(sessionId);
@@ -639,12 +705,26 @@ export default function SessionPage() {
       }
     };
 
+    // Handler for the "session ended" notification - lets the student see the
+    // rating modal in real time if the mentor ends the session first
+    const handleSessionEndNotification = (notification: any) => {
+      if (notification?.type === 'session_end' && notification?.data?.sessionId === sessionId) {
+        apiClient.getSession(sessionId).then((res) => {
+          if (res.data) {
+            setSession(res.data as Session);
+            checkSessionCompletion(res.data);
+          }
+        });
+      }
+    };
+
     // Register listeners FIRST before joining session
     socketService.on('code:update', handleCodeUpdate);
     socketService.on('message:receive', handleMessageReceive);
     socketService.on('code:execution:result', handleExecutionResult);
     socketService.on('screen:started', handleScreenShareStarted);
     socketService.on('screen:stopped', handleScreenShareStopped);
+    socketService.on('notification:received', handleSessionEndNotification);
 
     // Wait for socket to connect, then join session
     const joinWithRetry = async () => {
@@ -676,6 +756,7 @@ export default function SessionPage() {
         socketService.off('code:execution:result', handleExecutionResult);
         socketService.off('screen:started', handleScreenShareStarted);
         socketService.off('screen:stopped', handleScreenShareStopped);
+        socketService.off('notification:received', handleSessionEndNotification);
       },
     };
 
@@ -690,6 +771,46 @@ export default function SessionPage() {
       }
     };
   }, [sessionId]);
+
+  // Recording: respond to consent prompts/results from the other participant
+  useEffect(() => {
+    const handleConsentPrompt = ({ requesterName }: { requesterName: string }) => {
+      setConsentRequesterName(requesterName);
+      setShowConsentModal(true);
+    };
+
+    const handleConsentResult = ({ granted }: { granted: boolean }) => {
+      setAwaitingConsent(false);
+      if (granted) {
+        startRecording(sessionId);
+        showRecordingToast('🔴 Recording started');
+      } else {
+        showRecordingToast('Recording declined');
+      }
+    };
+
+    const handleStoppedByPeer = () => {
+      stopRecording();
+      showRecordingToast('Recording stopped by other participant');
+    };
+
+    socketService.on('recording:consent-prompt', handleConsentPrompt);
+    socketService.on('recording:consent-result', handleConsentResult);
+    socketService.on('recording:stopped-by-peer', handleStoppedByPeer);
+
+    return () => {
+      socketService.off('recording:consent-prompt', handleConsentPrompt);
+      socketService.off('recording:consent-result', handleConsentResult);
+      socketService.off('recording:stopped-by-peer', handleStoppedByPeer);
+    };
+  }, [sessionId, startRecording, stopRecording, showRecordingToast]);
+
+  // Revoke the recording object URL whenever it changes or the page unmounts
+  useEffect(() => {
+    return () => {
+      revokeDownloadUrl();
+    };
+  }, [revokeDownloadUrl]);
 
   // Update video element when camera state changes
   useEffect(() => {
@@ -718,9 +839,9 @@ export default function SessionPage() {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSendMessage = async (content: string) => {
-    console.log('📤 Sending message:', content);
-    
+  const handleSendMessage = async (content: string, attachment?: MessageAttachment) => {
+    console.log('📤 Sending message:', content, attachment);
+
     if (!socketService.isConnected()) {
       console.error('❌ Socket not connected');
       return;
@@ -739,6 +860,7 @@ export default function SessionPage() {
       user_id: currentUser.id,
       content,
       type: 'text',
+      attachment,
       created_at: new Date().toISOString(),
       user: {
         name: currentUser.name,
@@ -755,7 +877,44 @@ export default function SessionPage() {
 
     // Send message to server (deduplication will handle server response)
     console.log('📡 Calling socketService.sendMessage');
-    socketService.sendMessage(content);
+    socketService.sendMessage(content, attachment);
+  };
+
+  const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB, matches the backend limit
+  const ALLOWED_ATTACHMENT_TYPES = [
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    'application/pdf', 'text/plain',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/zip',
+  ];
+
+  const handleFileAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    if (file.size > MAX_ATTACHMENT_SIZE) {
+      setAttachmentError('File exceeds the 10MB size limit');
+      return;
+    }
+    if (!ALLOWED_ATTACHMENT_TYPES.includes(file.type)) {
+      setAttachmentError(`Unsupported file type: ${file.type || 'unknown'}`);
+      return;
+    }
+
+    setAttachmentError('');
+    setUploadingAttachment(true);
+    try {
+      const res = await apiClient.uploadChatFile(file);
+      if (res.data) {
+        handleSendMessage(res.data.name, res.data);
+      }
+    } catch (err: any) {
+      setAttachmentError(err?.response?.data?.error || 'Failed to upload file');
+    } finally {
+      setUploadingAttachment(false);
+    }
   };
 
   const handleCodeChange = (value: string | undefined) => {
@@ -968,10 +1127,33 @@ export default function SessionPage() {
     }
   };
 
+  const handleRequestRecording = () => {
+    setAwaitingConsent(true);
+    socketService.emit('recording:request', {
+      sessionId,
+      requesterName: currentUser?.name || 'User',
+    });
+  };
+
+  const handleConsentGranted = () => {
+    setShowConsentModal(false);
+    socketService.emit('recording:consent', { sessionId, granted: true });
+  };
+
+  const handleConsentDeclined = () => {
+    setShowConsentModal(false);
+    socketService.emit('recording:consent', { sessionId, granted: false });
+  };
+
+  const handleStopRecording = () => {
+    stopRecording();
+    socketService.emit('recording:stop', { sessionId });
+  };
+
   const handleEndSession = async () => {
     try {
       await apiClient.endSession(sessionId);
-      socketService.endSession(sessionId);
+      socketService.endSession(sessionId, session?.mentor_id, session?.student_id);
       // Navigate back to dashboard
       window.location.href = '/dashboard';
     } catch (err) {
@@ -1057,8 +1239,9 @@ export default function SessionPage() {
           </div>
           <div className="flex items-center gap-4">
             <Badge color="purple">{session?.status}</Badge>
-            <GlowingButton 
-              variant="outline" 
+            {isRecording && <RecordingIndicator onStop={handleStopRecording} />}
+            <GlowingButton
+              variant="outline"
               className="text-sm bg-white dark:bg-transparent"
               onClick={handleEndSession}
             >
@@ -1073,48 +1256,79 @@ export default function SessionPage() {
         {/* Code Editor - Takes full height on mobile, 2/3 on large screens */}
         <div className="lg:col-span-2 flex flex-col bg-white dark:bg-dark-900/40 rounded-lg border border-gray-200 dark:border-gray-700/30 overflow-hidden min-h-[40vh] lg:min-h-0">
           <div className="px-2 md:px-4 py-2 md:py-3 border-b border-gray-200 dark:border-gray-700/30 flex flex-col md:flex-row justify-between items-start md:items-center gap-2 flex-shrink-0">
-            <h2 className="text-base md:text-lg font-bold text-gray-900 dark:text-white">Code Editor</h2>
-            <div className="flex items-center gap-1 md:gap-2 w-full md:w-auto">
-              <select
-                value={language}
-                onChange={(e) => handleLanguageChange(e.target.value)}
-                className="px-2 md:px-3 py-1 bg-white dark:bg-dark-800 border border-gray-300 dark:border-gray-700/50 rounded text-xs md:text-sm text-gray-900 dark:text-white flex-1 md:flex-none"
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setLeftPanelTab('code')}
+                className={`px-3 py-1.5 rounded text-sm font-medium ${
+                  leftPanelTab === 'code'
+                    ? 'bg-primary-500 text-white'
+                    : 'text-gray-600 dark:text-gray-400'
+                }`}
               >
-                <option value="javascript" className="bg-white dark:bg-dark-900 text-gray-900 dark:text-white">JavaScript</option>
-                <option value="python" className="bg-white dark:bg-dark-900 text-gray-900 dark:text-white">Python</option>
-                <option value="typescript" className="bg-white dark:bg-dark-900 text-gray-900 dark:text-white">TypeScript</option>
-                <option value="java" className="bg-white dark:bg-dark-900 text-gray-900 dark:text-white">Java</option>
-                <option value="cpp" className="bg-white dark:bg-dark-900 text-gray-900 dark:text-white">C++</option>
-              </select>
-              <GlowingButton 
-                variant="secondary" 
-                className="text-xs md:text-sm flex-1 md:flex-none"
-                onClick={handleRunCode}
+                Code Editor
+              </button>
+              <button
+                onClick={() => setLeftPanelTab('whiteboard')}
+                className={`px-3 py-1.5 rounded text-sm font-medium ${
+                  leftPanelTab === 'whiteboard'
+                    ? 'bg-primary-500 text-white'
+                    : 'text-gray-600 dark:text-gray-400'
+                }`}
               >
-                ▶ Run
-              </GlowingButton>
+                🖊️ Whiteboard
+              </button>
             </div>
+            {leftPanelTab === 'code' && (
+              <div className="flex items-center gap-1 md:gap-2 w-full md:w-auto">
+                <select
+                  value={language}
+                  onChange={(e) => handleLanguageChange(e.target.value)}
+                  className="px-2 md:px-3 py-1 bg-white dark:bg-dark-800 border border-gray-300 dark:border-gray-700/50 rounded text-xs md:text-sm text-gray-900 dark:text-white flex-1 md:flex-none"
+                >
+                  <option value="javascript" className="bg-white dark:bg-dark-900 text-gray-900 dark:text-white">JavaScript</option>
+                  <option value="python" className="bg-white dark:bg-dark-900 text-gray-900 dark:text-white">Python</option>
+                  <option value="typescript" className="bg-white dark:bg-dark-900 text-gray-900 dark:text-white">TypeScript</option>
+                  <option value="java" className="bg-white dark:bg-dark-900 text-gray-900 dark:text-white">Java</option>
+                  <option value="cpp" className="bg-white dark:bg-dark-900 text-gray-900 dark:text-white">C++</option>
+                </select>
+                <GlowingButton
+                  variant="secondary"
+                  className="text-xs md:text-sm flex-1 md:flex-none"
+                  onClick={handleRunCode}
+                >
+                  ▶ Run
+                </GlowingButton>
+              </div>
+            )}
           </div>
           <div className="flex-1 min-h-0 overflow-hidden">
-            {/* 
-              CollaborativeEditor with CRDT (Yjs)
-              - Real-time code sync using Operational Transformation
-              - Multiple users can edit simultaneously without conflicts
-              - Automatic conflict resolution at character level
-              - Preserves cursor positions for remote users
+            {/*
+              Both panels stay mounted (toggled via CSS display) so the Yjs
+              connection and whiteboard canvas strokes survive tab switches
+              instead of being torn down and reset.
             */}
-            <CollaborativeEditor
-              sessionId={sessionId}
-              userId={currentUser?.id || 'unknown'}
-              userName={currentUser?.name}
-              userEmail={currentUser?.email}
-              initialCode={code}
-              language={language}
-              theme="vs-dark"
-              onCodeChange={handleCodeChange}
-              height="100%"
-              wsUrl={process.env.NEXT_PUBLIC_COLLAB_WS_URL || 'ws://localhost:1234'}
-            />
+            <div style={{ display: leftPanelTab === 'code' ? 'block' : 'none', height: '100%' }}>
+              {/*
+                CollaborativeEditor with CRDT (Yjs)
+                - Real-time code sync using Operational Transformation
+                - Multiple users can edit simultaneously without conflicts
+                - Automatic conflict resolution at character level
+                - Preserves cursor positions for remote users
+              */}
+              <CollaborativeEditor
+                sessionId={sessionId}
+                userId={currentUser?.id || 'unknown'}
+                userName={currentUser?.name}
+                userEmail={currentUser?.email}
+                initialCode={code}
+                language={language}
+                theme="vs-dark"
+                onCodeChange={handleCodeChange}
+                height="100%"
+                wsUrl={process.env.NEXT_PUBLIC_COLLAB_WS_URL || 'ws://localhost:1234'}
+              />
+            </div>
+            <Whiteboard sessionId={sessionId} active={leftPanelTab === 'whiteboard'} />
           </div>
         </div>
 
@@ -1232,15 +1446,42 @@ export default function SessionPage() {
               >
                 {isAudioEnabled ? '🎤' : '🔇'} Audio
               </GlowingButton>
-              <GlowingButton 
-                variant="secondary" 
+              <GlowingButton
+                variant="secondary"
                 className="text-xs flex-1 py-1 md:py-2 min-w-[100px]"
                 onClick={handleToggleScreenShare}
               >
                 {isScreenSharingActive ? '🛑 Stop' : '🖥️ Share'}
               </GlowingButton>
-              <GlowingButton 
-                variant="secondary" 
+              {recordingState === 'idle' && !awaitingConsent && (
+                <GlowingButton
+                  variant="secondary"
+                  className="text-xs flex-1 py-1 md:py-2 min-w-[80px] bg-red-500/20 hover:bg-red-500/30"
+                  onClick={handleRequestRecording}
+                >
+                  🔴 Record
+                </GlowingButton>
+              )}
+              {awaitingConsent && (
+                <GlowingButton
+                  variant="secondary"
+                  disabled
+                  className="text-xs flex-1 py-1 md:py-2 min-w-[80px] opacity-70 cursor-wait"
+                >
+                  ⏳ Waiting...
+                </GlowingButton>
+              )}
+              {downloadUrl && (
+                <a
+                  href={downloadUrl}
+                  download={downloadFilename}
+                  className="flex items-center justify-center text-xs flex-1 py-1 md:py-2 min-w-[80px] px-6 rounded-lg font-semibold transition-all duration-300 bg-gradient-to-r from-secondary-600 to-secondary-500 text-white hover:shadow-glow-green hover:from-secondary-500 hover:to-secondary-400 dark:from-secondary-600 dark:to-secondary-500"
+                >
+                  ⬇️ Download
+                </a>
+              )}
+              <GlowingButton
+                variant="secondary"
                 className="text-xs flex-1 py-1 md:py-2 min-w-[60px] bg-yellow-500/20 hover:bg-yellow-500/30"
                 onClick={() => setShowDebugInfo(!showDebugInfo)}
               >
@@ -1312,15 +1553,56 @@ export default function SessionPage() {
               {messages.map((msg) => (
                 <div key={msg.id} className="flex gap-2">
                   <Avatar name={msg.user?.name || 'User'} size="sm" />
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-semibold text-gray-900 dark:text-white text-xs">{msg.user?.name}</p>
-                    <p className="text-gray-700 dark:text-gray-300 break-words text-xs md:text-sm">{msg.content}</p>
+                    {msg.content && (
+                      <p className="text-gray-700 dark:text-gray-300 break-words text-xs md:text-sm">{msg.content}</p>
+                    )}
+                    {msg.attachment && (
+                      msg.attachment.type.startsWith('image/') ? (
+                        <a href={resolveServerUrl(msg.attachment.url)} target="_blank" rel="noopener noreferrer">
+                          <img
+                            src={resolveServerUrl(msg.attachment.url)}
+                            alt={msg.attachment.name}
+                            className="mt-1 max-w-[160px] max-h-[160px] rounded border border-gray-200 dark:border-gray-700/30 object-contain"
+                          />
+                        </a>
+                      ) : (
+                        <a
+                          href={resolveServerUrl(msg.attachment.url)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 flex items-center gap-1.5 text-xs text-green-700 dark:text-green-400 underline break-all"
+                        >
+                          📎 {msg.attachment.name}
+                        </a>
+                      )
+                    )}
                   </div>
                 </div>
               ))}
               <div ref={messageEndRef} />
             </div>
-            <div className="px-2 md:px-4 py-2 md:py-3 border-t border-gray-200 dark:border-gray-700/30 flex-shrink-0">
+            {attachmentError && (
+              <div className="px-2 md:px-4 pb-1 text-xs text-red-500">{attachmentError}</div>
+            )}
+            <div className="px-2 md:px-4 py-2 md:py-3 border-t border-gray-200 dark:border-gray-700/30 flex-shrink-0 flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept={ALLOWED_ATTACHMENT_TYPES.join(',')}
+                onChange={handleFileAttach}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAttachment}
+                title="Attach a file or image"
+                className="px-2 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white disabled:opacity-50"
+              >
+                {uploadingAttachment ? '⏳' : '📎'}
+              </button>
               <input
                 type="text"
                 placeholder="Send a message..."
@@ -1342,6 +1624,37 @@ export default function SessionPage() {
         <div className="border-t border-gray-200 dark:border-gray-700/30 bg-gray-50 dark:bg-dark-900/40 p-2 md:p-3 lg:p-4 max-h-[120px] md:max-h-[140px] lg:h-24 overflow-y-auto flex-shrink-0">
           <p className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-2">Output:</p>
           <pre className="text-xs md:text-sm text-green-700 dark:text-green-400 font-mono whitespace-pre-wrap break-words">{executionOutput}</pre>
+        </div>
+      )}
+
+      {/* Post-session rating prompt (student view only) */}
+      <PostSessionFeedbackModal
+        isOpen={showRatingModal}
+        sessionId={sessionId}
+        mentorName={ratingMentorName}
+        mentorAvatar={ratingMentorAvatar}
+        onClose={() => setShowRatingModal(false)}
+      />
+
+      {/* Recording consent prompt - shown to the participant who received the request */}
+      {showConsentModal && (
+        <RecordingConsentModal
+          requesterName={consentRequesterName}
+          onConsent={handleConsentGranted}
+          onDecline={handleConsentDeclined}
+        />
+      )}
+
+      {/* Recording status toasts */}
+      {recordingToasts.length > 0 && (
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
+          {recordingToasts.map((t) => (
+            <RecordingToast
+              key={t.id}
+              message={t.message}
+              onDismiss={() => setRecordingToasts((prev) => prev.filter((x) => x.id !== t.id))}
+            />
+          ))}
         </div>
       )}
     </div>

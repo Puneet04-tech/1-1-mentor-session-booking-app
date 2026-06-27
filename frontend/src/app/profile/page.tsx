@@ -33,8 +33,20 @@ export default function ProfilePage() {
     name: '',
     bio: '',
     avatar_url: '',
+    industry: '',
+    language: '',
     skills: [] as Skill[],
+    email_notifications_enabled: true,
+    timezone: '',
   });
+  const timezoneOptions = (() => {
+    try {
+      // @ts-ignore - supportedValuesOf isn't in older TS lib targets
+      return Intl.supportedValuesOf('timeZone') as string[];
+    } catch {
+      return [Intl.DateTimeFormat().resolvedOptions().timeZone];
+    }
+  })();
   const [newSkill, setNewSkill] = useState<Skill>({
     skill_name: '',
     proficiency_level: 'intermediate',
@@ -47,18 +59,23 @@ export default function ProfilePage() {
     const fetchProfile = async () => {
       setLoading(true);
       try {
-        // For now, construct profile from user data
-        const profile = {
-          ...user,
-          skills: [],
-        };
-        setProfile(profile);
-        setFormData({
-          name: user.name || '',
-          bio: user.bio || '',
-          avatar_url: user.avatar_url || '',
-          skills: profile.skills || [],
-        });
+        const response = await apiClient.getProfile();
+        if (response.success && response.data) {
+          const profileData = response.data;
+          setProfile(profileData);
+          setFormData({
+            name: profileData.name || '',
+            bio: profileData.bio || '',
+            avatar_url: profileData.avatar_url || '',
+            industry: profileData.industry || '',
+            language: profileData.language || '',
+            skills: profileData.skills || [],
+            email_notifications_enabled: profileData.email_notifications_enabled !== false,
+            timezone: profileData.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+          });
+        } else {
+          setError('Failed to load profile');
+        }
       } catch (err) {
         console.error('Error fetching profile:', err);
         setError('Failed to load profile');
@@ -108,9 +125,23 @@ export default function ProfilePage() {
     setSaving(true);
     setError('');
     try {
-      // TODO: Update to use API once profile endpoint is integrated
-      setProfile({ ...formData, id: user?.id });
-      setEditing(false);
+      const response = await apiClient.updateProfile(formData);
+      if (response.success && response.data) {
+        setProfile(response.data);
+        setFormData({
+          name: response.data.name || '',
+          bio: response.data.bio || '',
+          avatar_url: response.data.avatar_url || '',
+          industry: response.data.industry || '',
+          language: response.data.language || '',
+          skills: response.data.skills || [],
+          email_notifications_enabled: response.data.email_notifications_enabled !== false,
+          timezone: response.data.timezone || formData.timezone,
+        });
+        setEditing(false);
+      } else {
+        setError('Failed to save profile');
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to save profile');
     } finally {
@@ -157,6 +188,12 @@ export default function ProfilePage() {
                 <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">{profile?.name}</h2>
                 <p className="text-gray-600 dark:text-gray-400 capitalize">{profile?.role}</p>
                 <p className="text-sm text-gray-500 dark:text-gray-400">{profile?.email}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                  📧 Email notifications: {formData.email_notifications_enabled ? 'On' : 'Off'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-500">
+                  🌐 Timezone: {formData.timezone}
+                </p>
               </div>
               <GlowingButton onClick={() => setEditing(true)} className="w-full md:w-auto">
                 Edit Profile
@@ -168,6 +205,14 @@ export default function ProfilePage() {
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">About</h3>
                 <p className="text-gray-700 dark:text-gray-300">{profile.bio}</p>
+              </div>
+            )}
+
+            {/* Industry & Language */}
+            {(formData.industry || formData.language) && (
+              <div className="flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-400">
+                {formData.industry && <span>🏷️ Industry: {formData.industry}</span>}
+                {formData.language && <span>🌐 Language: {formData.language}</span>}
               </div>
             )}
 
@@ -257,6 +302,57 @@ export default function ProfilePage() {
                   className="w-full px-4 py-3 bg-white dark:bg-dark-800/50 border border-gray-300 dark:border-gray-700/50 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/50 transition-all duration-200"
                 />
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Timezone
+                </label>
+                <select
+                  name="timezone"
+                  value={formData.timezone}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, timezone: e.target.value }))}
+                  className="w-full px-4 py-3 bg-white dark:bg-dark-800/50 border border-gray-300 dark:border-gray-700/50 rounded-lg text-gray-900 dark:text-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/50 transition-all duration-200"
+                >
+                  {timezoneOptions.map((tz) => (
+                    <option key={tz} value={tz}>
+                      {tz}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <GlowingInput
+                  label="Industry"
+                  type="text"
+                  name="industry"
+                  placeholder="e.g. Fintech, Healthcare"
+                  value={formData.industry}
+                  onChange={handleInputChange}
+                />
+                <GlowingInput
+                  label="Language"
+                  type="text"
+                  name="language"
+                  placeholder="e.g. English, Spanish"
+                  value={formData.language}
+                  onChange={handleInputChange}
+                />
+              </div>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.email_notifications_enabled}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, email_notifications_enabled: e.target.checked }))
+                  }
+                  className="w-4 h-4 accent-primary-500"
+                />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Email me about bookings, cancellations, and session reminders
+                </span>
+              </label>
             </div>
 
             {/* Skills */}

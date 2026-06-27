@@ -25,6 +25,19 @@ import {
 import {
   handlePresenceUpdate,
 } from './handlers/presence';
+import {
+  handleRecordingRequest,
+  handleRecordingConsent,
+  handleRecordingStop,
+} from './handlers/recording';
+import {
+  handleWhiteboardDraw,
+  handleWhiteboardClear,
+} from './handlers/whiteboard';
+import {
+  handleMentorProfileWatch,
+  handleMentorProfileUnwatch,
+} from './handlers/mentorAvailability';
 
 export function setupSocketHandlers(io: SocketIOServer) {
   io.on('connection', (socket: Socket) => {
@@ -36,6 +49,10 @@ export function setupSocketHandlers(io: SocketIOServer) {
     socket.on('code:update', (data) => handleCodeUpdate(socket, io, data));
     socket.on('cursor:move', (data) => handleCursorMove(socket, io, data));
     socket.on('language:change', (data) => handleLanguageChange(socket, io, data));
+
+    // Whiteboard events
+    socket.on('whiteboard:draw', (data) => handleWhiteboardDraw(socket, io, data));
+    socket.on('whiteboard:clear', (data) => handleWhiteboardClear(socket, io, data));
 
     // Chat events
     socket.on('message:send', (data) => {
@@ -76,6 +93,15 @@ export function setupSocketHandlers(io: SocketIOServer) {
 
     // Presence events
     socket.on('presence:update', (data) => handlePresenceUpdate(socket, io, data));
+
+    // Mentor availability events
+    socket.on('mentor-profile:watch', (mentorId: string) => handleMentorProfileWatch(socket, mentorId));
+    socket.on('mentor-profile:unwatch', (mentorId: string) => handleMentorProfileUnwatch(socket, mentorId));
+
+    // Recording events
+    socket.on('recording:request', (data) => handleRecordingRequest(socket, io, data));
+    socket.on('recording:consent', (data) => handleRecordingConsent(socket, io, data));
+    socket.on('recording:stop', (data) => handleRecordingStop(socket, io, data));
 
     socket.on('disconnect', () => {
       console.log(`❌ User disconnected: ${socket.id} (userId: ${userId})`);

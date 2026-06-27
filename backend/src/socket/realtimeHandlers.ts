@@ -25,6 +25,14 @@ export function setupRealtimeHandlers(io: SocketIOServer) {
      * User joins their personal room for notifications
      */
     socket.on('user:join', (userId: string) => {
+      // SECURITY FIX: Only allow user to join their OWN notification room
+      const authenticatedUserId = socket.data.userId;
+      if (userId !== authenticatedUserId) {
+        console.warn(`⚠️ User ${authenticatedUserId} attempted to join notification room of user ${userId}`);
+        socket.emit('error', { message: 'Unauthorized to join this notification room' });
+        return;
+      }
+
       socket.join(`user:${userId}`);
       userConnections.set(socket.id, {
         userId,
@@ -39,6 +47,13 @@ export function setupRealtimeHandlers(io: SocketIOServer) {
      */
     socket.on('session:started', async (sessionData: any) => {
       const { sessionId, mentorId, studentId } = sessionData;
+      const userId = socket.data.userId;
+
+      // SECURITY FIX: Only participants can trigger session start events
+      if (userId !== mentorId && userId !== studentId) {
+        console.warn(`⚠️ Unauthorized session:started trigger by user ${userId}`);
+        return;
+      }
       
       // Notify both participants
       const notification = {
@@ -69,6 +84,13 @@ export function setupRealtimeHandlers(io: SocketIOServer) {
      */
     socket.on('session:ended', async (sessionData: any) => {
       const { sessionId, mentorId, studentId } = sessionData;
+      const userId = socket.data.userId;
+
+      // SECURITY FIX: Only participants can trigger session end events
+      if (userId !== mentorId && userId !== studentId) {
+        console.warn(`⚠️ Unauthorized session:ended trigger by user ${userId}`);
+        return;
+      }
 
       const notification = {
         type: 'session_end',
@@ -97,6 +119,12 @@ export function setupRealtimeHandlers(io: SocketIOServer) {
      */
     socket.on('rating:submitted', async (ratingData: any) => {
       const { mentorId, rating, studentId } = ratingData;
+      const userId = socket.data.userId;
+
+      // SECURITY FIX: Verify sender is the student
+      if (userId !== studentId) {
+        return;
+      }
 
       const notification = {
         type: 'rating_received',
@@ -119,6 +147,12 @@ export function setupRealtimeHandlers(io: SocketIOServer) {
      */
     socket.on('message:sent', async (messageData: any) => {
       const { sessionId, senderId, recipientId, content } = messageData;
+      const userId = socket.data.userId;
+
+      // SECURITY FIX: Verify sender
+      if (userId !== senderId) {
+        return;
+      }
 
       const notification = {
         type: 'message',
@@ -141,6 +175,12 @@ export function setupRealtimeHandlers(io: SocketIOServer) {
      */
     socket.on('availability:changed', async (availabilityData: any) => {
       const { mentorId } = availabilityData;
+      const userId = socket.data.userId;
+
+      // SECURITY FIX: Only the mentor can trigger availability change
+      if (userId !== mentorId) {
+        return;
+      }
 
       const notification = {
         type: 'availability_change',
@@ -170,11 +210,17 @@ export function setupRealtimeHandlers(io: SocketIOServer) {
      * Typing indicator
      */
     socket.on('typing:start', (sessionId: string) => {
-      socket.to(`session:${sessionId}`).emit('typing:indicator', { isTyping: true });
+      const roomName = `session:${sessionId}`;
+      if (!socket.rooms.has(roomName)) return;
+
+      socket.to(roomName).emit('typing:indicator', { isTyping: true, userId: socket.data.userId });
     });
 
     socket.on('typing:stop', (sessionId: string) => {
-      socket.to(`session:${sessionId}`).emit('typing:indicator', { isTyping: false });
+      const roomName = `session:${sessionId}`;
+      if (!socket.rooms.has(roomName)) return;
+
+      socket.to(roomName).emit('typing:indicator', { isTyping: false, userId: socket.data.userId });
     });
 
     /**

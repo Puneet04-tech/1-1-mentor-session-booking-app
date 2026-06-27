@@ -1,24 +1,31 @@
-# 🚀 1-on-1 Mentor-Student Collaboration Platform
+<div align="center">
 
-A real-time web application for mentors and students to collaborate with video calls, **collaborative code editing with CRDT**, and instant messaging.
+  # 🚀 1-on-1 Mentor-Student Collaboration Platform
+  
+  ### A real-time web application for mentors and students to collaborate with video calls, **collaborative code editing with CRDT**, and instant messaging.
+
+</div>
+
+----
 
 ## 🎯 Project Features
 
-### Core Features ✅
-- **Authentication & Authorization**: Supabase-based auth with Mentor/Student roles
-- **Session Management**: Create, join, and manage 1-on-1 sessions.
-- **🆕 Collaborative Code Editor** 🚀: Real-time code sync using Yjs CRDT (NO CONFLICTS!)
-  - Multiple users edit simultaneously
+### ✅ Core Features 
+- **🛡️ Authentication & Authorization**: Supabase-based auth with Mentor/Student roles
+- **🔗 Session Management**: Create, join, and manage 1-on-1 sessions.
+- **🆕 Collaborative Code Editor**: Real-time code sync using Yjs CRDT (NO CONFLICTS!)
+  - Multiple users can edit simultaneously
   - Automatic conflict resolution
   - Cursor tracking with user presence
   - Offline support (changes sync on reconnect)
-- **Video Conferencing**: WebRTC-based 1-on-1 video calls
-- **Screen Sharing**: Share your screen during sessions
-- **Instant Messaging**: Socket.io powered session-based chat
-- **Code Execution**: Run code in a sandboxed environment
-- **User Presence**: See who's online and active
+- **📹 Video Conferencing**: WebRTC-based 1-on-1 video calls
+- **🖥️ Screen Sharing**: Share your screen during sessions
+- **💬 Instant Messaging**: Socket.io powered session-based chat
+- **</> Code Execution**: Run code in a sandboxed environment
+- **👥 User Presence**: See who's online and active
 
-### What Makes Collaborative Editor Special
+
+### ✨ What Makes Collaborative Editor Special
 
 | Feature | Benefit |
 |---------|---------|
@@ -29,32 +36,37 @@ A real-time web application for mentors and students to collaborate with video c
 | **Instant sync** | ~50-100ms updates, feels like Google Docs |
 | **Scalable** | Works with any number of simultaneous editors |
 
-### Tech Stack
+----
 
-**Frontend**
-- Next.js 14+ with TypeScript
-- React 18+
-- Tailwind CSS with custom theme
-- Monaco Editor (VS Code)
-- **✨ Yjs + y-monaco** for CRDT collaboration
-- **✨ y-websocket** for real-time sync
-- shadcn/ui components
-- Socket.io client
-- WebRTC for video
+## Tech Stack
 
-**Backend**
-- Node.js + Express.js
-- **✨ Y-WebSocket Server** for CRDT synchronization
-- Socket.io for real-time sync
-- PostgreSQL (Neon)
-- Supabase Auth
-- TypeScript
+### **Frontend**
+- ![Next.js](https://img.shields.io/badge/Next.js-000000?style=flat-square&logo=nextdotjs&logoColor=white) Next.js 14+ with TypeScript
+- ![React](https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black) React 18+
+- ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white) Tailwind CSS with custom theme
+- ![Monaco Editor](https://img.shields.io/badge/Monaco_Editor-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white) Monaco Editor (VS Code)
+- ![Yjs](https://img.shields.io/badge/Yjs-FFCC00?style=flat-square&logo=javascript&logoColor=black) Yjs + y-monaco for CRDT collaboration
+- ![WebSockets](https://img.shields.io/badge/y--websocket-010101?style=flat-square&logo=websocket&logoColor=white) y-websocket for real-time sync
+- ![shadcn/ui](https://img.shields.io/badge/shadcn/ui-000000?style=flat-square&logo=shadcnui&logoColor=white) shadcn/ui components
+- ![Socket.io](https://img.shields.io/badge/Socket.io-010101?style=flat-square&logo=socketdotio&logoColor=white) Socket.io client
+- ![WebRTC](https://img.shields.io/badge/WebRTC-333333?style=flat-square&logo=webrtc&logoColor=white) WebRTC for video
 
-**Infrastructure**
-- Database: PostgreSQL on Neon
-- Frontend: Netlify
-- Backend: Render
-- **✨ Collaborative Editor Server**: Separate WebSocket for CRDT (port 1234)
+### **Backend**
+- ![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=nodedotjs&logoColor=white) ![Express.js](https://img.shields.io/badge/Express.js-000000?style=flat-square&logo=express&logoColor=white) Node.js + Express.js
+- Y-WebSocket Server: ![WebSockets](https://img.shields.io/badge/Y--WebSocket_Server-010101?style=flat-square&logo=websocket&logoColor=white) for CRDT synchronization
+- ![Socket.io](https://img.shields.io/badge/Socket.io-010101?style=flat-square&logo=socketdotio&logoColor=white) for real-time sync
+- ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=black) PostgreSQL
+- ![Neon](https://img.shields.io/badge/Neon-00E599?style=flat-square&logo=neon&logoColor=black) Neon
+- ![Supabase](https://img.shields.io/badge/Supabase_Auth-3ECF8E?style=flat-square&logo=supabase&logoColor=black) Supabase Auth
+- ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white) TypeScript
+
+### **Infrastructure**
+- **Database:** ![PostgreSQL](https://img.shields.io/badge/PostgreSQL_on_Neon-00E599?style=flat-square&logo=neon&logoColor=black) PostgreSQL on Neon
+- **Frontend:** ![Netlify](https://img.shields.io/badge/Netlify-00C7B7?style=flat-square&logo=netlify&logoColor=black) Netlify
+- **Backend:** ![Render](https://img.shields.io/badge/Render-46E3B7?style=flat-square&logo=render&logoColor=black) Render
+- **Collaborative Editor Server:** ![WebSockets](https://img.shields.io/badge/Server-Collaborative_Editor-FFCC00?style=flat-square&logo=websocket&logoColor=black) Separate WebSocket for CRDT (port 1234)
+
+----
 
 ## 📁 Project Structure
 
@@ -70,7 +82,9 @@ A real-time web application for mentors and students to collaborate with video c
 └── README.md
 ```
 
-## 🚀 Quick Start
+----
+
+## 🚀 How to Run
 
 ### Prerequisites
 - Node.js 16+ & npm/yarn
@@ -93,7 +107,7 @@ npm run dev
 ```
 Backend runs on `http://localhost:5000`
 
-## 🗄️ Database
+### 🗄️ Database
 
 Initialize PostgreSQL database:
 ```bash
@@ -101,6 +115,8 @@ cd database
 npm run migrate
 npm run seed
 ```
+
+----
 
 ## 📋 API Endpoints
 
@@ -122,6 +138,8 @@ npm run seed
 - `GET /api/users/profile/:id` - Get user profile
 - `PUT /api/users/profile` - Update profile
 
+----
+
 ## 🔌 WebSocket Events
 
 ### Code Editor
@@ -138,6 +156,8 @@ npm run seed
 - `answer:send` - WebRTC answer
 - `ice:candidate` - ICE candidate
 
+----
+
 ## 🎨 Theme
 
 Purple, Green, and Yellow glowing theme with modern glassmorphism effects.
@@ -147,6 +167,8 @@ Primary: #8B5CF6 (Purple)
 Secondary: #22C55E (Green)
 Accent: #EAB308 (Yellow)
 ```
+
+----
 
 ## 📦 Deployment
 
@@ -162,11 +184,15 @@ npm run build
 ```
 Connect to Render with environment variables
 
+----
+
 ## 🔐 Environment Variables
 
 Create `.env.local` for frontend and `.env` for backend.
 
 See `docs/ENVIRONMENT.md` for details.
+
+----
 
 ## 📚 Documentation
 
@@ -176,22 +202,31 @@ See `docs/ENVIRONMENT.md` for details.
 - [WebSocket Events](docs/WEBSOCKET.md)
 - [Deployment Guide](docs/DEPLOYMENT.md)
 
+----
+
 ## 🤝 Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md)
 
+----
+
 ## 📝 License
 
-MIT License - See LICENSE file
+This project is under the MIT License, and is free for users to modify, distribute, and sell, provided they include the original copyright and license notice.
+See the license [here.](docs/LICENSE.md)
+
+----
 
 ## 🎥 Demo
 
 [Live Demo Link]
 
+----
+
 ## 👨‍💼 Resume Description
 
 Built a real-time 1-on-1 mentorship platform with authentication, session management, live collaborative code editing using Socket.io, integrated messaging, WebRTC video calling, and screen sharing. Deployed on Netlify (frontend) and Render (backend) with PostgreSQL on Neon.
 
----
+----
 
 **Built with ❤️ for mentors and students worldwide**

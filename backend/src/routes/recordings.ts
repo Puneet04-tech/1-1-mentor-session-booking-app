@@ -30,6 +30,7 @@ router.post('/start', authMiddleware, async (req: Request, res: Response) => {
 
     res.json({
       success: true,
+      data: { recordingId: recordingResult.rows[0].id },
       recordingId: recordingResult.rows[0].id,
       message: 'Recording started',
     });
@@ -59,6 +60,7 @@ router.post('/stop/:recordingId', authMiddleware, async (req: Request, res: Resp
     res.json({
       success: true,
       message: 'Recording stopped',
+      data: result.rows[0],
       recording: result.rows[0],
     });
   } catch (error) {
@@ -92,6 +94,7 @@ router.get('/session/:sessionId', authMiddleware, async (req: Request, res: Resp
 
     res.json({
       success: true,
+      data: result.rows,
       recordings: result.rows,
     });
   } catch (error) {
@@ -125,6 +128,10 @@ router.get('/:recordingId', authMiddleware, async (req: Request, res: Response) 
 
     res.json({
       success: true,
+      data: {
+        ...recording,
+        playbackUrl,
+      },
       recording: {
         ...recording,
         playbackUrl,

@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import { SocketEvents } from '@/types';
+import { SocketEvents, WhiteboardSegment, MessageAttachment } from '@/types';
 import { useAuthStore } from '@/store';
 
 const rawSocketUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
@@ -71,6 +71,14 @@ class SocketService {
       if (this.resolveConnection) {
         this.resolveConnection();
       }
+
+      // Join this user's personal notification room so server-side
+      // notification:received events (e.g. session reminders, session ended) reach them
+      const user = useAuthStore.getState().user;
+      if (user?.id) {
+        this.socket?.emit('user:join', user.id);
+      }
+
       this.emit('connected');
 +      // Rejoin session automatically after reconnection if we have a session ID
 +      if (this.currentSessionId) {
@@ -311,19 +319,32 @@ class SocketService {
     this.currentSessionId = null;
   }
 
-  endSession(sessionId: string) {
-    this.emit('session:end', { sessionId } as any);
+  endSession(sessionId: string, mentorId?: string, studentId?: string) {
+    this.emit('session:ended', { sessionId, mentorId, studentId } as any);
+  }
+
+  // Mentor availability
+  watchMentorAvailability(mentorId: string) {
+    this.emit('mentor-profile:watch', mentorId);
+  }
+
+  unwatchMentorAvailability(mentorId: string) {
+    this.emit('mentor-profile:unwatch', mentorId);
   }
 
   // Chat
-  sendMessage(content: string) {
-    console.log('📤 SocketService.sendMessage called:', content);
+  sendMessage(content: string, attachment?: MessageAttachment) {
+    console.log('📤 SocketService.sendMessage called:', content, attachment);
     const user = useAuthStore.getState().user;
-    const data = { 
-      content, 
+    const data = {
+      // `type` stays 'text' even with an attachment — it's an orthogonal field
+      // (content format: text/code_snippet/system) backed by a fixed Postgres
+      // enum; attachment presence alone signals "this message has a file".
+      content,
       sessionId: this.currentSessionId,
       userId: user?.id,
-      type: 'text'
+      type: 'text',
+      attachment,
     };
     console.log('📡 Emitting message:send event:', data);
     this.emit('message:send', data as any);
@@ -347,6 +368,20 @@ class SocketService {
       column, 
       sessionId: this.currentSessionId,
       userId: user?.id
+    } as any);
+  }
+
+  // Whiteboard
+  sendWhiteboardDraw(segment: WhiteboardSegment, sessionId?: string) {
+    this.emit('whiteboard:draw', {
+      segment,
+      sessionId: sessionId || this.currentSessionId,
+    } as any);
+  }
+
+  clearWhiteboard(sessionId?: string) {
+    this.emit('whiteboard:clear', {
+      sessionId: sessionId || this.currentSessionId,
     } as any);
   }
 

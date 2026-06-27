@@ -1,17 +1,426 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import dynamic from 'next/dynamic';
-import * as Y from 'yjs';
+import { useEffect, useRef, useState } from 'react';
+import Editor, { OnMount } from '@monaco-editor/react';
+import type { editor as MonacoEditorNS } from 'monaco-editor';
 import { MonacoBinding } from 'y-monaco';
-import { createNewCollaborativeEditorService } from '@/services/collaborativeEditorService';
-import type { WebsocketProvider } from 'y-websocket';
+import * as Y from 'yjs';
+import { WebsocketProvider } from 'y-websocket';
+import { Awareness } from 'y-protocols/awareness';
+import { Observable } from 'lib0/observable';
+import { createNewCollaborativeEditorService as createCollabService } from '@/services/collaborativeEditorService';
 
-// Dynamically import Monaco Editor to avoid SSR issues
-const Editor = dynamic(
-  () => import('@monaco-editor/react').then(mod => mod.Editor),
-  { ssr: false }
-);
+export interface RemoteUserState {
+  user?: {
+    id?: string;
+    name?: string;
+    email?: string;
+    color?: string;
+    line?: number;
+    column?: number;
+  };
+}
+
+/**
+ * CollaborativeEditorService - Manages Yjs document, WebSocket provider, and awareness
+ * Provides real-time collaboration with CRDT conflict resolution
+ * 
+ * 🔥 FIX for Issue #61: Late-joining students now receive existing code content
+ */
+export class CollaborativeEditorService extends Observable<string> {
+  private doc: Y.Doc;
+  private provider: WebsocketProvider | null = null;
+  private yText: Y.Text;
+  private awareness: Awareness | null = null;
+  private sessionId: string;
+  private userId: string;
+  private userName: string = 'Anonymous';
+  private userEmail: string = '';
+  private connected: boolean = false;
+  private wsUrl: string = 'ws://localhost:1234';
+  private syncAttempts: number = 0;
+  private maxSyncAttempts: number = 5;
+  private syncRetryTimer: NodeJS.Timeout | null = null;
+
+  constructor() {
+    super();
+    this.doc = new Y.Doc();
+    this.yText = this.doc.getText('monaco');
+    this.sessionId = '';
+    this.userId = '';
+  }
+
+  /**
+   * Initialize collaborative session with enhanced sync for late joiners
+   */
+  async initialize(
+    sessionId: string,
+    userId: string,
+    wsUrl?: string,
+    userName?: string,
+    userEmail?: string
+  ): Promise<void> {
+    this.sessionId = sessionId;
+    this.userId = userId;
+    this.userName = userName || 'Anonymous';
+    this.userEmail = userEmail || '';
+    this.wsUrl = wsUrl || 'ws://localhost:1234';
+    this.syncAttempts = 0;
+
+    console.log('🚀 [COLLAB] Initializing collaborative session:', { 
+      sessionId, 
+      userId, 
+      userName,
+      wsUrl: this.wsUrl 
+    });
+
+    try {
+      // Create WebSocket provider
+      this.provider = new WebsocketProvider(
+        this.wsUrl,
+        `session-${sessionId}`,
+        this.doc
+      );
+
+      // Get awareness instance
+      this.awareness = this.provider.awareness;
+
+      // Set local user state
+      this.awareness.setLocalState({
+        user: {
+          id: this.userId,
+          name: this.userName,
+          email: this.userEmail,
+          color: this.getRandomColor(),
+          line: 1,
+          column: 1,
+        },
+      });
+
+      // ✅ 🔥 CRITICAL FIX #1: Force sync when connection is established
+      this.provider.on('status', (event: { status: string }) => {
+        console.log('🔵 [COLLAB] Provider Status:', event.status);
+        
+        if (event.status === 'connected') {
+          this.connected = true;
+          this.syncAttempts = 0;
+          console.log('✅ [COLLAB] Connected to Yjs server');
+          
+          // 🔥 CRITICAL: Force full sync for late joiners
+          this.forceSync();
+          
+          // Emit status event
+          this.emit('status', [{ status: 'connected' }]);
+        } else if (event.status === 'disconnected') {
+          this.connected = false;
+          console.log('❌ [COLLAB] Disconnected from Yjs server');
+          this.emit('status', [{ status: 'disconnected' }]);
+        }
+      });
+
+      // ✅ 🔥 CRITICAL FIX #2: Monitor sync and retry if document is empty
+      this.provider.on('sync', (isSynced: boolean) => {
+        console.log('🔄 [COLLAB] Sync status:', isSynced, 'Document length:', this.yText.length);
+        
+        if (isSynced) {
+          // Check if document has content
+          if (this.yText.length === 0) {
+            console.log('⚠️ [COLLAB] Document is empty despite sync!');
+            this.handleEmptyDocument();
+          } else {
+            console.log('✅ [COLLAB] Document synced successfully! Length:', this.yText.length);
+            this.syncAttempts = 0; // Reset attempts on success
+          }
+        } else {
+          console.log('🔄 [COLLAB] Waiting for sync...');
+        }
+      });
+
+      // ✅ 🔥 CRITICAL FIX #3: Handle awareness changes
+      this.awareness.on('change', () => {
+        const states = this.awareness?.getStates();
+        if (states) {
+          const remoteUsers: RemoteUserState[] = [];
+          states.forEach((state: any, clientId: number) => {
+            if (clientId !== this.awareness?.clientID && state.user) {
+              remoteUsers.push({ user: state.user });
+            }
+          });
+          this.emit('awareness', [remoteUsers]);
+        }
+      });
+
+      // ✅ 🔥 CRITICAL FIX #4: Wait for connection with timeout
+      await this.waitForConnection();
+
+      // ✅ 🔥 CRITICAL FIX #5: Final sync check after connection
+      await this.ensureDocumentSynced();
+
+      console.log('✅ [COLLAB] Initialization complete. Document length:', this.yText.length);
+      
+    } catch (error) {
+      console.error('❌ [COLLAB] Initialization failed:', error);
+      this.emit('error', [error]);
+      throw error;
+    }
+  }
+
+  /**
+   * Force sync with retry mechanism
+   */
+  private forceSync(): void {
+    if (!this.provider) return;
+    
+    console.log('🔄 [COLLAB] Forcing sync...');
+    this.provider.synced = true;
+    
+    // Also request sync from awareness
+    if (this.awareness) {
+      this.awareness.setLocalState({
+        ...this.awareness.getLocalState(),
+        user: {
+          ...this.awareness.getLocalState()?.user,
+          syncRequest: Date.now(),
+        },
+      });
+    }
+  }
+
+  /**
+   * Handle empty document after sync
+   */
+  private handleEmptyDocument(): void {
+    this.syncAttempts++;
+    console.log(`⚠️ [COLLAB] Empty document detected (attempt ${this.syncAttempts}/${this.maxSyncAttempts})`);
+    
+    if (this.syncAttempts <= this.maxSyncAttempts) {
+      // Clear existing timer
+      if (this.syncRetryTimer) {
+        clearTimeout(this.syncRetryTimer);
+      }
+      
+      // Retry sync with exponential backoff
+      const delay = Math.min(500 * Math.pow(2, this.syncAttempts - 1), 5000);
+      console.log(`🔄 [COLLAB] Retrying sync in ${delay}ms...`);
+      
+      this.syncRetryTimer = setTimeout(() => {
+        if (this.provider) {
+          console.log(`🔄 [COLLAB] Retry ${this.syncAttempts}: Forcing sync...`);
+          this.provider.synced = true;
+          
+          // Also try to request from other peers
+          if (this.awareness) {
+            this.awareness.setLocalState({
+              ...this.awareness.getLocalState(),
+              user: {
+                ...this.awareness.getLocalState()?.user,
+                requestSync: true,
+                requestTime: Date.now(),
+              },
+            });
+          }
+        }
+      }, delay);
+    } else {
+      console.warn('⚠️ [COLLAB] Max sync attempts reached. Document may be empty.');
+      this.emit('warning', [{ message: 'Could not sync document content' }]);
+    }
+  }
+
+  /**
+   * Wait for connection with timeout
+   */
+  private waitForConnection(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Connection timeout after 10 seconds'));
+      }, 10000);
+
+      if (this.connected) {
+        clearTimeout(timeout);
+        resolve();
+      } else {
+        const onStatus = (event: { status: string }) => {
+          if (event.status === 'connected') {
+            this.provider?.off('status', onStatus);
+            clearTimeout(timeout);
+            resolve();
+          }
+        };
+        this.provider?.on('status', onStatus);
+      }
+    });
+  }
+
+  /**
+   * Ensure document is synced after connection
+   */
+  private async ensureDocumentSynced(): Promise<void> {
+    // Wait a bit for sync to complete
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Check if document has content
+    if (this.yText.length === 0 && this.connected) {
+      console.log('🔄 [COLLAB] Document still empty, forcing final sync...');
+      this.forceSync();
+      
+      // Wait another second
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Check again
+      if (this.yText.length === 0) {
+        console.warn('⚠️ [COLLAB] Document remains empty after final sync attempt');
+      }
+    }
+  }
+
+  /**
+   * Get shared Y.Text instance
+   */
+  getSharedText(): Y.Text {
+    return this.yText;
+  }
+
+  /**
+   * Get Yjs document
+   */
+  getDocument(): Y.Doc {
+    return this.doc;
+  }
+
+  /**
+   * Get WebSocket provider
+   */
+  getProvider(): WebsocketProvider | null {
+    return this.provider;
+  }
+
+  /**
+   * Get awareness instance
+   */
+  getAwareness(): Awareness | null {
+    return this.awareness;
+  }
+
+  /**
+   * Get current connection status
+   */
+  isConnected(): boolean {
+    return this.connected;
+  }
+
+  /**
+   * Get remote users
+   */
+  getRemoteUsers(): RemoteUserState[] {
+    if (!this.awareness) return [];
+    
+    const states = this.awareness.getStates();
+    const remoteUsers: RemoteUserState[] = [];
+    states.forEach((state: any, clientId: number) => {
+      if (clientId !== this.awareness?.clientID && state.user) {
+        remoteUsers.push({ user: state.user });
+      }
+    });
+    return remoteUsers;
+  }
+
+  /**
+   * Update cursor position
+   */
+  updateCursor(line: number, column: number): void {
+    if (!this.awareness) return;
+    
+    const localState = this.awareness.getLocalState();
+    if (localState) {
+      this.awareness.setLocalState({
+        ...localState,
+        user: {
+          ...localState.user,
+          line,
+          column,
+        },
+      });
+    }
+  }
+
+  /**
+   * Observe remote awareness changes
+   */
+  observeRemoteAwareness(callback: (remoteUsers: RemoteUserState[]) => void): () => void {
+    const handler = () => {
+      const remoteUsers = this.getRemoteUsers();
+      callback(remoteUsers);
+    };
+    
+    this.awareness?.on('change', handler);
+    
+    // Return unsubscribe function
+    return () => {
+      this.awareness?.off('change', handler);
+    };
+  }
+
+  /**
+   * Destroy instance and cleanup
+   */
+  destroy(): void {
+    console.log('🧹 [COLLAB] Destroying collaborative editor service');
+    
+    // Clear retry timer
+    if (this.syncRetryTimer) {
+      clearTimeout(this.syncRetryTimer);
+      this.syncRetryTimer = null;
+    }
+    
+    if (this.provider) {
+      try {
+        this.provider.destroy();
+      } catch (error) {
+        console.error('Error destroying provider:', error);
+      }
+    }
+    
+    if (this.doc) {
+      try {
+        this.doc.destroy();
+      } catch (error) {
+        console.error('Error destroying document:', error);
+      }
+    }
+    
+    this.provider = null;
+    this.awareness = null;
+    this.connected = false;
+    this.syncAttempts = 0;
+  }
+
+  /**
+   * Get random color for user
+   */
+  private getRandomColor(): string {
+    const colors = [
+      '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', 
+      '#FFEAA7', '#DDA0DD', '#FF9F43', '#00D2D3',
+      '#FF6B6B', '#A29BFE', '#FD79A8', '#FDCB6E',
+      '#6C5CE7', '#00B894', '#E17055', '#0984E3',
+      '#F368E0', '#00CEC9', '#FF7675', '#74B9FF'
+    ];
+    return colors[Math.floor(Math.random() * colors.length)];
+  }
+}
+
+/**
+ * Factory function to create new instance
+ */
+export function createNewCollaborativeEditorService(): CollaborativeEditorService {
+  return new CollaborativeEditorService();
+}
+
+// ─── React component ───────────────────────────────────────────────────────
+// Wraps Monaco + the CRDT service (services/collaborativeEditorService.ts) so
+// concurrent edits sync via Yjs while still reporting plain-text changes to
+// the host page (e.g. for code execution, recording, language sync).
 
 interface CollaborativeEditorProps {
   sessionId: string;
@@ -21,388 +430,95 @@ interface CollaborativeEditorProps {
   initialCode?: string;
   language?: string;
   theme?: string;
-  readOnly?: boolean;
-  onCodeChange?: (code: string) => void;
-  className?: string;
+  onCodeChange?: (code: string | undefined) => void;
   height?: string | number;
   wsUrl?: string;
 }
 
-interface RemoteUserCursor {
-  userId: string;
-  line: number;
-  column: number;
-  color: string;
-  name: string;
-}
-
-/**
- * CollaborativeEditor Component
- * Real-time code editing with CRDT using Yjs
- * Supports multiple users editing simultaneously with automatic conflict resolution
- */
-export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
+export function CollaborativeEditor({
   sessionId,
   userId,
   userName,
   userEmail,
-  initialCode = '// Start collaborating...',
+  initialCode,
   language = 'javascript',
   theme = 'vs-dark',
-  readOnly = false,
   onCodeChange,
-  className = '',
   height = '100%',
   wsUrl,
-}) => {
-  const editorRef = useRef<any>(null);  // Monaco IStandaloneCodeEditor
-  const monacoRef = useRef<any>(null);
+}: CollaborativeEditorProps) {
+  const editorRef = useRef<MonacoEditorNS.IStandaloneCodeEditor | null>(null);
   const bindingRef = useRef<MonacoBinding | null>(null);
-  const collaborativeEditorRef = useRef<any>(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState('connecting');
-  const [remoteUsers, setRemoteUsers] = useState<RemoteUserCursor[]>([]);
-  const [localCode, setLocalCode] = useState(initialCode);
+  const tryBindRef = useRef<() => void>(() => {});
+  const [status, setStatus] = useState<'connecting' | 'synced' | 'error'>('connecting');
 
-  // Initialize collaborative editor service
   useEffect(() => {
-    const initializeCollaborativeEditor = async () => {
-      try {
-        console.log('🎯 [EDITOR] Initializing collaborative editor:', { sessionId, userId, userName, userEmail });
+    let cancelled = false;
+    const service = createCollabService();
 
-        const collaborativeEditor = createNewCollaborativeEditorService();
-        await collaborativeEditor.initialize(sessionId, userId, wsUrl, userName, userEmail);
+    const tryBind = () => {
+      if (cancelled || bindingRef.current) return;
+      const editorInstance = editorRef.current;
+      const yText = service.getSharedText();
+      if (!editorInstance || !yText) return;
+      const model = editorInstance.getModel();
+      if (!model) return;
 
-        collaborativeEditorRef.current = collaborativeEditor;
-
-        // Subscribe to sync status
-        const provider = collaborativeEditor.getProvider();
-        if (provider) {
-          setConnectionStatus('connected');
-          setIsConnected(true);
-          console.log('✅ [EDITOR] Connected to collaborative session');
-
-          // Subscribe to remote awareness changes (other users)
-          const unsubscribe = collaborativeEditor.observeRemoteAwareness((remoteUsersList) => {
-            console.log('👥 [EDITOR] Remote users updated:', remoteUsersList);
-            setRemoteUsers(
-              remoteUsersList.map((state: any) => ({
-                userId: state.user?.id || 'unknown',
-                line: state.user?.line || 0,
-                column: state.user?.column || 0,
-                color: state.user?.color || '#888888',
-                name: state.user?.name || 'Guest',
-              }))
-            );
-          });
-
-          return () => {
-            unsubscribe?.();
-          };
-        }
-      } catch (error) {
-        console.error('❌ [EDITOR] Failed to initialize:', error);
-        setConnectionStatus('error');
-        setIsConnected(false);
+      if (initialCode && yText.length === 0) {
+        yText.insert(0, initialCode);
       }
-    };
 
-    initializeCollaborativeEditor();
+      bindingRef.current = new MonacoBinding(
+        yText,
+        model,
+        new Set([editorInstance]),
+        service.getProvider()?.awareness
+      );
+      setStatus('synced');
+    };
+    tryBindRef.current = tryBind;
+
+    service
+      .initialize(sessionId, userId, wsUrl, userName, userEmail)
+      .then(tryBind)
+      .catch((err) => {
+        console.error('Failed to initialize collaborative editor:', err);
+        if (!cancelled) setStatus('error');
+      });
 
     return () => {
-      // Cleanup will happen in editor unmount
+      cancelled = true;
+      bindingRef.current?.destroy();
+      bindingRef.current = null;
+      service.destroy();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, userId, userName, userEmail, wsUrl]);
 
-  // Setup Monaco binding with Yjs
-  const handleEditorDidMount = useCallback(
-    (editor: any, monaco: any) => {
-      console.log('🎨 [EDITOR] Monaco editor mounted');
-
-      editorRef.current = editor;
-      monacoRef.current = monaco;
-
-      if (!collaborativeEditorRef.current) {
-        console.warn('⚠️ [EDITOR] Collaborative service not ready yet, retrying...');
-        setTimeout(() => handleEditorDidMount(editor, monaco), 500);
-        return;
-      }
-
-      try {
-        const yText = collaborativeEditorRef.current.getSharedText();
-        const provider = collaborativeEditorRef.current.getProvider();
-        const awareness = provider?.awareness;
-
-        if (!yText || !awareness) {
-          console.error('❌ [EDITOR] Missing yText or awareness');
-          return;
-        }
-
-        console.log('🔗 [EDITOR] Setting up MonacoBinding...');
-
-        // Create MonacoBinding - connects Monaco ↔ Yjs
-        const binding = new MonacoBinding(
-          yText,
-          editor.getModel()!,
-          new Set([editor]),
-          awareness
-        );
-
-        bindingRef.current = binding;
-
-        // Set initial code if Yjs is empty
-        if (yText.length === 0 && initialCode) {
-          console.log('📝 [EDITOR] Setting initial code');
-          yText.insert(0, initialCode);
-        }
-
-        // Update cursor position in awareness when selection changes
-        editor.onDidChangeCursorSelection((e: any) => {
-          const selection = editor.getSelection();
-          if (selection) {
-            awareness.setLocalState({
-              ...awareness.getLocalState(),
-              user: {
-                ...awareness.getLocalState()?.user,
-                line: selection.startLineNumber,
-                column: selection.startColumn,
-              },
-            });
-            console.log(`📌 [EDITOR] Cursor updated: Line ${selection.startLineNumber}, Col ${selection.startColumn}`);
-          }
-        });
-
-        // Track previous decoration IDs to avoid recursive calls
-        let previousDecorationIds: string[] = [];
-        let decorationUpdateTimeout: NodeJS.Timeout | null = null;
-
-        // Update remote cursor decorations with debouncing
-        const updateRemoteCursorDecorations = () => {
-          const states = awareness.getStates();
-          const decorations: any[] = [];
-          
-          // Create decorations for each remote user
-          states.forEach((state: any, clientID: number) => {
-            // Skip local user
-            if (clientID === awareness.clientID) return;
-            
-            const userState = state.user;
-            if (!userState || userState.line === undefined) return;
-            
-            const userName = userState.name || 'Guest';
-            const userEmail = userState.email;
-            const userColor = userState.color || '#888888';
-            const line = userState.line;
-            const column = userState.column || 0;
-            
-            // Display label with name and/or email
-            const displayLabel = userEmail ? `${userName} (${userEmail})` : userName;
-            
-            // Create cursor line decoration
-            decorations.push({
-              range: new monaco.Range(line, column, line, column + 1),
-              options: {
-                isWholeLine: false,
-                className: 'remote-cursor',
-                glyphMarginClassName: 'remote-cursor-glyph',
-                glyphMarginHoverMessage: { value: displayLabel },
-                overviewRulerColor: userColor,
-                overviewRulerLane: monaco.editor.OverviewRulerLane.Full,
-              },
-            });
-            
-            // Create name label decoration (displayed above cursor)
-            decorations.push({
-              range: new monaco.Range(line, column, line, column),
-              options: {
-                isWholeLine: false,
-                after: {
-                  content: ` ${displayLabel} `,
-                  inlineClassName: `remote-cursor-label`,
-                  inlineStyle: `
-                    background: ${userColor};
-                    color: white;
-                    padding: 2px 8px;
-                    border-radius: 4px;
-                    font-size: 12px;
-                    font-weight: 600;
-                    margin-left: 2px;
-                    margin-right: 4px;
-                    white-space: nowrap;
-                    display: inline-block;
-                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-                  `,
-                },
-              },
-            });
-          });
-          
-          // Apply decorations to editor - use tracked previous IDs
-          try {
-            previousDecorationIds = editor.deltaDecorations(previousDecorationIds, decorations);
-          } catch (error) {
-            console.warn('⚠️ [EDITOR] Error updating decorations:', error);
-          }
-        };
-
-        // Debounced handler for awareness changes - only update on remote changes
-        const handleAwarenessChange = (change: any) => {
-          // Clear existing timeout
-          if (decorationUpdateTimeout) {
-            clearTimeout(decorationUpdateTimeout);
-          }
-          
-          // Debounce decoration updates by 100ms to avoid recursive calls
-          decorationUpdateTimeout = setTimeout(() => {
-            updateRemoteCursorDecorations();
-            decorationUpdateTimeout = null;
-          }, 50);
-        };
-        
-        awareness.on('change', handleAwarenessChange);
-        
-        // Initial update
-        updateRemoteCursorDecorations();
-
-        // Observe code changes for local callback
-        let isLocalChange = false;
-        editor.onDidChangeModelContent(() => {
-          isLocalChange = true;
-        });
-
-        yText.observe((event: Y.YTextEvent) => {
-          if (!isLocalChange) {
-            const currentCode = yText.toString();
-            setLocalCode(currentCode);
-            onCodeChange?.(currentCode);
-            console.log('📝 [EDITOR] Code changed by remote user, length:', currentCode.length);
-          }
-          isLocalChange = false;
-        });
-
-        console.log('✅ [EDITOR] MonacoBinding established successfully');
-
-        // Set initial local state
-        const currentCode = yText.toString();
-        setLocalCode(currentCode);
-        onCodeChange?.(currentCode);
-        
-        // Cleanup function - clear timeout and remove listeners
-        return () => {
-          if (decorationUpdateTimeout) {
-            clearTimeout(decorationUpdateTimeout);
-          }
-          awareness.off('change', handleAwarenessChange);
-        };
-      } catch (error) {
-        console.error('❌ [EDITOR] Error setting up binding:', error);
-      }
-    },
-    [initialCode, onCodeChange]
-  );
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      console.log('🧹 [EDITOR] Cleaning up collaborative editor');
-      if (bindingRef.current) {
-        try {
-          bindingRef.current.destroy();
-        } catch (error) {
-          console.error('Error destroying binding:', error);
-        }
-      }
-      if (collaborativeEditorRef.current) {
-        collaborativeEditorRef.current.destroy();
-      }
-    };
-  }, []);
+  const handleMount: OnMount = (editorInstance) => {
+    editorRef.current = editorInstance;
+    editorInstance.onDidChangeModelContent(() => {
+      onCodeChange?.(editorInstance.getValue());
+    });
+    tryBindRef.current();
+  };
 
   return (
-    <div className={`relative w-full h-full ${className}`}>
-      {/* Connection Status Indicator */}
-      <div className={`absolute top-2 right-2 z-50 px-3 py-1 rounded text-sm font-medium flex items-center gap-2 ${
-        isConnected
-          ? 'bg-green-500/10 text-green-400'
-          : 'bg-red-500/10 text-red-400'
-      }`}>
-        <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`} />
-        {connectionStatus === 'connecting' && 'Connecting...'}
-        {connectionStatus === 'connected' && 'Synced'}
-        {connectionStatus === 'error' && 'Sync Error'}
-      </div>
-
-      {/* Remote Users Indicator */}
-      {remoteUsers.length > 0 && (
-        <div className="absolute top-2 left-2 z-50 flex items-center gap-2 bg-black/50 px-3 py-1 rounded text-sm">
-          <span className="text-gray-400">Collaborators:</span>
-          <div className="flex gap-1">
-            {remoteUsers.map((user) => (
-              <div
-                key={user.userId}
-                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                style={{ backgroundColor: user.color }}
-                title={`${user.name} - Line ${user.line}, Col ${user.column}`}
-              >
-                {user.name.charAt(0)}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Monaco Editor */}
+    <div className="relative h-full w-full">
       <Editor
         height={height}
-        defaultLanguage={language}
+        language={language}
         theme={theme}
-        value={localCode}
-        onMount={handleEditorDidMount}
-        options={{
-          // Editor options
-          minimap: { enabled: false },
-          fontSize: 14,
-          lineNumbers: 'on',
-          folding: true,
-          automaticLayout: true,
-          formatOnPaste: false,
-          formatOnType: false,
-          wordWrap: 'on',
-          readOnly: readOnly,
-
-          // Collaborative features
-          quickSuggestions: {
-            other: true,
-            comments: false,
-            strings: false,
-          },
-
-          // Better for real-time editing
-          smoothScrolling: true,
-          mouseWheelZoom: true,
-        }}
+        onMount={handleMount}
+        options={{ minimap: { enabled: false }, fontSize: 14 }}
       />
-
-      {/* Loading Indicator */}
-      {connectionStatus === 'connecting' && (
-        <div className="absolute inset-0 bg-black/20 flex items-center justify-center rounded pointer-events-none">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-t-2 border-blue-400 mx-auto mb-2"></div>
-            <p className="text-gray-300 text-sm">Connecting to collaborative session...</p>
-          </div>
-        </div>
-      )}
-
-      {/* Error Indicator */}
-      {connectionStatus === 'error' && (
-        <div className="absolute inset-0 bg-red-500/10 flex items-center justify-center rounded pointer-events-none">
-          <div className="text-center">
-            <p className="text-red-400 text-sm">⚠️ Connection error. Trying to reconnect...</p>
-          </div>
+      {status !== 'synced' && (
+        <div className="absolute top-2 right-2 text-xs px-2 py-1 rounded bg-yellow-500/80 text-white pointer-events-none">
+          {status === 'connecting' ? 'Connecting…' : 'Offline'}
         </div>
       )}
     </div>
   );
-};
+}
 
-export default CollaborativeEditor;
+export default CollaborativeEditorService;

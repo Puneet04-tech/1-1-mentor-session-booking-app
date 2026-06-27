@@ -1,7 +1,16 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { ApiResponse, User, Session, Message } from '@/types';
+import { ApiResponse, User, Session, Message, MessageAttachment, RecurringSeries, RecurrenceFrequency } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+
+// The backend serves uploaded files (e.g. chat attachments) from its own
+// origin under /uploads, not under /api — strip the /api suffix to get there.
+export const SERVER_ORIGIN = API_URL.replace(/\/api\/?$/, '');
+
+export function resolveServerUrl(relativeUrl: string): string {
+  if (/^https?:\/\//i.test(relativeUrl)) return relativeUrl;
+  return `${SERVER_ORIGIN}${relativeUrl}`;
+}
 
 class ApiClient {
   private client: AxiosInstance;
@@ -69,6 +78,30 @@ class ApiClient {
     return this.client.post('/sessions', data);
   }
 
+  // Recurring session endpoints
+  async createRecurringSeries(data: {
+    title: string;
+    description?: string;
+    topic?: string;
+    scheduled_at: string;
+    duration_minutes?: number;
+    language?: string;
+    code_language?: string;
+    recording_enabled?: boolean;
+    frequency: RecurrenceFrequency;
+    occurrences: number;
+  }): Promise<ApiResponse<{ series: RecurringSeries; sessions: Session[]; skipped: string[] }>> {
+    return this.client.post('/recurring-sessions', data);
+  }
+
+  async getRecurringSeries(id: string): Promise<ApiResponse<{ series: RecurringSeries; sessions: Session[] }>> {
+    return this.client.get(`/recurring-sessions/${id}`);
+  }
+
+  async cancelRecurringSeries(id: string, reason?: string): Promise<ApiResponse<any>> {
+    return this.client.post(`/recurring-sessions/${id}/cancel`, { reason });
+  }
+
   async getSession(id: string): Promise<ApiResponse<Session>> {
     return this.client.get(`/sessions/${id}`);
   }
@@ -79,6 +112,13 @@ class ApiClient {
 
   async endSession(id: string): Promise<ApiResponse<Session>> {
     return this.client.post(`/sessions/${id}/end`);
+  }
+
+  async cancelSession(
+    id: string,
+    reason?: string
+  ): Promise<ApiResponse<{ sessionId: string; status: string; cancelledBy: string; cancelledAt: string }>> {
+    return this.client.post(`/sessions/${id}/cancel`, { reason });
   }
 
   async getActiveSessions(): Promise<ApiResponse<Session[]>> {
@@ -113,9 +153,17 @@ class ApiClient {
 
   async sendMessage(
     sessionId: string,
-    data: { content: string; type: string }
+    data: { content: string; type: string; attachment?: MessageAttachment }
   ): Promise<ApiResponse<Message>> {
     return this.client.post(`/messages/${sessionId}`, data);
+  }
+
+  async uploadChatFile(file: File): Promise<ApiResponse<MessageAttachment>> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.client.post('/upload/chat', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
   }
 
   // Code endpoints
@@ -125,6 +173,13 @@ class ApiClient {
 
   async saveCodeSnapshot(sessionId: string, code: string, language: string): Promise<ApiResponse<any>> {
     return this.client.post(`/code/${sessionId}`, { code, language });
+  }
+
+  async getCodeRecordingHistory(sessionId: string): Promise<ApiResponse<{
+    session: { id: string; title: string; code_language?: string; started_at?: string; ended_at?: string };
+    events: { code: string; language: string; user_id: string; saved_at: string }[];
+  }>> {
+    return this.client.get(`/code/${sessionId}/history`);
   }
 
   // Code Execution
@@ -137,12 +192,26 @@ class ApiClient {
     return this.client.get('/profile');
   }
 
-  async updateProfile(data: { bio?: string; avatar_url?: string; skills?: string[] }): Promise<ApiResponse<any>> {
+  async updateProfile(data: { name?: string; bio?: string; avatar_url?: string; hourly_rate?: number; industry?: string; language?: string; skills?: any[]; email_notifications_enabled?: boolean }): Promise<ApiResponse<any>> {
     return this.client.put('/profile', data);
   }
 
   async getPublicProfile(userId: string): Promise<ApiResponse<any>> {
     return this.client.get(`/profile/${userId}`);
+  }
+
+  async getAllMentors(params?: {
+    search?: string;
+    skills?: string;
+    minRating?: number;
+    maxPrice?: number;
+    industry?: string;
+    language?: string;
+    sortBy?: 'rating' | 'most_booked' | 'newest';
+    page?: number;
+    limit?: number;
+  }): Promise<ApiResponse<any[]> & { pagination?: { page: number; limit: number; total: number; totalPages: number } }> {
+    return this.client.get('/profile/mentors/all', { params });
   }
 
   async addSkill(skill: string): Promise<ApiResponse<any>> {
@@ -176,7 +245,7 @@ class ApiClient {
 
   // Session History endpoints
   async getSessionHistory(): Promise<ApiResponse<any[]>> {
-    return this.client.get('/sessions/history');
+    return this.client.get('/sessions/history/user/history');
   }
 
   async getMentorSessions(mentorId: string): Promise<ApiResponse<any[]>> {
@@ -196,12 +265,20 @@ class ApiClient {
     return this.client.get('/notifications');
   }
 
+  async getUnreadNotificationCount(): Promise<ApiResponse<{ unread_count: number }>> {
+    return this.client.get('/notifications/unread/count');
+  }
+
   async createNotification(data: { user_id: string; type: string; title: string; message: string }): Promise<ApiResponse<any>> {
     return this.client.post('/notifications', data);
   }
 
   async markNotificationAsRead(notificationId: string): Promise<ApiResponse<any>> {
     return this.client.patch(`/notifications/${notificationId}/read`);
+  }
+
+  async markAllNotificationsAsRead(): Promise<ApiResponse<any>> {
+    return this.client.put('/notifications/mark-all/read');
   }
 
   async deleteNotification(notificationId: string): Promise<ApiResponse<any>> {
@@ -283,6 +360,12 @@ class ApiClient {
     return this.client.get(`/admin/users?${params.toString()}`);
   }
 
+  async getAdminSessions(status?: string): Promise<ApiResponse<any[]>> {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    return this.client.get(`/admin/sessions?${params.toString()}`);
+  }
+
   async suspendUser(userId: string, reason: string): Promise<ApiResponse<any>> {
     return this.client.patch(`/admin/users/${userId}/suspend`, { isSuspended: true, reason });
   }
@@ -301,6 +384,18 @@ class ApiClient {
 
   async getReports(): Promise<ApiResponse<any[]>> {
     return this.client.get('/admin/reports');
+  }
+
+  async getMentorsForVerification(params?: { status?: 'pending' | 'verified' | 'all'; search?: string }): Promise<ApiResponse<any[]>> {
+    return this.client.get('/admin/mentors/verification', { params });
+  }
+
+  async setMentorVerification(userId: string, verified: boolean, note?: string): Promise<ApiResponse<any>> {
+    return this.client.patch(`/admin/mentors/${userId}/verify`, { verified, note });
+  }
+
+  async getAuditLog(): Promise<ApiResponse<any[]>> {
+    return this.client.get('/admin/audit-log');
   }
 
   // Video Conference endpoints

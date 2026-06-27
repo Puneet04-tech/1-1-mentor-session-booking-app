@@ -15,15 +15,18 @@ import codeRoutes, { setSocketIO as setCodeSocketIO } from './routes/code';
 import profileRoutes from './routes/profile';
 import ratingsRoutes from './routes/ratings';
 import sessionHistoryRoutes from './routes/sessionHistory';
-import notificationsRoutes from './routes/notifications';
+import notificationsRoutes, { setSocketIO as setNotificationSocketIO } from './routes/notifications';
 import availabilityRoutes from './routes/availability';
 import paymentRoutes from './routes/payments';
 import recordingRoutes from './routes/recordings';
 import adminRoutes from './routes/admin';
 import analyticsRoutes from './routes/analytics';
+import uploadRoutes from './routes/upload';
+import recurringSessionRoutes, { setSocketIO as setRecurringSessionSocketIO } from './routes/recurringSessions';
+import path from 'path';
 import { setupSocketHandlers } from './socket/handlers';
 import { setupRealtimeHandlers } from './socket/realtimeHandlers';
-import { startReminderService } from './services/reminderService';
+import { startReminderService, setSocketIO as setReminderSocketIO } from './services/reminderService';
 
 const app: Express = express();
 const httpServer = createServer(app);
@@ -53,6 +56,9 @@ const io = new SocketIOServer(httpServer, {
 // Set Socket.io instance for routes that need it
 setSessionSocketIO(io);
 setCodeSocketIO(io);
+setReminderSocketIO(io);
+setNotificationSocketIO(io);
+setRecurringSessionSocketIO(io);
 
 // Socket.IO authentication middleware
 io.use((socket, next) => {
@@ -115,6 +121,9 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/recordings', recordingRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/upload', uploadRoutes);
+app.use('/api/recurring-sessions', recurringSessionRoutes);
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // Health check
 app.get('/health', async (req: Request, res: Response) => {

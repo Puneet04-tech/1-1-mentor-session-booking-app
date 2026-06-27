@@ -45,8 +45,12 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
 
     res.json({
       success: true,
+      data: {
+        paymentId: paymentResult.rows[0].id,
+        clientSecret: 'test_secret_' + paymentResult.rows[0].id,
+      },
       paymentId: paymentResult.rows[0].id,
-      clientSecret: 'test_secret_' + paymentResult.rows[0].id, // Mock for now
+      clientSecret: 'test_secret_' + paymentResult.rows[0].id,
     });
   } catch (error) {
     console.error('Error creating payment intent:', error);
@@ -82,6 +86,7 @@ router.post('/confirm', authMiddleware, async (req: Request, res: Response) => {
     res.json({
       success: true,
       message: 'Payment confirmed',
+      data: result.rows[0],
       payment: result.rows[0],
     });
   } catch (error) {
@@ -106,6 +111,7 @@ router.get('/history', authMiddleware, async (req: Request, res: Response) => {
 
     res.json({
       success: true,
+      data: result.rows,
       payments: result.rows,
     });
   } catch (error) {
@@ -139,6 +145,7 @@ router.get('/earnings', authMiddleware, async (req: Request, res: Response) => {
 
     res.json({
       success: true,
+      data: earningsResult.rows[0],
       earnings: earningsResult.rows[0],
     });
   } catch (error) {

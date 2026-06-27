@@ -1,14 +1,48 @@
 import { Router, Response } from 'express';
 import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
+import { buildMentorSearchPlan, MentorSearchQuery } from '@/utils/mentorSearch';
 
 const router = Router();
 
-// Get user profile with skills
+// Get own profile with skills (authenticated)
+router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const user = await queryOne(
+      `SELECT id, email, name, role, avatar_url, bio, hourly_rate, timezone, industry, language,
+              total_sessions, avg_rating, verified, created_at, email_notifications_enabled
+       FROM users WHERE id = $1`,
+      [userId]
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Fetch user skills
+    const skills = await query(
+      `SELECT skill_name, proficiency_level, years_experience
+       FROM user_skills WHERE user_id = $1
+       ORDER BY proficiency_level DESC`,
+      [userId]
+    );
+
+    res.json({
+      success: true,
+      data: { ...user, skills: skills.rows },
+    });
+  } catch (err) {
+    console.error('Get own profile error:', err);
+    res.status(500).json({ error: 'Failed to get profile' });
+  }
+});
+
+// Get user profile with skills by ID
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const user = await queryOne(
-      `SELECT id, email, name, role, avatar_url, bio, hourly_rate, 
+      `SELECT id, email, name, role, avatar_url, bio, hourly_rate, timezone, industry, language,
               total_sessions, avg_rating, verified, created_at
        FROM users WHERE id = $1`,
       [req.params.id]
@@ -28,7 +62,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      data: { ...user, skills },
+      data: { ...user, skills: skills.rows },
     });
   } catch (err) {
     console.error('Get profile error:', err);
@@ -36,23 +70,35 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Update user profile (authenticated)
-router.put('/profile/update', authMiddleware, async (req: AuthRequest, res: Response) => {
+// Shared update handler
+const updateProfileHandler = async (req: AuthRequest, res: Response) => {
   try {
-    const { name, bio, avatar_url, hourly_rate, skills } = req.body;
+    const { name, bio, avatar_url, hourly_rate, skills, email_notifications_enabled, timezone, industry, language } = req.body;
     const userId = req.user?.id;
     const now = new Date().toISOString();
 
+    if (timezone) {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+      } catch {
+        return res.status(400).json({ error: 'Invalid timezone' });
+      }
+    }
+
     // Update user profile
     await query(
-      `UPDATE users 
+      `UPDATE users
        SET name = COALESCE($1, name),
            bio = COALESCE($2, bio),
            avatar_url = COALESCE($3, avatar_url),
            hourly_rate = COALESCE($4, hourly_rate),
-           updated_at = $5
-       WHERE id = $6`,
-      [name || null, bio || null, avatar_url || null, hourly_rate || null, now, userId]
+           email_notifications_enabled = COALESCE($5, email_notifications_enabled),
+           timezone = COALESCE($6, timezone),
+           industry = COALESCE($7, industry),
+           language = COALESCE($8, language),
+           updated_at = $9
+       WHERE id = $10`,
+      [name || null, bio || null, avatar_url || null, hourly_rate || null, email_notifications_enabled ?? null, timezone || null, industry || null, language || null, now, userId]
     );
 
     // Update skills if provided
@@ -74,8 +120,8 @@ router.put('/profile/update', authMiddleware, async (req: AuthRequest, res: Resp
 
     // Fetch updated profile
     const updatedUser = await queryOne(
-      `SELECT id, email, name, role, avatar_url, bio, hourly_rate, 
-              total_sessions, avg_rating, verified, created_at
+      `SELECT id, email, name, role, avatar_url, bio, hourly_rate, timezone, industry, language,
+              total_sessions, avg_rating, verified, created_at, email_notifications_enabled
        FROM users WHERE id = $1`,
       [userId]
     );
@@ -87,40 +133,125 @@ router.put('/profile/update', authMiddleware, async (req: AuthRequest, res: Resp
 
     res.json({
       success: true,
-      data: { ...updatedUser, skills: updatedSkills },
+      data: { ...updatedUser, skills: updatedSkills.rows },
     });
   } catch (err) {
     console.error('Update profile error:', err);
     res.status(500).json({ error: 'Failed to update profile' });
   }
-});
+};
 
-// Get all mentors with skills
-router.get('/mentors/all', async (req: AuthRequest, res: Response) => {
+// Update user profile (authenticated)
+router.put('/', authMiddleware, updateProfileHandler);
+router.put('/profile/update', authMiddleware, updateProfileHandler);
+
+// Add skill
+router.post('/skills', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const mentors = await query(
-      `SELECT u.id, u.email, u.name, u.avatar_url, u.bio, u.hourly_rate,
-              u.total_sessions, u.avg_rating, u.verified, u.created_at
-       FROM users u
-       WHERE u.role = 'mentor'
-       ORDER BY u.avg_rating DESC, u.total_sessions DESC
-       LIMIT 100`
+    const { name, proficiency_level, years_experience } = req.body;
+    const userId = req.user?.id;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Skill name is required' });
+    }
+
+    // Check if skill already exists
+    const existing = await queryOne(
+      'SELECT * FROM user_skills WHERE user_id = $1 AND skill_name = $2',
+      [userId, name]
     );
 
-    // Fetch skills for each mentor
-    const mentorsList = await Promise.all(
-      mentors.rows.map(async (mentor: any) => {
-        const skills = await query(
-          `SELECT skill_name, proficiency_level, years_experience FROM user_skills WHERE user_id = $1`,
-          [mentor.id]
-        );
-        return { ...mentor, skills: skills.rows };
-      })
+    if (existing) {
+      return res.status(400).json({ error: 'Skill already exists' });
+    }
+
+    await query(
+      `INSERT INTO user_skills (user_id, skill_name, proficiency_level, years_experience)
+       VALUES ($1, $2, $3, $4)`,
+      [userId, name, proficiency_level || 'intermediate', years_experience || 0]
+    );
+
+    const newSkill = await queryOne(
+      `SELECT skill_name, proficiency_level, years_experience 
+       FROM user_skills WHERE user_id = $1 AND skill_name = $2`,
+      [userId, name]
     );
 
     res.json({
       success: true,
-      data: mentorsList,
+      data: newSkill,
+    });
+  } catch (err) {
+    console.error('Add skill error:', err);
+    res.status(500).json({ error: 'Failed to add skill' });
+  }
+});
+
+// Remove skill
+router.delete('/skills/:skillName', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { skillName } = req.params;
+    const userId = req.user?.id;
+
+    await query(
+      'DELETE FROM user_skills WHERE user_id = $1 AND skill_name = $2',
+      [userId, skillName]
+    );
+
+    res.json({
+      success: true,
+      data: { skill_name: skillName },
+    });
+  } catch (err) {
+    console.error('Remove skill error:', err);
+    res.status(500).json({ error: 'Failed to remove skill' });
+  }
+});
+
+// Search/filter/sort/paginate mentors
+router.get('/mentors/all', async (req: AuthRequest, res: Response) => {
+  try {
+    const { whereClause, params, sortColumn, page, limit, offset } = buildMentorSearchPlan(
+      req.query as MentorSearchQuery
+    );
+
+    const countResult = await queryOne(
+      `SELECT COUNT(*)::int AS total FROM users u WHERE ${whereClause}`,
+      params
+    );
+    const total = countResult?.total || 0;
+
+    params.push(limit);
+    params.push(offset);
+
+    const mentors = await query(
+      `SELECT u.id, u.email, u.name, u.avatar_url, u.bio, u.hourly_rate, u.timezone, u.industry, u.language,
+              u.total_sessions, u.avg_rating, u.verified, u.created_at,
+              COALESCE(
+                (SELECT json_agg(json_build_object(
+                   'skill_name', us.skill_name,
+                   'proficiency_level', us.proficiency_level,
+                   'years_experience', us.years_experience
+                 ))
+                 FROM user_skills us WHERE us.user_id = u.id),
+                '[]'
+              ) AS skills
+       FROM users u
+       WHERE ${whereClause}
+       ORDER BY ${sortColumn} DESC NULLS LAST, u.total_sessions DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    res.json({
+      success: true,
+      data: mentors.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
     });
   } catch (err) {
     console.error('Get mentors error:', err);

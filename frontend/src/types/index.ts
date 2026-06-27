@@ -8,9 +8,13 @@ export interface User {
   role: UserRole;
   avatar_url?: string;
   bio?: string;
+  timezone?: string;
   verified: boolean;
   created_at: string;
   updated_at: string;
+  avg_rating?: number;
+  total_sessions?: number;
+  email_notifications_enabled?: boolean;
 }
 
 export interface UserProfile extends User {
@@ -36,6 +40,30 @@ export interface Session {
   duration_minutes?: number;
   language: string;
   code_language?: string;
+  recording_enabled?: boolean;
+  recurring_series_id?: string;
+  recurrence_index?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Recurring Session Types
+export type RecurrenceFrequency = 'weekly' | 'biweekly' | 'monthly';
+
+export interface RecurringSeries {
+  id: string;
+  mentor_id: string;
+  student_id?: string;
+  title: string;
+  description?: string;
+  topic?: string;
+  frequency: RecurrenceFrequency;
+  occurrences: number;
+  duration_minutes?: number;
+  language?: string;
+  code_language?: string;
+  recording_enabled?: boolean;
+  status: 'active' | 'cancelled';
   created_at: string;
   updated_at: string;
 }
@@ -49,6 +77,13 @@ export interface ExtendedSession extends Session {
 // Message Types
 export type MessageType = 'text' | 'code_snippet' | 'system';
 
+export interface MessageAttachment {
+  url: string;
+  type: string;
+  name: string;
+  size?: number;
+}
+
 export interface Message {
   id: string;
   session_id: string;
@@ -56,6 +91,7 @@ export interface Message {
   content: string;
   type: MessageType;
   code_snippet?: string;
+  attachment?: MessageAttachment;
   created_at: string;
   user?: User;
 }
@@ -108,7 +144,7 @@ export interface SocketEvents {
   'selection:change': { start: { line: number; column: number }; end: { line: number; column: number } };
 
   // Chat Events
-  'message:send': { content: string; type: MessageType };
+  'message:send': { content: string; type: MessageType; attachment?: MessageAttachment };
   'message:receive': Message;
 
   // Video Events
@@ -144,6 +180,53 @@ export interface SocketEvents {
   'session:left': { user_id: string };
   'session:end': { sessionId: string };
   'session:ended': void;
+
+  // Notification Events
+  'notification:received': {
+    type: string;
+    title: string;
+    message: string;
+    data?: Record<string, any>;
+  };
+  'notification:new': {
+    id: string;
+    user_id: string;
+    type: string;
+    title: string;
+    message: string;
+    related_id?: string;
+    is_read: boolean;
+    created_at: string;
+  };
+
+  // Recording Events
+  'recording:request': { sessionId: string; requesterName: string };
+  'recording:consent-prompt': { requesterName: string };
+  'recording:consent': { sessionId: string; granted: boolean };
+  'recording:consent-result': { granted: boolean };
+  'recording:stop': { sessionId: string };
+  'recording:stopped-by-peer': void;
+
+  // Whiteboard Events
+  'whiteboard:draw': { segment: WhiteboardSegment; userId: string };
+  'whiteboard:clear': { userId: string };
+
+  // Mentor Availability Events
+  'mentor-profile:watch': string;
+  'mentor-profile:unwatch': string;
+  'mentor:availability-changed': { mentorId: string };
+}
+
+export interface WhiteboardSegment {
+  tool: 'pen' | 'eraser';
+  color: string;
+  size: number;
+  // Normalized 0-1 coordinates so strokes line up regardless of each
+  // participant's canvas pixel size.
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
 }
 
 // Auth Types
@@ -155,6 +238,7 @@ export interface AuthCredentials {
 export interface SignupData extends AuthCredentials {
   name: string;
   role: UserRole;
+  timezone?: string;
 }
 
 export interface AuthContext {
