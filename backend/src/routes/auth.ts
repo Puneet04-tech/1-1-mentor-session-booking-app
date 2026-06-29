@@ -74,7 +74,7 @@ router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) =>
     }
 
     // Hash password with bcrypt (10 rounds)
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, config.BCRYPT_SALT_ROUNDS);
     console.log('✅ Password hashed successfully for signup');
 
     const userId = uuidv4();
@@ -250,7 +250,7 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
     }
 
     // Hash new password
-    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+    const hashedNewPassword = await bcrypt.hash(newPassword, config.BCRYPT_SALT_ROUNDS);
     const now = new Date().toISOString();
 
     // Update password
