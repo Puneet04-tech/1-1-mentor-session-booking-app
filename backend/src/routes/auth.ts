@@ -29,13 +29,17 @@ const router = Router();
 const jwtSecret: Secret = config.JWT_SECRET as Secret;
 const jwtOptions: SignOptions = { expiresIn: config.JWT_EXPIRY as any };
 
+const normalizeEmail = (email?: string) => email?.trim().toLowerCase();
+
 // Signup
 router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const { email, password, name, role, timezone } = req.body;
 
+    const normalizedEmail = normalizeEmail(email);
+
     // Validate input
-    if (!email || !password || !name || !role) {
+    if (!normalizedEmail || !password || !name || !role) {
       return res.status(400).json({ error: 'Missing required fields: email, password, name, role' });
     }
 
@@ -62,7 +66,7 @@ router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) =>
     // Check if user exists
     const existing = await queryOne(
       'SELECT id FROM users WHERE email = $1',
-      [email]
+      [normalizedEmail]
     );
 
     if (existing) {
@@ -80,9 +84,9 @@ router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) =>
     await query(
       `INSERT INTO users (id, email, name, role, timezone, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [userId, email, name, role, resolvedTimezone, now, now]
+      [userId, normalizedEmail, name, role, resolvedTimezone, now, now]
     );
-    console.log('✅ User created:', { id: userId, email, role });
+    console.log('✅ User created:', { id: userId, email :normalizedEmail, role });
 
     // Store hashed password in user_passwords table
     await query(
@@ -94,7 +98,7 @@ router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) =>
 
     // Generate JWT token
     const token = jwt.sign(
-      { id: userId, email, role },
+      { id: userId, email: normalizedEmail, role },
       jwtSecret,
       jwtOptions
     );
@@ -103,7 +107,7 @@ router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) =>
       success: true,
       message: 'Signup successful',
       data: {
-        user: { id: userId, email, name, role, timezone: resolvedTimezone },
+        user: { id: userId, email: normalizedEmail, name, role, timezone: resolvedTimezone },
         token,
       },
     });
@@ -118,18 +122,20 @@ router.post('/login', loginLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
     // Find user
     const user = await queryOne(
       'SELECT id, email, name, role, timezone, is_suspended, suspension_reason FROM users WHERE email = $1',
-      [email]
+      [normalizedEmail]
     );
 
     if (!user) {
-      console.warn('⚠️  Login attempt for non-existent user:', email);
+      console.warn('⚠️  Login attempt for non-existent user:', normalizedEmail);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -148,14 +154,14 @@ router.post('/login', loginLimiter, async (req: AuthRequest, res: Response) => {
     const isPasswordValid = await bcrypt.compare(password, userPassword.password_hash);
 
     if (!isPasswordValid) {
-      console.warn('⚠️  Invalid password for user:', email);
+      console.warn('⚠️  Invalid password for user:', normalizedEmail);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    console.log('✅ Password verified successfully for user:', email);
+    console.log('✅ Password verified successfully for user:', normalizedEmail);
 
     if (user.is_suspended) {
-      console.warn('⚠️  Login attempt for suspended user:', email);
+      console.warn('⚠️  Login attempt for suspended user:', normalizedEmail);
       return res.status(403).json({
         error: user.suspension_reason
           ? `Account suspended: ${user.suspension_reason}`
