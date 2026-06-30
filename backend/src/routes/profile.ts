@@ -193,10 +193,16 @@ router.delete('/skills/:skillName', authMiddleware, async (req: AuthRequest, res
     const { skillName } = req.params;
     const userId = req.user?.id;
 
-    await query(
+    const result = await query(
       'DELETE FROM user_skills WHERE user_id = $1 AND skill_name = $2',
       [userId, skillName]
     );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        error: 'Skill not found',
+      });
+    }
 
     res.json({
       success: true,
