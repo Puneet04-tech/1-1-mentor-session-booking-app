@@ -5,6 +5,8 @@ import { buildMentorSearchPlan, MentorSearchQuery } from '@/utils/mentorSearch';
 
 const router = Router();
 
+const normalizeSkillName = (skillName?: string) => skillName?.trim().toLowerCase();
+
 // Get own profile with skills (authenticated)
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
@@ -151,14 +153,16 @@ router.post('/skills', authMiddleware, async (req: AuthRequest, res: Response) =
     const { name, proficiency_level, years_experience } = req.body;
     const userId = req.user?.id;
 
-    if (!name) {
+    const normalizedSkillName = normalizeSkillName(name)
+
+    if (!normalizedSkillName) {
       return res.status(400).json({ error: 'Skill name is required' });
     }
 
     // Check if skill already exists
     const existing = await queryOne(
       'SELECT * FROM user_skills WHERE user_id = $1 AND skill_name = $2',
-      [userId, name]
+      [userId, normalizedSkillName]
     );
 
     if (existing) {
@@ -168,13 +172,13 @@ router.post('/skills', authMiddleware, async (req: AuthRequest, res: Response) =
     await query(
       `INSERT INTO user_skills (user_id, skill_name, proficiency_level, years_experience)
        VALUES ($1, $2, $3, $4)`,
-      [userId, name, proficiency_level || 'intermediate', years_experience || 0]
+      [userId, normalizedSkillName, proficiency_level || 'intermediate', years_experience || 0]
     );
 
     const newSkill = await queryOne(
       `SELECT skill_name, proficiency_level, years_experience 
        FROM user_skills WHERE user_id = $1 AND skill_name = $2`,
-      [userId, name]
+      [userId, normalizedSkillName]
     );
 
     res.json({
@@ -193,14 +197,20 @@ router.delete('/skills/:skillName', authMiddleware, async (req: AuthRequest, res
     const { skillName } = req.params;
     const userId = req.user?.id;
 
+    const normalizedSkillName = normalizeSkillName(skillName);
+
+    if(!normalizedSkillName) {
+      return res.status(400).json({error: "Skill name is required"});
+    }
+
     await query(
       'DELETE FROM user_skills WHERE user_id = $1 AND skill_name = $2',
-      [userId, skillName]
+      [userId, normalizedSkillName]
     );
 
     res.json({
       success: true,
-      data: { skill_name: skillName },
+      data: { skill_name: normalizedSkillName },
     });
   } catch (err) {
     console.error('Remove skill error:', err);
