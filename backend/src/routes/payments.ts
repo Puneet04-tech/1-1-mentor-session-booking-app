@@ -15,6 +15,18 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
     const { sessionId, amount } = req.body;
     const userId = (req as any).user.id;
 
+    if (typeof amount !== 'number' || Number.isNaN(amount)) {
+      return res.status(400).json({
+        error: 'Amount must be a valid number',
+      });
+    }
+
+    if (amount <= 0) {
+      return res.status(400).json({
+        error: 'Amount must be greater than zero',
+      });
+    }
+
     // Validate session belongs to user
     const sessionResult = await db.query(
       `SELECT * FROM sessions WHERE id = $1 AND (mentor_id = $2 OR student_id = $2)`,
