@@ -92,6 +92,17 @@ router.patch('/users/:userId/suspend', async (req: AuthRequest, res: Response) =
     const { userId } = req.params;
     const { isSuspended, reason } = req.body;
 
+    const existingUser = await queryOne(
+      'SELECT id FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (!existingUser) {
+      return res.status(404).json({
+        error: 'User not found',
+      });
+    }
+
     await query(
       `UPDATE users SET is_suspended = $1, suspension_reason = $2, updated_at = NOW()
        WHERE id = $3`,
