@@ -60,10 +60,22 @@ router.get('/unread/count', authMiddleware, async (req: AuthRequest, res: Respon
 const markReadHandler = async (req: AuthRequest, res: Response) => {
   try {
     const notificationId = req.params.notification_id;
+    const userId = req.user?.id;
+
+    const notification = await queryOne(
+      'SELECT id FROM notifications WHERE id = $1 AND user_id = $2',
+      [notificationId, userId]
+    );
+
+    if (!notification) {
+      return res.status(404).json({
+        error: 'Notification not found',
+      });
+    }
 
     await query(
-      'UPDATE notifications SET is_read = TRUE WHERE id = $1',
-      [notificationId]
+      'UPDATE notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2',
+      [notificationId, userId]
     );
 
     res.json({
