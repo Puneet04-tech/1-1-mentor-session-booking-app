@@ -119,26 +119,13 @@ router.delete('/:notification_id', authMiddleware, async (req: AuthRequest, res:
   }
 });
 
-// Create notification (client-accessible)
-router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
-  try {
-    const { user_id, type, title, message, related_id } = req.body;
-    if (!user_id || !type || !title || !message) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    const notificationId = await createNotification(user_id, type, title, message, related_id);
-    const newNotification = await queryOne('SELECT * FROM notifications WHERE id = $1', [notificationId]);
-
-    res.json({
-      success: true,
-      data: newNotification,
-    });
-  } catch (err) {
-    console.error('Create notification route error:', err);
-    res.status(500).json({ error: 'Failed to create notification' });
-  }
-});
+// NOTE: There is intentionally NO client-facing route to create notifications.
+// A generic `POST /` that accepted an arbitrary `user_id` let any authenticated
+// user spoof notifications (system alerts, phishing) to any other user
+// (issue #142). Notifications must only originate from trusted server-side event
+// handlers via the internal `createNotification()` below. If a client-triggered
+// notification is ever required, it must validate the caller's relationship to
+// the recipient (e.g. shared session participant) before sending.
 
 // Create notification (internal use) — also emits a live `notification:new`
 // socket event to the recipient's personal room, so every caller of this

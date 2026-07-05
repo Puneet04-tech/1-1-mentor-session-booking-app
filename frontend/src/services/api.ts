@@ -269,9 +269,8 @@ class ApiClient {
     return this.client.get('/notifications/unread/count');
   }
 
-  async createNotification(data: { user_id: string; type: string; title: string; message: string }): Promise<ApiResponse<any>> {
-    return this.client.post('/notifications', data);
-  }
+  // Note: there is no client method to create notifications. Notifications are
+  // created only by trusted server-side event handlers (see backend issue #142).
 
   async markNotificationAsRead(notificationId: string): Promise<ApiResponse<any>> {
     return this.client.patch(`/notifications/${notificationId}/read`);
