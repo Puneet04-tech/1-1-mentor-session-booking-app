@@ -123,7 +123,13 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/recurring-sessions', recurringSessionRoutes);
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), {
+  // Defense-in-depth for user uploads (#144): stop browsers from MIME-sniffing a
+  // stored file into an executable type regardless of its declared Content-Type.
+  setHeaders: (res) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  },
+}));
 
 // Health check
 app.get('/health', async (req: Request, res: Response) => {
