@@ -60,11 +60,17 @@ router.get('/unread/count', authMiddleware, async (req: AuthRequest, res: Respon
 const markReadHandler = async (req: AuthRequest, res: Response) => {
   try {
     const notificationId = req.params.notification_id;
+    const userId = req.user?.id;
 
-    await query(
-      'UPDATE notifications SET is_read = TRUE WHERE id = $1',
-      [notificationId]
+    // Scope to the owner so a user cannot mutate someone else's notification (issue #141).
+    const result = await query(
+      'UPDATE notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2 RETURNING id',
+      [notificationId, userId]
     );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Notification not found' });
+    }
 
     res.json({
       success: true,
@@ -103,11 +109,17 @@ router.put('/mark-all/read', authMiddleware, async (req: AuthRequest, res: Respo
 router.delete('/:notification_id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const notificationId = req.params.notification_id;
+    const userId = req.user?.id;
 
-    await query(
-      'DELETE FROM notifications WHERE id = $1',
-      [notificationId]
+    // Scope to the owner so a user cannot delete someone else's notification (issue #141).
+    const result = await query(
+      'DELETE FROM notifications WHERE id = $1 AND user_id = $2 RETURNING id',
+      [notificationId, userId]
     );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Notification not found' });
+    }
 
     res.json({
       success: true,

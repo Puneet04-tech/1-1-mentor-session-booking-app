@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { query, queryOne } from '@/database';
+import { requireSessionParticipant } from '@/middleware/requireSessionParticipant';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import axios from 'axios';
 import { config } from '@/config';
@@ -390,7 +391,7 @@ function executeJavaScriptLocal(code: string): string {
 /**
  * Get code snapshot from database
  */
-router.get('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/:sessionId', authMiddleware, requireSessionParticipant(), async (req: AuthRequest, res: Response) => {
   try {
     const snapshot = await queryOne(
       'SELECT * FROM code_snapshots WHERE session_id = $1 ORDER BY saved_at DESC LIMIT 1',
@@ -408,7 +409,7 @@ router.get('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response
 });
 
 // Save code snapshot
-router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (req: AuthRequest, res: Response) => {
   try {
     const { code, language } = req.body;
     const now = new Date().toISOString();

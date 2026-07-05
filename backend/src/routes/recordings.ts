@@ -44,9 +44,29 @@ router.post('/start', authMiddleware, async (req: Request, res: Response) => {
 router.post('/stop/:recordingId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { recordingId } = req.params;
+    const userId = (req as any).user.id;
+
+    // Verify the recording exists and the user is a participant of its session
+    // before allowing them to stop it (issue #141).
+    const ownership = await db.query(
+      `SELECT sr.id, s.mentor_id, s.student_id
+       FROM session_recordings sr
+       JOIN sessions s ON sr.session_id = s.id
+       WHERE sr.id = $1`,
+      [recordingId]
+    );
+
+    if (ownership.rows.length === 0) {
+      return res.status(404).json({ error: 'Recording not found' });
+    }
+
+    const { mentor_id, student_id } = ownership.rows[0];
+    if (mentor_id !== userId && student_id !== userId) {
+      return res.status(403).json({ error: 'You are not authorized to stop this recording' });
+    }
 
     const result = await db.query(
-      `UPDATE session_recordings 
+      `UPDATE session_recordings
        SET ended_at = NOW(), status = 'processing', duration = EXTRACT(EPOCH FROM (NOW() - started_at))::INT
        WHERE id = $1
        RETURNING *`,
