@@ -24,7 +24,9 @@ cp .env.local.example .env.local
 cd ../backend
 npm install
 cp .env.example .env
-# Edit .env with your database and API keys
+# Edit .env with your database and API keys.
+# JWT_SECRET is REQUIRED (min 32 chars) — the backend will NOT start without it.
+# Generate one with:  openssl rand -base64 48
 
 # Setup database (in new terminal)
 cd ../database
@@ -73,12 +75,15 @@ NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 ```
 
 ### Backend (.env)
+A `.env` file is **required** — the backend refuses to start without a valid
+`JWT_SECRET` (min 32 chars, no default). Generate one with `openssl rand -base64 48`.
 ```
 PORT=5000
 DATABASE_URL=postgresql://user:password@host/db
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_API_KEY=your_api_key
-JWT_SECRET=your-secret-key-here
+# REQUIRED — min 32 chars. Generate with: openssl rand -base64 48
+JWT_SECRET=
 CLIENT_URL=http://localhost:3000
 ```
 
