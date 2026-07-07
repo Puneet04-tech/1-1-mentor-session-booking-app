@@ -44,18 +44,30 @@ router.post('/start', authMiddleware, async (req: Request, res: Response) => {
 router.post('/stop/:recordingId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { recordingId } = req.params;
+    const userId = (req as any).user.id;
+
+    const recording = await db.query(
+      `SELECT sr.id
+       FROM session_recordings sr
+       JOIN sessions s ON sr.session_id = s.id
+       WHERE sr.id = $1
+         AND (s.mentor_id = $2 OR s.student_id = $2)`,
+      [recordingId, userId]
+    );
+
+    if (recording.rows.length === 0) {
+      return res.status(404).json({ error: 'Recording not found' });
+    }
 
     const result = await db.query(
-      `UPDATE session_recordings 
-       SET ended_at = NOW(), status = 'processing', duration = EXTRACT(EPOCH FROM (NOW() - started_at))::INT
+      `UPDATE session_recordings
+       SET ended_at = NOW(),
+           status = 'processing',
+           duration = EXTRACT(EPOCH FROM (NOW() - started_at))::INT
        WHERE id = $1
        RETURNING *`,
       [recordingId]
     );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Recording not found' });
-    }
 
     res.json({
       success: true,
