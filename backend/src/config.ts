@@ -49,6 +49,10 @@ export const config = {
   EMAIL_USER: process.env.EMAIL_USER || '',          // your Gmail address
   EMAIL_PASS: process.env.EMAIL_PASS || '',          // Gmail App Password
   EMAIL_FROM: process.env.EMAIL_FROM || '',          // optional display address
+
+  // Stripe (payments)
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY || '',       // sk_...
+  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || '', // whsec_... (required to confirm payments)
 };
 
 export type Config = typeof config;

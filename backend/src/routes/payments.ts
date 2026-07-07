@@ -1,13 +1,13 @@
 import express, { Request, Response } from 'express';
 import * as db from '../database';
 import { authMiddleware } from '../middleware/auth';
+import { isStripeConfigured, verifyStripeSignature } from '../services/stripeWebhook';
 
 const router = express.Router();
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 
-// Initialize Stripe (you'll need to install stripe package)
-// import Stripe from 'stripe';
-// const stripe = new Stripe(STRIPE_SECRET_KEY);
+// Stripe webhook signing secret (whsec_...). Payment completion is only ever
+// driven by signature-verified webhooks — never by a client request.
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 
 // Create payment intent for session
 router.post('/create-payment-intent', authMiddleware, async (req: Request, res: Response) => {
@@ -70,40 +70,91 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
   }
 });
 
-// Confirm payment
-router.post('/confirm', authMiddleware, async (req: Request, res: Response) => {
+// Confirm payment (DISABLED)
+//
+// SECURITY (issue #140): this endpoint previously let any authenticated user
+// mark their own session as paid simply by POSTing a paymentId — no money ever
+// had to change hands. Clients must NEVER be able to complete a payment.
+// Payment completion now happens exclusively through the signature-verified
+// Stripe webhook below. This route is kept only to return a clear error to any
+// legacy caller.
+router.post('/confirm', authMiddleware, async (_req: Request, res: Response) => {
+  return res.status(501).json({
+    error: 'Client-side payment confirmation is disabled',
+    message:
+      'Payments are confirmed automatically via a signature-verified Stripe webhook ' +
+      '(POST /api/payments/webhook). Clients cannot mark a payment as completed.',
+  });
+});
+
+/**
+ * Stripe webhook — the ONLY trusted way a payment is marked completed.
+ *
+ * Stripe signs each delivery with our webhook secret; we verify that signature
+ * before touching the database. No auth middleware here: authenticity comes
+ * from the signature, not a user session. Requires the raw request body
+ * (captured in index.ts) so the signature can be recomputed byte-for-byte.
+ */
+router.post('/webhook', async (req: Request, res: Response) => {
+  // If no signing secret is configured, we cannot verify anything — refuse
+  // rather than trusting the payload.
+  if (!isStripeConfigured(STRIPE_WEBHOOK_SECRET)) {
+    return res.status(501).json({
+      error: 'Stripe webhooks are not configured',
+      message: 'Set STRIPE_WEBHOOK_SECRET to enable payment confirmation.',
+    });
+  }
+
+  const rawBody = (req as any).rawBody ?? JSON.stringify(req.body ?? {});
+  const signature = req.headers['stripe-signature'];
+
+  let event;
   try {
-    const { paymentId } = req.body;
-    const userId = (req as any).user.id;
-
-    // Update payment status
-    const result = await db.query(
-      `UPDATE payments SET status = 'completed', updated_at = NOW()
-       WHERE id = $1 AND user_id = $2
-       RETURNING *`,
-      [paymentId, userId]
+    event = verifyStripeSignature(
+      rawBody,
+      Array.isArray(signature) ? signature[0] : signature,
+      STRIPE_WEBHOOK_SECRET
     );
+  } catch (err: any) {
+    console.warn('Rejected Stripe webhook:', err.message);
+    return res.status(400).json({ error: `Webhook signature verification failed: ${err.message}` });
+  }
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Payment not found' });
+  try {
+    if (event.type === 'payment_intent.succeeded' || event.type === 'checkout.session.completed') {
+      const object = event.data?.object ?? {};
+      const stripePaymentId: string | undefined = object.id;
+      const internalPaymentId: string | undefined = object.metadata?.paymentId;
+
+      // Resolve our payment record by the internal id we attached as metadata
+      // when creating the intent, falling back to a previously stored Stripe id.
+      const result = await db.query(
+        `UPDATE payments
+            SET status = 'completed',
+                stripe_payment_id = COALESCE($2, stripe_payment_id),
+                updated_at = NOW()
+          WHERE (id = $1 OR stripe_payment_id = $2)
+            AND status <> 'completed'
+        RETURNING *`,
+        [internalPaymentId ?? null, stripePaymentId ?? null]
+      );
+
+      if (result.rows.length > 0) {
+        await db.query(
+          `UPDATE sessions SET status = 'confirmed' WHERE id = $1`,
+          [result.rows[0].session_id]
+        );
+        console.log(`Payment ${result.rows[0].id} marked completed via Stripe webhook`);
+      } else {
+        console.log('Stripe webhook: no matching pending payment found (already processed?)');
+      }
     }
 
-    // Update session status to 'confirmed'
-    await db.query(
-      `UPDATE sessions SET status = 'confirmed' 
-       WHERE id = $1`,
-      [result.rows[0].session_id]
-    );
-
-    res.json({
-      success: true,
-      message: 'Payment confirmed',
-      data: result.rows[0],
-      payment: result.rows[0],
-    });
+    // Acknowledge receipt so Stripe stops retrying.
+    return res.json({ received: true });
   } catch (error) {
-    console.error('Error confirming payment:', error);
-    res.status(500).json({ error: 'Failed to confirm payment' });
+    console.error('Error handling Stripe webhook:', error);
+    return res.status(500).json({ error: 'Failed to process webhook' });
   }
 });
 

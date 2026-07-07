@@ -280,6 +280,58 @@ Response:
 
 ---
 
+## Payment Endpoints
+
+Payments use Stripe. **A payment is only ever marked `completed` by a
+signature-verified Stripe webhook** — never by a client request. This prevents
+users from fabricating completed payments without paying (issue #140).
+
+### Create Payment Intent
+```
+POST /api/payments/create-payment-intent
+Headers: Authorization: Bearer {token}
+
+Request:
+{
+  "sessionId": "uuid",
+  "amount": 50
+}
+
+Response:
+{
+  "success": true,
+  "data": { "paymentId": "uuid", "clientSecret": "..." }
+}
+```
+Creates a `pending` payment record. The client completes the charge with Stripe
+using the returned `clientSecret`; it does **not** confirm the payment itself.
+
+### Confirm Payment — DISABLED
+```
+POST /api/payments/confirm  ->  501 Not Implemented
+```
+Client-side confirmation has been removed. Any call returns `501` directing the
+caller to the webhook flow below. Clients cannot mark a payment as completed.
+
+### Stripe Webhook (server-to-server)
+```
+POST /api/payments/webhook
+Headers: Stripe-Signature: t=...,v1=...
+Body: raw Stripe event JSON
+```
+- No user auth — authenticity comes from the `Stripe-Signature` header, which is
+  verified against `STRIPE_WEBHOOK_SECRET` before any database write.
+- Requires `STRIPE_WEBHOOK_SECRET` to be configured; otherwise responds `501`.
+- Invalid or missing signature, tampered payload, or a replayed event outside the
+  tolerance window → `400`.
+- On a verified `payment_intent.succeeded` / `checkout.session.completed` event,
+  the matching payment is set to `completed` (storing its `stripe_payment_id`) and
+  the related session is `confirmed`. Processing is idempotent.
+
+Response: `{ "received": true }`
+
+---
+
 ## WebSocket Events
 
 ### Code Editor

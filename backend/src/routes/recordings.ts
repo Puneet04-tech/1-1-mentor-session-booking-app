@@ -73,10 +73,6 @@ router.post('/stop/:recordingId', authMiddleware, async (req: Request, res: Resp
       [recordingId]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Recording not found' });
-    }
-
     res.json({
       success: true,
       message: 'Recording stopped',
