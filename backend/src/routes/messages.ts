@@ -1,11 +1,12 @@
 import { Router, Response } from 'express';
 import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
+import { requireSessionParticipant } from '@/middleware/requireSessionParticipant';
 
 const router = Router();
 
 // Get messages for session
-router.get('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/:sessionId', authMiddleware, requireSessionParticipant(), async (req: AuthRequest, res: Response) => {
   try {
     const result = await query<any>(
       `SELECT m.id, m.session_id, m.user_id, m.content, m.type, m.attachment, m.created_at,
@@ -40,7 +41,7 @@ router.get('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response
 });
 
 // Send message
-router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (req: AuthRequest, res: Response) => {
   try {
     const { content, type = 'text', code_snippet, attachment } = req.body;
     const now = new Date().toISOString();

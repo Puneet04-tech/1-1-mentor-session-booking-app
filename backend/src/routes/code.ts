@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { query, queryOne } from '@/database';
+import { requireSessionParticipant } from '@/middleware/requireSessionParticipant';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import { Server as SocketIOServer } from 'socket.io';
 import { GLOT_LANGUAGE_MAP, executeCode, executeViaGlot, normalizeLanguage } from '@/utils/codeExecution';
@@ -83,7 +84,7 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 /**
  * Get code snapshot from database
  */
-router.get('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/:sessionId', authMiddleware, requireSessionParticipant(), async (req: AuthRequest, res: Response) => {
   try {
     const snapshot = await queryOne(
       'SELECT * FROM code_snapshots WHERE session_id = $1 ORDER BY saved_at DESC LIMIT 1',
@@ -101,7 +102,7 @@ router.get('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response
 });
 
 // Save code snapshot
-router.post('/:sessionId', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (req: AuthRequest, res: Response) => {
   try {
     const { code, language } = req.body;
     const now = new Date().toISOString();
