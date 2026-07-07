@@ -8,12 +8,17 @@ import { useAuth } from '@/hooks/useAuth';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isLoading, error } = useAuth();
+  const { login, verifyTwoFactor, isLoading, error } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
   });
   const [formError, setFormError] = useState('');
+
+  // Two-factor second-step state.
+  const [pendingToken, setPendingToken] = useState<string | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [useBackupCode, setUseBackupCode] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -30,12 +35,47 @@ export default function LoginPage() {
     }
 
     try {
-      await login(formData);
+      const result = await login(formData);
+      if (result.twoFactorRequired && result.pendingToken) {
+        // Show the verification step instead of navigating away.
+        setPendingToken(result.pendingToken);
+        return;
+      }
       router.push('/dashboard');
     } catch (err: any) {
       setFormError(err.message || 'Login failed');
     }
   };
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError('');
+
+    const trimmed = twoFactorCode.trim();
+    if (!trimmed) {
+      setFormError(useBackupCode ? 'Please enter a backup code' : 'Please enter your 6-digit code');
+      return;
+    }
+
+    try {
+      await verifyTwoFactor(
+        pendingToken as string,
+        useBackupCode ? { backupCode: trimmed } : { token: trimmed }
+      );
+      router.push('/dashboard');
+    } catch (err: any) {
+      setFormError(err.message || 'Verification failed');
+    }
+  };
+
+  const resetToLogin = () => {
+    setPendingToken(null);
+    setTwoFactorCode('');
+    setUseBackupCode(false);
+    setFormError('');
+  };
+
+  const showTwoFactorStep = !!pendingToken;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950 flex items-center justify-center px-4 py-8">
@@ -48,67 +88,128 @@ export default function LoginPage() {
           <p className="text-gray-600 dark:text-gray-400">Welcome back to your mentorship journey</p>
         </div>
 
-        {/* Login Form */}
-        <GlowingCard glow="purple" className="space-y-6">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Sign In</h2>
-          </div>
+        {showTwoFactorStep ? (
+          /* ---- Second step: two-factor verification ---- */
+          <GlowingCard glow="purple" className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Two-Factor Authentication</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {useBackupCode
+                  ? 'Enter one of your saved backup codes.'
+                  : 'Enter the 6-digit code from your authenticator app.'}
+              </p>
+            </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {(formError || error) && (
-              <div className="p-4 bg-red-900/20 border border-red-700/50 rounded-lg text-red-300 text-sm">
-                {formError || error}
+            <form onSubmit={handleVerify} className="space-y-4">
+              {(formError || error) && (
+                <div className="p-4 bg-red-900/20 border border-red-700/50 rounded-lg text-red-300 text-sm">
+                  {formError || error}
+                </div>
+              )}
+
+              <GlowingInput
+                label={useBackupCode ? 'Backup code' : 'Authentication code'}
+                type="text"
+                name="twoFactorCode"
+                value={twoFactorCode}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTwoFactorCode(e.target.value)}
+                placeholder={useBackupCode ? 'XXXX-XXXX' : '123456'}
+                inputMode={useBackupCode ? 'text' : 'numeric'}
+                autoFocus
+                disabled={isLoading}
+              />
+
+              <GlowingButton variant="primary" type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? <LoadingSpinner /> : 'Verify'}
+              </GlowingButton>
+            </form>
+
+            <div className="flex items-center justify-between text-sm">
+              <button
+                type="button"
+                onClick={() => {
+                  setUseBackupCode((v) => !v);
+                  setTwoFactorCode('');
+                  setFormError('');
+                }}
+                className="text-primary-600 hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300 font-semibold"
+              >
+                {useBackupCode ? 'Use authenticator code' : 'Use a backup code'}
+              </button>
+              <button
+                type="button"
+                onClick={resetToLogin}
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                Back to sign in
+              </button>
+            </div>
+          </GlowingCard>
+        ) : (
+          /* ---- First step: email + password ---- */
+          <GlowingCard glow="purple" className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Sign In</h2>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {(formError || error) && (
+                <div className="p-4 bg-red-900/20 border border-red-700/50 rounded-lg text-red-300 text-sm">
+                  {formError || error}
+                </div>
+              )}
+
+              <GlowingInput
+                label="Email"
+                type="email"
+                name="email"
+                value={formData.email}
+                onChange={handleChange}
+                placeholder="you@example.com"
+                disabled={isLoading}
+              />
+
+              <GlowingInput
+                label="Password"
+                type="password"
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
+                placeholder="••••••••"
+                disabled={isLoading}
+              />
+
+              <GlowingButton variant="primary" type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? <LoadingSpinner /> : 'Sign In'}
+              </GlowingButton>
+            </form>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300 dark:border-gray-700/30"></div>
               </div>
-            )}
-
-            <GlowingInput
-              label="Email"
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleChange}
-              placeholder="you@example.com"
-              disabled={isLoading}
-            />
-
-            <GlowingInput
-              label="Password"
-              type="password"
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              placeholder="••••••••"
-              disabled={isLoading}
-            />
-
-            <GlowingButton variant="primary" type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? <LoadingSpinner /> : 'Sign In'}
-            </GlowingButton>
-          </form>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300 dark:border-gray-700/30"></div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-gray-50 dark:bg-dark-800/60 text-gray-500 dark:text-gray-400">or</span>
+              </div>
             </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-gray-50 dark:bg-dark-800/60 text-gray-500 dark:text-gray-400">or</span>
-            </div>
-          </div>
 
-          <p className="text-center text-gray-600 dark:text-gray-400">
-            Don't have an account?{' '}
-            <Link href="/signup" className="text-primary-600 hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300 font-semibold">
-              Sign up
-            </Link>
-          </p>
-        </GlowingCard>
+            <p className="text-center text-gray-600 dark:text-gray-400">
+              Don't have an account?{' '}
+              <Link href="/signup" className="text-primary-600 hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300 font-semibold">
+                Sign up
+              </Link>
+            </p>
+          </GlowingCard>
+        )}
 
         {/* Demo Credentials */}
-        <div className="mt-6 p-4 bg-gray-100/50 dark:bg-dark-800/30 border border-gray-200 dark:border-gray-700/20 rounded-lg text-center text-sm text-gray-600 dark:text-gray-400">
-          <p className="font-semibold text-gray-800 dark:text-gray-300 mb-2">Demo Credentials</p>
-          <p>Mentor: john_mentor@example.com / password123</p>
-          <p>Student: bob_student@example.com / password123</p>
-        </div>
+        {!showTwoFactorStep && (
+          <div className="mt-6 p-4 bg-gray-100/50 dark:bg-dark-800/30 border border-gray-200 dark:border-gray-700/20 rounded-lg text-center text-sm text-gray-600 dark:text-gray-400">
+            <p className="font-semibold text-gray-800 dark:text-gray-300 mb-2">Demo Credentials</p>
+            <p>Mentor: john_mentor@example.com / password123</p>
+            <p>Student: bob_student@example.com / password123</p>
+          </div>
+        )}
       </div>
     </div>
   );
