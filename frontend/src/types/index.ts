@@ -252,7 +252,7 @@ export interface AuthContext {
 }
 
 // Notification Types
-export type NotificationType = 'session_invite' | 'message' | 'video_call' | 'session_started';
+export type NotificationType = 'session_invite' | 'message' | 'video_call' | 'session_started' | 'session_rescheduled';
 
 export interface Notification {
   id: string;
