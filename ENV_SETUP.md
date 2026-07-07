@@ -6,7 +6,9 @@
 NODE_ENV=production
 PORT=5000
 DATABASE_URL=postgresql://user:password@ep-xxxxx.us-east-1.neon.tech/dbname
-JWT_SECRET=your-random-secure-key-here
+# REQUIRED — min 32 chars, no default. Generate with: openssl rand -base64 48
+# The server refuses to start if this is missing or too short.
+JWT_SECRET=
 JWT_EXPIRE=7d
 CORS_ORIGIN=https://your-netlify-app.netlify.app
 JUDGE0_API_BASE_URL=https://judge0-ce.p.rapidapi.com
@@ -26,11 +28,20 @@ NODE_VERSION=18.17.0
 
 ## 🔧 How to Generate Values
 
-### JWT_SECRET (Backend)
+### JWT_SECRET (Backend) — REQUIRED
+This is the signing secret for authentication tokens. It has **no default**: the
+backend refuses to start if it is missing or shorter than 32 characters, because
+a known/guessable secret lets attackers forge tokens for any user (including
+admins).
+
+Generate a strong random secret:
 ```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+openssl rand -base64 48
+# or, without openssl:
+node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
 ```
-Copy the output and paste in Render environment variables.
+Copy the output and paste it into your Render environment variables (and your
+local `backend/.env`). Never reuse the example value or commit a real secret.
 
 ### DATABASE_URL (Backend)
 
