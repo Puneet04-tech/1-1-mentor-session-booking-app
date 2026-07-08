@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import * as db from '../database';
 import { authMiddleware } from '../middleware/auth';
+import { requireRole } from '../middleware/requireRole';
 import { zonedTimeToUtc } from '../utils/timezone';
 
 const router = express.Router();
@@ -30,11 +31,37 @@ router.get('/mentor/:mentorId', authMiddleware, async (req: Request, res: Respon
   }
 });
 
-// Set availability slots
-router.post('/mentor/slots', authMiddleware, async (req: Request, res: Response) => {
+// HH:MM (24h) format, used to validate slot times.
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+// Set availability slots (mentors only)
+router.post('/mentor/slots', authMiddleware, requireRole('mentor'), async (req: Request, res: Response) => {
   try {
     const { slots } = req.body;
     const userId = (req as any).user.id;
+
+    if (!Array.isArray(slots)) {
+      return res.status(400).json({ error: 'slots must be an array' });
+    }
+
+    // Validate every slot up-front so a bad payload is a 400, never a partial
+    // write followed by a 500.
+    for (const slot of slots) {
+      if (!slot || typeof slot !== 'object') {
+        return res.status(400).json({ error: 'Each slot must be an object' });
+      }
+      const { dayOfWeek, startTime, endTime } = slot;
+      if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+        return res.status(400).json({ error: 'dayOfWeek must be an integer between 0 and 6' });
+      }
+      if (typeof startTime !== 'string' || !TIME_RE.test(startTime) ||
+          typeof endTime !== 'string' || !TIME_RE.test(endTime)) {
+        return res.status(400).json({ error: 'startTime and endTime must be in HH:MM format' });
+      }
+      if (startTime >= endTime) {
+        return res.status(400).json({ error: 'startTime must be before endTime' });
+      }
+    }
 
     // Delete existing slots
     await db.query('DELETE FROM mentor_availability WHERE mentor_id = $1', [userId]);
