@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import * as db from '../database';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { zonedTimeToUtc } from '../utils/timezone';
 
 const router = express.Router();
@@ -117,13 +117,21 @@ router.get('/available/:mentorId', async (req: Request, res: Response) => {
 });
 
 // Calendar events for mentor
-router.get('/calendar/:mentorId', async (req: Request, res: Response) => {
+router.get('/calendar/:mentorId', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { mentorId } = req.params;
     const { startDate, endDate } = req.query;
 
+    // Ownership check: a user may only view their own private calendar.
+    if (req.user?.id !== mentorId) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
     // Determine user role to query correct sessions
     const userResult = await db.query('SELECT role FROM users WHERE id = $1', [mentorId]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
     const role = userResult.rows[0]?.role;
 
     let result;
