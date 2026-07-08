@@ -1,8 +1,8 @@
 import express, { Request, Response } from 'express';
 import * as db from '../database';
 import { authMiddleware } from '../middleware/auth';
-import { requireRole } from '../middleware/requireRole';
 import { zonedTimeToUtc } from '../utils/timezone';
+import { requireRole } from '../middleware/requireRole';
 
 const router = express.Router();
 
