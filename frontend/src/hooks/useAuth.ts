@@ -51,24 +51,63 @@ export function useAuth() {
     }
   };
 
-  const login = async (credentials: AuthCredentials) => {
+  /** Finalise a session once we have a real user + full JWT. */
+  const establishSession = (userData: User, authToken: string) => {
+    setUser(userData);
+    setToken(authToken);
+    localStorage.setItem('auth_token', authToken);
+    apiClient.setToken(authToken);
+    // Connect socket
+    socketService.connect(authToken);
+  };
+
+  /**
+   * Attempt login. Returns `{ twoFactorRequired: true, pendingToken }` when the
+   * account has 2FA enabled — the caller must then collect a code and call
+   * `verifyTwoFactor`. Otherwise the session is established and it resolves
+   * with `{ twoFactorRequired: false }`.
+   */
+  const login = async (
+    credentials: AuthCredentials
+  ): Promise<{ twoFactorRequired: boolean; pendingToken?: string }> => {
     try {
       setError(null);
       setIsLoading(true);
       const response = await apiClient.login(credentials.email, credentials.password);
-      
-      if (response.data) {
-        const { user: userData, token: authToken } = response.data;
-        setUser(userData);
-        setToken(authToken);
-        localStorage.setItem('auth_token', authToken);
-        apiClient.setToken(authToken);
-        
-        // Connect socket
-        socketService.connect(authToken);
+
+      if (response.data?.twoFactorRequired && response.data.pendingToken) {
+        return { twoFactorRequired: true, pendingToken: response.data.pendingToken };
+      }
+
+      if (response.data?.user && response.data.token) {
+        establishSession(response.data.user, response.data.token);
+      }
+      return { twoFactorRequired: false };
+    } catch (err: any) {
+      const errorMessage =
+        err.response?.data?.error?.message || err.response?.data?.error || 'Login failed';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /** Second login step: exchange the pending token + code for a full session. */
+  const verifyTwoFactor = async (
+    pendingToken: string,
+    code: { token?: string; backupCode?: string }
+  ) => {
+    try {
+      setError(null);
+      setIsLoading(true);
+      const response = await apiClient.verify2FA(pendingToken, code);
+      if (response.data?.user && response.data.token) {
+        establishSession(response.data.user, response.data.token);
       }
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || 'Login failed';
+      const errorMessage =
+        err.response?.data?.error?.message || err.response?.data?.error || 'Verification failed';
       setError(errorMessage);
       throw err;
     } finally {
@@ -123,6 +162,7 @@ export function useAuth() {
     retrySession: getCurrentUser,
     isAuthenticated: !!user,
     login,
+    verifyTwoFactor,
     signup,
     logout: handleLogout,
   };

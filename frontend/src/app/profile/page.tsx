@@ -163,11 +163,18 @@ export default function ProfilePage() {
       <header className="border-b border-gray-200 dark:border-gray-700/30 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 md:py-6 flex justify-between items-center">
           <h1 className="text-2xl md:text-3xl font-bold gradient-text">Profile</h1>
-          <Link href="/dashboard">
-            <GlowingButton variant="outline" className="text-sm">
-              Back to Dashboard
-            </GlowingButton>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/settings/security">
+              <GlowingButton variant="outline" className="text-sm">
+                Security
+              </GlowingButton>
+            </Link>
+            <Link href="/dashboard">
+              <GlowingButton variant="outline" className="text-sm">
+                Back to Dashboard
+              </GlowingButton>
+            </Link>
+          </div>
         </div>
       </header>
 

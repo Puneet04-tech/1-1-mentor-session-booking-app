@@ -6,6 +6,17 @@ import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import { config } from '@/config';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  generateSecret,
+  buildOtpAuthUrl,
+  generateQrCodeDataUrl,
+  verifyToken,
+  generateBackupCodes,
+  consumeBackupCode,
+  issuePendingToken,
+  verifyPendingToken,
+  BackupCode,
+} from '@/services/twoFactor';
 
 // Rate limiter for login: 10 attempts per 15 minutes per IP
 const loginLimiter = rateLimit({
@@ -25,11 +36,30 @@ const signupLimiter = rateLimit({
   message: { error: 'Too many accounts created from this IP. Please try again after an hour.' },
 });
 
+// Rate limiter for 2FA verification: 10 attempts per 15 minutes per IP.
+// Prevents brute-forcing the 6-digit TOTP / backup codes at the second step.
+const twoFactorLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many verification attempts. Please try again after 15 minutes.' },
+});
+
 const router = Router();
 const jwtSecret: Secret = config.JWT_SECRET as Secret;
 const jwtOptions: SignOptions = { expiresIn: config.JWT_EXPIRY as any };
 
 const normalizeEmail = (email?: string) => email?.trim().toLowerCase();
+
+/** Sign a full-access session JWT for a fully-authenticated user. */
+function issueSessionToken(user: { id: string; email: string; role: string }): string {
+  return jwt.sign(
+    { id: user.id, email: user.email, role: user.role },
+    jwtSecret,
+    jwtOptions
+  );
+}
 
 // Signup
 router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) => {
@@ -130,7 +160,7 @@ router.post('/login', loginLimiter, async (req: AuthRequest, res: Response) => {
 
     // Find user
     const user = await queryOne(
-      'SELECT id, email, name, role, timezone, is_suspended, suspension_reason FROM users WHERE email = $1',
+      'SELECT id, email, name, role, timezone, is_suspended, suspension_reason, two_factor_enabled FROM users WHERE email = $1',
       [normalizedEmail]
     );
 
@@ -169,18 +199,32 @@ router.post('/login', loginLimiter, async (req: AuthRequest, res: Response) => {
       });
     }
 
+    // If 2FA is active, don't hand out a full session token yet. Issue a
+    // short-lived pending token the client must exchange at /2fa/verify with a
+    // valid TOTP or backup code (issue #138).
+    if (user.two_factor_enabled) {
+      const pendingToken = issuePendingToken(user.id);
+      return res.json({
+        success: true,
+        message: 'Two-factor authentication required',
+        data: {
+          twoFactorRequired: true,
+          pendingToken,
+        },
+      });
+    }
+
     // Generate JWT token
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      jwtSecret,
-      jwtOptions
-    );
+    const token = issueSessionToken(user);
+
+    // Strip internal flags before returning the user object.
+    const { is_suspended, suspension_reason, two_factor_enabled, ...safeUser } = user;
 
     res.json({
       success: true,
       message: 'Login successful',
       data: {
-        user,
+        user: safeUser,
         token,
       },
     });
@@ -270,6 +314,269 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
   } catch (err) {
     console.error('❌ Change password error:', err);
     res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Two-Factor Authentication (2FA) — issue #138
+// ---------------------------------------------------------------------------
+
+// GET /2fa/status — whether 2FA is currently enabled for the caller.
+router.get('/2fa/status', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const row = await queryOne(
+      'SELECT two_factor_enabled FROM users WHERE id = $1',
+      [req.user?.id]
+    );
+    res.json({ success: true, data: { enabled: !!row?.two_factor_enabled } });
+  } catch (err) {
+    console.error('❌ 2FA status error:', err);
+    res.status(500).json({ error: 'Failed to get 2FA status' });
+  }
+});
+
+// POST /2fa/setup — generate a secret + QR code WITHOUT enabling 2FA.
+// The secret is persisted so the subsequent /enable call can verify against it,
+// but the feature stays inactive until the user proves possession of a code.
+router.post('/2fa/setup', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const user = await queryOne(
+      'SELECT email, two_factor_enabled FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (user.two_factor_enabled) {
+      return res.status(400).json({ error: '2FA is already enabled. Disable it first to re-configure.' });
+    }
+
+    const secret = generateSecret();
+    const otpauthUrl = buildOtpAuthUrl(user.email, secret);
+    const qrCode = await generateQrCodeDataUrl(otpauthUrl);
+
+    // Store the pending secret; enabled stays false until /enable succeeds.
+    await query(
+      'UPDATE users SET two_factor_secret = $1, updated_at = $2 WHERE id = $3',
+      [secret, new Date().toISOString(), userId]
+    );
+
+    res.json({
+      success: true,
+      message: 'Scan the QR code with your authenticator app, then verify a code to enable 2FA.',
+      data: { secret, otpauthUrl, qrCode },
+    });
+  } catch (err) {
+    console.error('❌ 2FA setup error:', err);
+    res.status(500).json({ error: 'Failed to start 2FA setup' });
+  }
+});
+
+// POST /2fa/enable — verify a TOTP against the pending secret, then activate
+// 2FA and return one-time backup codes (shown to the user exactly once).
+router.post('/2fa/enable', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: 'Verification code is required' });
+    }
+
+    const user = await queryOne(
+      'SELECT two_factor_secret, two_factor_enabled FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (user.two_factor_enabled) {
+      return res.status(400).json({ error: '2FA is already enabled' });
+    }
+
+    if (!user.two_factor_secret) {
+      return res.status(400).json({ error: 'No 2FA setup in progress. Call /2fa/setup first.' });
+    }
+
+    if (!verifyToken(token, user.two_factor_secret)) {
+      return res.status(401).json({ error: 'Invalid verification code' });
+    }
+
+    const { plainCodes, hashedCodes } = await generateBackupCodes();
+
+    await query(
+      `UPDATE users
+       SET two_factor_enabled = TRUE, two_factor_backup_codes = $1, updated_at = $2
+       WHERE id = $3`,
+      [JSON.stringify(hashedCodes), new Date().toISOString(), userId]
+    );
+
+    console.log('✅ 2FA enabled for user:', userId);
+
+    res.json({
+      success: true,
+      message: '2FA enabled. Save these backup codes somewhere safe — they will not be shown again.',
+      data: { backupCodes: plainCodes },
+    });
+  } catch (err) {
+    console.error('❌ 2FA enable error:', err);
+    res.status(500).json({ error: 'Failed to enable 2FA' });
+  }
+});
+
+// POST /2fa/verify — exchange a login pending token + TOTP/backup code for a
+// full session JWT. This is the second step of the login flow.
+router.post('/2fa/verify', twoFactorLimiter, async (req: AuthRequest, res: Response) => {
+  try {
+    const { pendingToken, token, backupCode } = req.body;
+
+    if (!pendingToken) {
+      return res.status(400).json({ error: 'Pending token is required' });
+    }
+    if (!token && !backupCode) {
+      return res.status(400).json({ error: 'A verification code or backup code is required' });
+    }
+
+    const userId = verifyPendingToken(pendingToken);
+    if (!userId) {
+      return res.status(401).json({ error: 'Invalid or expired session. Please log in again.' });
+    }
+
+    const user = await queryOne(
+      `SELECT id, email, name, role, timezone, is_suspended, suspension_reason,
+              two_factor_enabled, two_factor_secret, two_factor_backup_codes
+       FROM users WHERE id = $1`,
+      [userId]
+    );
+
+    if (!user || !user.two_factor_enabled) {
+      return res.status(401).json({ error: 'Invalid or expired session. Please log in again.' });
+    }
+
+    if (user.is_suspended) {
+      return res.status(403).json({
+        error: user.suspension_reason
+          ? `Account suspended: ${user.suspension_reason}`
+          : 'Account suspended',
+      });
+    }
+
+    let verified = false;
+
+    if (token) {
+      verified = verifyToken(token, user.two_factor_secret);
+    }
+
+    if (!verified && backupCode) {
+      const updatedCodes = await consumeBackupCode(
+        backupCode,
+        user.two_factor_backup_codes as BackupCode[] | null
+      );
+      if (updatedCodes) {
+        // Persist the consumed (single-use) backup code immediately.
+        await query(
+          'UPDATE users SET two_factor_backup_codes = $1, updated_at = $2 WHERE id = $3',
+          [JSON.stringify(updatedCodes), new Date().toISOString(), userId]
+        );
+        verified = true;
+      }
+    }
+
+    if (!verified) {
+      console.warn('⚠️  Failed 2FA verification for user:', userId);
+      return res.status(401).json({ error: 'Invalid verification code' });
+    }
+
+    const sessionToken = issueSessionToken(user);
+    const safeUser = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      timezone: user.timezone,
+    };
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      data: { user: safeUser, token: sessionToken },
+    });
+  } catch (err) {
+    console.error('❌ 2FA verify error:', err);
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+// POST /2fa/disable — turn off 2FA. Requires BOTH the account password and a
+// valid current 2FA (TOTP or backup) code, so a stolen session alone can't
+// remove the protection.
+router.post('/2fa/disable', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { password, token, backupCode } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+    if (!token && !backupCode) {
+      return res.status(400).json({ error: 'A current 2FA code or backup code is required' });
+    }
+
+    const user = await queryOne(
+      `SELECT two_factor_enabled, two_factor_secret, two_factor_backup_codes
+       FROM users WHERE id = $1`,
+      [userId]
+    );
+
+    if (!user || !user.two_factor_enabled) {
+      return res.status(400).json({ error: '2FA is not enabled' });
+    }
+
+    // Verify password.
+    const userPassword = await queryOne(
+      'SELECT password_hash FROM user_passwords WHERE user_id = $1',
+      [userId]
+    );
+    if (!userPassword || !(await bcrypt.compare(password, userPassword.password_hash))) {
+      return res.status(401).json({ error: 'Incorrect password' });
+    }
+
+    // Verify a current 2FA code (TOTP or an unused backup code).
+    let verified = false;
+    if (token) {
+      verified = verifyToken(token, user.two_factor_secret);
+    }
+    if (!verified && backupCode) {
+      const updatedCodes = await consumeBackupCode(
+        backupCode,
+        user.two_factor_backup_codes as BackupCode[] | null
+      );
+      verified = !!updatedCodes;
+    }
+
+    if (!verified) {
+      return res.status(401).json({ error: 'Invalid 2FA code' });
+    }
+
+    await query(
+      `UPDATE users
+       SET two_factor_enabled = FALSE, two_factor_secret = NULL,
+           two_factor_backup_codes = NULL, updated_at = $1
+       WHERE id = $2`,
+      [new Date().toISOString(), userId]
+    );
+
+    console.log('✅ 2FA disabled for user:', userId);
+
+    res.json({ success: true, message: '2FA has been disabled' });
+  } catch (err) {
+    console.error('❌ 2FA disable error:', err);
+    res.status(500).json({ error: 'Failed to disable 2FA' });
   }
 });
 

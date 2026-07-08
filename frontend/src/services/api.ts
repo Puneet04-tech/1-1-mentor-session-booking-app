@@ -61,7 +61,10 @@ class ApiClient {
     return this.client.post('/auth/signup', data);
   }
 
-  async login(email: string, password: string): Promise<ApiResponse<{ user: User; token: string }>> {
+  async login(
+    email: string,
+    password: string
+  ): Promise<ApiResponse<{ user?: User; token?: string; twoFactorRequired?: boolean; pendingToken?: string }>> {
     return this.client.post('/auth/login', { email, password });
   }
 
@@ -71,6 +74,34 @@ class ApiClient {
 
   async logout(): Promise<ApiResponse<void>> {
     return this.client.post('/auth/logout');
+  }
+
+  // Two-Factor Authentication (2FA) endpoints — issue #138
+  async get2FAStatus(): Promise<ApiResponse<{ enabled: boolean }>> {
+    return this.client.get('/auth/2fa/status');
+  }
+
+  async setup2FA(): Promise<ApiResponse<{ secret: string; otpauthUrl: string; qrCode: string }>> {
+    return this.client.post('/auth/2fa/setup');
+  }
+
+  async enable2FA(token: string): Promise<ApiResponse<{ backupCodes: string[] }>> {
+    return this.client.post('/auth/2fa/enable', { token });
+  }
+
+  /** Second login step: exchange a pending token + TOTP/backup code for a session. */
+  async verify2FA(
+    pendingToken: string,
+    code: { token?: string; backupCode?: string }
+  ): Promise<ApiResponse<{ user: User; token: string }>> {
+    return this.client.post('/auth/2fa/verify', { pendingToken, ...code });
+  }
+
+  async disable2FA(
+    password: string,
+    code: { token?: string; backupCode?: string }
+  ): Promise<ApiResponse<void>> {
+    return this.client.post('/auth/2fa/disable', { password, ...code });
   }
 
   // Session endpoints
