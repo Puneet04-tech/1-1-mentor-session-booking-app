@@ -56,6 +56,28 @@ export default function SessionHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportCsv = async () => {
+    setExporting(true);
+    setError('');
+    try {
+      const blob = await apiClient.exportSessionHistoryCsv();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'session-history.csv';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Error exporting session history:', err);
+      setError('Failed to export CSV. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useEffect(() => {
     if (!user?.id) return;
@@ -93,11 +115,21 @@ export default function SessionHistoryPage() {
       <header className="border-b border-gray-200 dark:border-gray-700/30 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 md:py-6 flex justify-between items-center">
           <h1 className="text-2xl md:text-3xl font-bold gradient-text">Session History</h1>
-          <Link href="/dashboard">
-            <GlowingButton variant="outline" className="text-sm">
-              Back
+          <div className="flex gap-2">
+            <GlowingButton
+              variant="secondary"
+              className="text-sm"
+              onClick={handleExportCsv}
+              disabled={exporting || sessions.length === 0}
+            >
+              {exporting ? 'Exporting…' : 'Export CSV'}
             </GlowingButton>
-          </Link>
+            <Link href="/dashboard">
+              <GlowingButton variant="outline" className="text-sm">
+                Back
+              </GlowingButton>
+            </Link>
+          </div>
         </div>
       </header>
 

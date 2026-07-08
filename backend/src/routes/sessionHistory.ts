@@ -5,34 +5,62 @@ import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
+/**
+ * Fetch a user's completed/in-progress session history. Mentors get the
+ * sessions they mentored (with student details); everyone else gets the
+ * sessions they attended as a student (with mentor details). Shared by the
+ * JSON history handler and the CSV export.
+ */
+const fetchSessionHistory = (userId: string | undefined, role: string | undefined) => {
+  if (role === 'mentor') {
+    return query(
+      `SELECT s.*, u.name as student_name, u.avatar_url as student_avatar
+       FROM sessions s
+       LEFT JOIN users u ON s.student_id = u.id
+       WHERE s.mentor_id = $1 AND (s.status = 'completed' OR s.status = 'in_progress')
+       ORDER BY s.updated_at DESC`,
+      [userId]
+    );
+  }
+  return query(
+    `SELECT s.*, u.name as mentor_name, u.avatar_url as mentor_avatar, u.avg_rating
+     FROM sessions s
+     LEFT JOIN users u ON s.mentor_id = u.id
+     WHERE s.student_id = $1 AND (s.status = 'completed' OR s.status = 'in_progress')
+     ORDER BY s.updated_at DESC`,
+    [userId]
+  );
+};
+
+/** RFC-4180 CSV field escaping: quote and double any embedded quotes when the
+ * value contains a comma, quote, or newline. */
+const csvEscape = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  const s = String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/** Render session rows as a CSV string (header row always present). */
+const sessionsToCsv = (rows: any[], role: string | undefined): string => {
+  const counterpartyHeader = role === 'mentor' ? 'Student' : 'Mentor';
+  const headers = ['Session ID', 'Title', counterpartyHeader, 'Scheduled At', 'Status', 'Duration (min)'];
+  const lines = [headers.join(',')];
+  for (const r of rows) {
+    const counterparty = role === 'mentor' ? r.student_name : r.mentor_name;
+    lines.push(
+      [r.id, r.title, counterparty, r.scheduled_at, r.status, r.duration].map(csvEscape).join(',')
+    );
+  }
+  return lines.join('\r\n');
+};
+
 // Shared user history handler
 const userHistoryHandler = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.id;
     const role = req.user?.role;
 
-    let sessions;
-    if (role === 'mentor') {
-      // Mentors see their own sessions where they were mentor
-      sessions = await query(
-        `SELECT s.*, u.name as student_name, u.avatar_url as student_avatar
-         FROM sessions s
-         LEFT JOIN users u ON s.student_id = u.id
-         WHERE s.mentor_id = $1 AND (s.status = 'completed' OR s.status = 'in_progress')
-         ORDER BY s.updated_at DESC`,
-        [userId]
-      );
-    } else {
-      // Students see sessions they joined
-      sessions = await query(
-        `SELECT s.*, u.name as mentor_name, u.avatar_url as mentor_avatar, u.avg_rating
-         FROM sessions s
-         LEFT JOIN users u ON s.mentor_id = u.id
-         WHERE s.student_id = $1 AND (s.status = 'completed' OR s.status = 'in_progress')
-         ORDER BY s.updated_at DESC`,
-        [userId]
-      );
-    }
+    const sessions = await fetchSessionHistory(userId, role);
 
     // Fetch ratings and feedback for each session
     const sessionsWithDetails = await Promise.all(
@@ -58,6 +86,24 @@ const userHistoryHandler = async (req: AuthRequest, res: Response) => {
 // Get session history for user (completed sessions)
 router.get('/user/history', authMiddleware, userHistoryHandler);
 router.get('/', authMiddleware, userHistoryHandler);
+
+// Export the authenticated user's session history as a downloadable CSV.
+router.get('/export/csv', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const role = req.user?.role;
+
+    const sessions = await fetchSessionHistory(userId, role);
+    const csv = sessionsToCsv(sessions.rows, role);
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="session-history.csv"');
+    res.send(csv);
+  } catch (err) {
+    console.error('Export session history CSV error:', err);
+    res.status(500).json({ error: 'Failed to export session history' });
+  }
+});
 
 // Get public session history for a specific mentor
 router.get('/mentor/:mentorId', async (req: AuthRequest, res: Response) => {

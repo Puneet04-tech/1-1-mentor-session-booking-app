@@ -283,6 +283,11 @@ class ApiClient {
     return this.client.get(`/sessions/history/mentor/${mentorId}`);
   }
 
+  // Downloads the authenticated user's session history as a CSV Blob.
+  async exportSessionHistoryCsv(): Promise<Blob> {
+    return this.client.get('/sessions/history/export/csv', { responseType: 'blob' });
+  }
+
   async completeSession(sessionId: string): Promise<ApiResponse<any>> {
     return this.client.patch(`/sessions/history/${sessionId}/complete`);
   }
