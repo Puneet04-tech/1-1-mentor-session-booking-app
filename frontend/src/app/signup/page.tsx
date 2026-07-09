@@ -17,6 +17,30 @@ export default function SignupPage() {
   });
   const [formError, setFormError] = useState('');
 
+  const password = formData.password;
+  const isMinLength = password.length >= 6;
+  const hasUpper = /[A-Z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecial = /[^A-Za-z0-9]/.test(password);
+
+  const criteriaMetCount = [isMinLength, hasUpper, hasNumber, hasSpecial].filter(Boolean).length;
+
+  let strengthLabel = '';
+  let strengthBarWidth = '0%';
+
+  if (password) {
+    if (criteriaMetCount <= 1) {
+      strengthLabel = 'Weak';
+      strengthBarWidth = '25%';
+    } else if (criteriaMetCount <= 3) {
+      strengthLabel = 'Medium';
+      strengthBarWidth = '60%';
+    } else {
+      strengthLabel = 'Strong';
+      strengthBarWidth = '100%';
+    }
+  }
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -98,6 +122,73 @@ export default function SignupPage() {
               placeholder="••••••••"
               disabled={isLoading}
             />
+
+            {password && (
+              <div className="mt-2 space-y-2 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600 dark:text-gray-400">Password Strength:</span>
+                  <span className={`font-semibold ${
+                    criteriaMetCount <= 1 
+                      ? 'text-red-500 dark:text-red-400' 
+                      : criteriaMetCount <= 3 
+                      ? 'text-amber-500 dark:text-amber-400' 
+                      : 'text-green-500 dark:text-green-400'
+                  }`}>
+                    {strengthLabel}
+                  </span>
+                </div>
+                
+                {/* Strength Bar */}
+                <div className="w-full bg-gray-200 dark:bg-dark-800 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      criteriaMetCount <= 1 
+                        ? 'bg-red-500' 
+                        : criteriaMetCount <= 3 
+                        ? 'bg-amber-500' 
+                        : 'bg-green-500'
+                    }`}
+                    style={{ width: strengthBarWidth }}
+                  />
+                </div>
+
+                {/* Criteria Checklist */}
+                <div className="grid grid-cols-2 gap-2 pt-1 text-gray-500 dark:text-gray-400">
+                  <div className="flex items-center gap-1.5">
+                    <span className={isMinLength ? 'text-green-500' : 'text-gray-400 dark:text-gray-600 font-bold'}>
+                      {isMinLength ? '✓' : '○'}
+                    </span>
+                    <span className={isMinLength ? 'text-gray-900 dark:text-gray-200 font-medium' : ''}>
+                      6+ characters
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={hasUpper ? 'text-green-500' : 'text-gray-400 dark:text-gray-600 font-bold'}>
+                      {hasUpper ? '✓' : '○'}
+                    </span>
+                    <span className={hasUpper ? 'text-gray-900 dark:text-gray-200 font-medium' : ''}>
+                      Uppercase letter (A-Z)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={hasNumber ? 'text-green-500' : 'text-gray-400 dark:text-gray-600 font-bold'}>
+                      {hasNumber ? '✓' : '○'}
+                    </span>
+                    <span className={hasNumber ? 'text-gray-900 dark:text-gray-200 font-medium' : ''}>
+                      At least 1 number
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={hasSpecial ? 'text-green-500' : 'text-gray-400 dark:text-gray-600 font-bold'}>
+                      {hasSpecial ? '✓' : '○'}
+                    </span>
+                    <span className={hasSpecial ? 'text-gray-900 dark:text-gray-200 font-medium' : ''}>
+                      Special char (!@#$ etc.)
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <GlowingSelect
               label="I am a"
