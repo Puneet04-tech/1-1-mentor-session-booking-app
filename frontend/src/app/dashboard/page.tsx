@@ -7,6 +7,7 @@ import { apiClient } from '@/services/api';
 import { Session, User } from '@/types';
 import { GlowingButton, GlowingCard, Badge, Avatar, LoadingSpinner, ErrorRetryBanner } from '@/components/ui/GlowingComponents';
 import CancelSessionButton from '@/components/CancelSessionButton';
+import RescheduleSessionButton from '@/components/RescheduleSessionButton';
 import CancelSeriesButton from '@/components/CancelSeriesButton';
 import { formatSessionDateTime } from '@/utils/formatDateTime';
 
@@ -296,14 +297,28 @@ export default function DashboardPage() {
                       </Link>
                     </div>
                     {session.status === 'scheduled' && (
-                      <CancelSessionButton
-                        sessionId={session.id}
-                        scheduledAt={session.scheduled_at}
-                        onCancelled={() => {
-                          setSessions((prev) => prev.filter((s) => s.id !== session.id));
-                          setCancelledNotice('Session cancelled. Both participants have been notified.');
-                        }}
-                      />
+                      <div className="flex items-center flex-wrap">
+                        <RescheduleSessionButton
+                          sessionId={session.id}
+                          scheduledAt={session.scheduled_at}
+                          onRescheduled={(newScheduledAt) => {
+                            setSessions((prev) =>
+                              prev.map((s) =>
+                                s.id === session.id ? { ...s, scheduled_at: newScheduledAt } : s
+                              )
+                            );
+                            setCancelledNotice('Session rescheduled. Both participants have been notified.');
+                          }}
+                        />
+                        <CancelSessionButton
+                          sessionId={session.id}
+                          scheduledAt={session.scheduled_at}
+                          onCancelled={() => {
+                            setSessions((prev) => prev.filter((s) => s.id !== session.id));
+                            setCancelledNotice('Session cancelled. Both participants have been notified.');
+                          }}
+                        />
+                      </div>
                     )}
                   </GlowingCard>
                 ))}

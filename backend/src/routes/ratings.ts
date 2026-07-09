@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
+import { requireSessionParticipant } from '@/middleware/requireSessionParticipant';
 import { v4 as uuidv4 } from 'uuid';
 import { moderateReviewText } from '@/utils/moderation';
 
@@ -121,7 +122,7 @@ router.get('/mentor/:mentor_id', getRatingsHandler);
 router.get('/user/:mentor_id', getRatingsHandler);
 
 // Get rating for a session (check if already rated)
-router.get('/session/:session_id', async (req: AuthRequest, res: Response) => {
+router.get('/session/:session_id', authMiddleware, requireSessionParticipant('session_id'), async (req: AuthRequest, res: Response) => {
   try {
     const rating = await queryOne(
       'SELECT * FROM ratings WHERE session_id = $1',

@@ -10,6 +10,8 @@ import { mentorAvailabilityRoom } from '@/socket/handlers/mentorAvailability';
 import { isWithinCancellationWindow } from '@/utils/cancellationPolicy';
 import { validateSessionInput } from '@/utils/sessionValidation';
 import { formatSessionTime } from '@/utils/formatSessionTime';
+import { validateRescheduleRequest, hasSchedulingConflict } from '@/utils/reschedulePolicy';
+import { createNotification } from '@/routes/notifications';
 
 class HttpError extends Error {
   constructor(public statusCode: number, message: string) {
@@ -776,6 +778,201 @@ router.post('/:id/cancel', authMiddleware, async (req: AuthRequest, res: Respons
   } catch (err) {
     console.error('Cancel session error:', err);
     return res.status(500).json({ error: 'Failed to cancel session' });
+  }
+});
+
+function buildRescheduleEmailHTML(params: {
+  recipientName: string;
+  reschedulerName: string;
+  sessionTitle: string;
+  previousTime?: string;
+  newTime: string;
+  recipientTimezone?: string;
+  joinLink: string;
+}): string {
+  const { recipientName, reschedulerName, sessionTitle, previousTime, newTime, recipientTimezone, joinLink } = params;
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Session Rescheduled</title>
+  <style>
+    body{margin:0;padding:0;background:#0f0f13;font-family:'Segoe UI',Arial,sans-serif;color:#e2e8f0}
+    .wrap{max-width:600px;margin:0 auto;padding:32px 16px}
+    .card{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);border-radius:16px;border:1px solid rgba(59,130,246,.3);overflow:hidden}
+    .hdr{background:linear-gradient(135deg,#2563eb 0%,#1d4ed8 100%);padding:32px 40px;text-align:center}
+    .hdr h1{margin:0;font-size:24px;color:#fff;font-weight:700}
+    .body{padding:32px 40px}
+    .sc{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:20px 24px;margin:20px 0}
+    .lbl{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#3b82f6;font-weight:600;margin-bottom:4px}
+    .val{font-size:15px;color:#f1f5f9;margin-bottom:14px}
+    .val:last-child{margin-bottom:0}
+    .old{text-decoration:line-through;color:#94a3b8}
+    .btn{display:block;width:fit-content;margin:28px auto;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;text-decoration:none;font-size:16px;font-weight:700;padding:14px 36px;border-radius:10px;text-align:center}
+    .ftr{text-align:center;padding:20px 40px;font-size:12px;color:#64748b;border-top:1px solid rgba(255,255,255,.05)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="hdr"><h1>🔄 Session Rescheduled</h1></div>
+      <div class="body">
+        <p style="font-size:18px;font-weight:600;color:#fff;margin-bottom:16px">Hello, ${recipientName}!</p>
+        <p style="color:#94a3b8;font-size:14px;line-height:1.6">
+          <strong style="color:#e2e8f0">${reschedulerName}</strong> has rescheduled the following session:
+        </p>
+        <div class="sc">
+          <div class="lbl">Session</div>
+          <div class="val">${sessionTitle}</div>
+          ${previousTime ? `<div class="lbl">Previous Time</div><div class="val old">${formatSessionTime(new Date(previousTime), recipientTimezone)}</div>` : ''}
+          <div class="lbl">New Time</div>
+          <div class="val">${formatSessionTime(new Date(newTime), recipientTimezone)}</div>
+        </div>
+        <a href="${joinLink}" class="btn">🚀 View Session</a>
+      </div>
+      <div class="ftr"><p>© ${new Date().getFullYear()} MentorConnect. All rights reserved.</p></div>
+    </div>
+  </div>
+</body>
+</html>`.trim();
+}
+
+// Reschedule session (mentor or student who is a participant) — issue #145
+router.post('/:id/reschedule', authMiddleware, async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const userId = req.user?.id as string;
+  const { newScheduledAt } = req.body as { newScheduledAt?: string };
+  // Match the cancellation notice window (same env var / default).
+  const minNoticeHours = parseInt(process.env.MIN_CANCEL_NOTICE_HOURS ?? '2', 10);
+
+  try {
+    const session = await queryOne(
+      `SELECT id, mentor_id, student_id, status, scheduled_at, title, topic,
+              duration_minutes, original_scheduled_at, reschedule_count
+       FROM sessions WHERE id = $1`,
+      [id]
+    );
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const decision = validateRescheduleRequest({
+      session: {
+        mentor_id: session.mentor_id as string,
+        student_id: (session.student_id as string) ?? null,
+        status: session.status as string,
+        scheduled_at: session.scheduled_at as string | null,
+      },
+      userId,
+      newScheduledAt,
+      minNoticeHours,
+    });
+
+    if (!decision.ok) {
+      return res.status(decision.status).json({ error: decision.error });
+    }
+
+    const newDate = decision.newScheduledAt;
+
+    // Double-booking check: does this mentor have any other active session that
+    // overlaps the requested slot? If so, 409 Conflict.
+    const otherSessionsRes = await query(
+      `SELECT scheduled_at, duration_minutes FROM sessions
+       WHERE mentor_id = $1 AND id <> $2
+         AND status IN ('scheduled', 'confirmed', 'in_progress')`,
+      [session.mentor_id, id]
+    );
+    const conflict = hasSchedulingConflict(
+      newDate,
+      Number(session.duration_minutes) || 60,
+      otherSessionsRes.rows as { scheduled_at: string | null; duration_minutes?: number | null }[]
+    );
+    if (conflict) {
+      return res.status(409).json({
+        error: 'The mentor already has another session scheduled during that time',
+      });
+    }
+
+    const now = new Date().toISOString();
+    const previousTime = session.scheduled_at as string | null;
+    // Preserve the very first scheduled time across repeated reschedules.
+    const originalScheduledAt = (session.original_scheduled_at as string | null) ?? previousTime;
+
+    await query(
+      `UPDATE sessions
+       SET scheduled_at = $1, original_scheduled_at = $2, rescheduled_by = $3,
+           reschedule_count = COALESCE(reschedule_count, 0) + 1, updated_at = $4
+       WHERE id = $5`,
+      [newDate.toISOString(), originalScheduledAt, userId, now, id]
+    );
+
+    // Notify both participants (email + persistent notification + socket).
+    const participantIds = [session.mentor_id, session.student_id].filter(Boolean) as string[];
+    const usersRes = await query(
+      `SELECT id, name, email, email_notifications_enabled, timezone FROM users WHERE id = ANY($1::uuid[])`,
+      [participantIds]
+    );
+    const participants = usersRes.rows as {
+      id: string;
+      name: string;
+      email: string;
+      email_notifications_enabled: boolean;
+      timezone?: string;
+    }[];
+    const reschedulerName = participants.find((p) => p.id === userId)?.name ?? 'A participant';
+    const joinLink = `${process.env.CLIENT_URL}/session/${id}`;
+
+    for (const p of participants) {
+      // Persistent in-app notification (also emits notification:new socket event).
+      await createNotification(
+        p.id,
+        'session_rescheduled',
+        'Session Rescheduled',
+        `${reschedulerName} rescheduled "${session.title as string}"`,
+        id
+      );
+
+      if (p.email_notifications_enabled === false) continue;
+      await sendEmail(
+        p.email,
+        `Session Rescheduled: "${session.title as string}"`,
+        buildRescheduleEmailHTML({
+          recipientName: p.name,
+          reschedulerName,
+          sessionTitle: session.title as string,
+          previousTime: previousTime ?? undefined,
+          newTime: newDate.toISOString(),
+          recipientTimezone: p.timezone,
+          joinLink,
+        })
+      );
+    }
+
+    // Live session-level event to both participants and the session room.
+    if (io) {
+      const payload = {
+        sessionId: id,
+        rescheduledBy: userId,
+        previousScheduledAt: previousTime,
+        newScheduledAt: newDate.toISOString(),
+      };
+      if (session.mentor_id) io.to(session.mentor_id as string).emit('session:rescheduled', payload);
+      if (session.student_id) io.to(session.student_id as string).emit('session:rescheduled', payload);
+      io.to(`session:${id}`).emit('session:rescheduled', payload);
+
+      // The mentor's availability footprint changed — refresh watchers.
+      io.to(mentorAvailabilityRoom(session.mentor_id as string)).emit('mentor:availability-changed', {
+        mentorId: session.mentor_id,
+      });
+    }
+
+    const updated = await queryOne('SELECT * FROM sessions WHERE id = $1', [id]);
+    return res.status(200).json({ success: true, data: updated });
+  } catch (err) {
+    console.error('Reschedule session error:', err);
+    return res.status(500).json({ error: 'Failed to reschedule session' });
   }
 });
 
