@@ -19,6 +19,7 @@ export default function CreateSessionPage() {
     language: 'javascript',
     code_language: 'javascript',
     recording_enabled: false,
+    max_participants: 1,
   });
   const [isRecurring, setIsRecurring] = useState(false);
   const [frequency, setFrequency] = useState<'weekly' | 'biweekly' | 'monthly'>('weekly');
@@ -39,7 +40,7 @@ export default function CreateSessionPage() {
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: name === 'duration_minutes' ? parseInt(value) : value,
+      [name]: name === 'duration_minutes' || name === 'max_participants' ? parseInt(value) : value,
     }));
   };
 
@@ -193,6 +194,27 @@ export default function CreateSessionPage() {
                 <option value="java" className="bg-white dark:bg-dark-900 text-gray-900 dark:text-white">Java</option>
               </GlowingSelect>
             </div>
+
+            {!isRecurring && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Max Participants
+                </label>
+                <input
+                  type="number"
+                  name="max_participants"
+                  value={formData.max_participants}
+                  onChange={handleChange}
+                  min="1"
+                  max="50"
+                  disabled={loading}
+                  className="w-full px-4 py-3 bg-white dark:bg-dark-800/50 border border-gray-300 dark:border-gray-700/50 rounded-lg text-gray-900 dark:text-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/50 transition-all duration-200"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Set higher than 1 to run a group session (workshop) with multiple students.
+                </p>
+              </div>
+            )}
 
             <GlowingSelect
               label="Code Language"
