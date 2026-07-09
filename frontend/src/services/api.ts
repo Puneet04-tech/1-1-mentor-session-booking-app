@@ -181,6 +181,23 @@ class ApiClient {
     return this.client.get('/users/students');
   }
 
+  // Favorite / bookmark mentors (issue #166) — students only
+  async getFavorites(): Promise<ApiResponse<User[]>> {
+    return this.client.get('/favorites');
+  }
+
+  async getFavoriteIds(): Promise<ApiResponse<string[]>> {
+    return this.client.get('/favorites/ids');
+  }
+
+  async addFavorite(mentorId: string): Promise<ApiResponse<{ id: string; mentor_id: string }>> {
+    return this.client.post('/favorites', { mentor_id: mentorId });
+  }
+
+  async removeFavorite(mentorId: string): Promise<ApiResponse<{ mentor_id: string }>> {
+    return this.client.delete(`/favorites/${mentorId}`);
+  }
+
   // Message endpoints
   async getMessages(sessionId: string): Promise<ApiResponse<Message[]>> {
     return this.client.get(`/messages/${sessionId}`);
