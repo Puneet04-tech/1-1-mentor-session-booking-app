@@ -12,6 +12,8 @@ import { validateSessionInput } from '@/utils/sessionValidation';
 import { formatSessionTime } from '@/utils/formatSessionTime';
 import { validateRescheduleRequest, hasSchedulingConflict } from '@/utils/reschedulePolicy';
 import { createNotification } from '@/routes/notifications';
+import { requireSessionParticipant } from '@/middleware/requireSessionParticipant';
+import { generateSessionIcs, icsFilename } from '@/utils/icsGenerator';
 
 class HttpError extends Error {
   constructor(public statusCode: number, message: string) {
@@ -156,6 +158,44 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: 'Failed to get session' });
   }
 });
+
+// Export a session as an iCalendar (.ics) file (issue #167).
+// Restricted to the session's participants via requireSessionParticipant, which
+// responds 401 (no auth), 404 (missing session) or 403 (not a participant).
+router.get(
+  '/:id/calendar.ics',
+  authMiddleware,
+  requireSessionParticipant('id'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const session = await queryOne('SELECT * FROM sessions WHERE id = $1', [req.params.id]);
+
+      if (!session) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
+
+      if (!session.scheduled_at) {
+        return res.status(400).json({ error: 'Session has no scheduled time to export' });
+      }
+
+      const ics = generateSessionIcs({
+        id: session.id,
+        title: session.title,
+        description: session.description,
+        topic: session.topic,
+        scheduled_at: session.scheduled_at,
+        duration_minutes: session.duration_minutes,
+      });
+
+      res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${icsFilename(session)}"`);
+      res.send(ics);
+    } catch (err) {
+      console.error('Export session calendar error:', err);
+      res.status(500).json({ error: 'Failed to export session calendar' });
+    }
+  }
+);
 
 // Join session (student only)
 router.post('/:id/join', authMiddleware, requireRole('student'), async (req: AuthRequest, res: Response) => {
