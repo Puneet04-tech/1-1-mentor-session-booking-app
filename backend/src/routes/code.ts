@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { query, queryOne } from '@/database';
-import { requireSessionParticipant } from '@/middleware/requireSessionParticipant';
+import { requireSessionParticipant, isSessionParticipant, SessionRecord } from '@/middleware/requireSessionParticipant';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import { Server as SocketIOServer } from 'socket.io';
 import { GLOT_LANGUAGE_MAP, executeCode, executeViaGlot, normalizeLanguage } from '@/utils/codeExecution';
@@ -33,6 +33,23 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 
     if (!languageStr) {
       return res.status(400).json({ error: 'Language must be a non-empty string' });
+    }
+
+    // When a session is targeted, the result is broadcast to that session's
+    // Socket.io room — so the caller must be a participant. `sessionId` arrives
+    // in the body (not a route param), so we can't use the requireSessionParticipant
+    // middleware directly; we reuse its pure isSessionParticipant check instead.
+    if (sessionId) {
+      const session = await queryOne<SessionRecord>(
+        'SELECT id, mentor_id, student_id FROM sessions WHERE id = $1',
+        [sessionId]
+      );
+      if (!session) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
+      if (!isSessionParticipant(session, req.user?.id)) {
+        return res.status(403).json({ error: 'You are not a participant in this session' });
+      }
     }
 
     const normalizedLang = normalizeLanguage(languageStr);
