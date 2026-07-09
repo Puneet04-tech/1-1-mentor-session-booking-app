@@ -289,6 +289,12 @@ export default function DashboardPage() {
                       <Badge color="green">{session.status}</Badge>
                     </div>
                     <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">{session.description}</p>
+                    {user?.role === 'mentor' && session.student_note && (
+                      <div className="mb-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700/40">
+                        <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">📝 Student wants to focus on</p>
+                        <p className="text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap break-words">{session.student_note}</p>
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <Link href={`/session/${session.id}`} className="flex-1">
                         <GlowingButton variant="primary" className="w-full text-sm">

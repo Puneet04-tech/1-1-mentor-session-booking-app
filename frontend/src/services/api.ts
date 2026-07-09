@@ -137,8 +137,8 @@ class ApiClient {
     return this.client.get(`/sessions/${id}`);
   }
 
-  async joinSession(id: string): Promise<ApiResponse<Session>> {
-    return this.client.post(`/sessions/${id}/join`);
+  async joinSession(id: string, note?: string): Promise<ApiResponse<Session>> {
+    return this.client.post(`/sessions/${id}/join`, note ? { note } : {});
   }
 
   async endSession(id: string): Promise<ApiResponse<Session>> {

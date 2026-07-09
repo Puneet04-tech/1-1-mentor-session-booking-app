@@ -163,6 +163,18 @@ router.post('/:id/join', authMiddleware, requireRole('student'), async (req: Aut
     const now = new Date().toISOString();
     const studentId = req.user?.id;
 
+    // Optional "focus note" (issue #168): what the student wants to discuss.
+    // Capped at 500 chars; stored only on the actual booking transition below.
+    const rawNote = req.body?.note;
+    if (rawNote !== undefined && rawNote !== null && typeof rawNote !== 'string') {
+      return res.status(400).json({ error: 'Note must be a string' });
+    }
+    const studentNote = typeof rawNote === 'string' ? rawNote.trim() : '';
+    if (studentNote.length > 500) {
+      return res.status(400).json({ error: 'Note must be 500 characters or less' });
+    }
+    const noteToStore = studentNote.length > 0 ? studentNote : null;
+
     const { session: sessionData, justBooked } = await transaction(async (client) => {
       // Lock the row exclusively — concurrent requests for the same session block here
       // until this transaction commits or rolls back, eliminating the TOCTOU race.
@@ -188,8 +200,8 @@ router.post('/:id/join', authMiddleware, requireRole('student'), async (req: Aut
       }
 
       await client.query(
-        'UPDATE sessions SET student_id = $1, status = $2, started_at = $3, updated_at = $4 WHERE id = $5',
-        [studentId, 'in_progress', now, now, req.params.id]
+        'UPDATE sessions SET student_id = $1, status = $2, started_at = $3, updated_at = $4, student_note = $5 WHERE id = $6',
+        [studentId, 'in_progress', now, now, noteToStore, req.params.id]
       );
 
       // If this occurrence belongs to a recurring series, claim every other
