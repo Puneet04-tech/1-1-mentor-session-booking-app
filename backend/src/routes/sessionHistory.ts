@@ -1,6 +1,11 @@
 import { Router, Response } from 'express';
 import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
+import {
+  requireSessionParticipant,
+  isSessionParticipant,
+  SessionRecord,
+} from '@/middleware/requireSessionParticipant';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
@@ -132,6 +137,22 @@ router.post('/feedback', authMiddleware, async (req: AuthRequest, res: Response)
     const { session_id, feedback, difficulty_level, would_recommend } = req.body;
     const userId = req.user?.id;
 
+    if (!session_id) {
+      return res.status(400).json({ error: 'session_id is required' });
+    }
+
+    // Only participants of an existing session may leave feedback on it.
+    const session = await queryOne<SessionRecord>(
+      'SELECT id, mentor_id, student_id FROM sessions WHERE id = $1',
+      [session_id]
+    );
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    if (!isSessionParticipant(session, userId)) {
+      return res.status(403).json({ error: 'You are not a participant in this session' });
+    }
+
     const feedbackId = uuidv4();
     const now = new Date().toISOString();
 
@@ -157,7 +178,7 @@ router.post('/feedback', authMiddleware, async (req: AuthRequest, res: Response)
 });
 
 // Get feedback for a session
-router.get('/:session_id/feedback', async (req: AuthRequest, res: Response) => {
+router.get('/:session_id/feedback', authMiddleware, requireSessionParticipant('session_id'), async (req: AuthRequest, res: Response) => {
   try {
     const feedback = await query(
       `SELECT f.*, u.name, u.avatar_url
