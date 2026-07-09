@@ -141,6 +141,11 @@ router.post('/moderation/flag/:sessionId', async (req: AuthRequest, res: Respons
     const { sessionId } = req.params;
     const { reason } = req.body;
 
+    const session = await queryOne('SELECT id FROM sessions WHERE id = $1', [sessionId]);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
     await query(
       `UPDATE sessions SET flagged_for_review = true, review_reason = $1, updated_at = NOW()
        WHERE id = $2`,
