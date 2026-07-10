@@ -12,13 +12,9 @@ const router = Router();
 router.get('/mentor', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const mentorId = req.user?.id;
+    const role = req.user?.role;
 
-    // Role check
-    const userRow = await query<{ role: string }>(
-      'SELECT role FROM users WHERE id = $1',
-      [mentorId]
-    );
-    if (userRow.rows[0]?.role !== 'mentor') {
+    if (role !== 'mentor') {
       return res.status(403).json({ error: 'Only mentors can view analytics' });
     }
 
@@ -89,19 +85,22 @@ router.get('/mentor', authMiddleware, async (req: AuthRequest, res: Response) =>
     res.json({
       success: true,
       data: {
-        totalSessions:    parseInt(stats.total_sessions ?? '0'),
-        completedSessions:parseInt(stats.completed_sessions ?? '0'),
+        totalSessions: parseInt(stats.total_sessions ?? '0'),
+        completedSessions: parseInt(stats.completed_sessions ?? '0'),
         upcomingSessions: parseInt(stats.upcoming_sessions ?? '0'),
-        totalStudents:    parseInt(stats.total_students ?? '0'),
-        totalHours:       Math.round(parseInt(stats.total_minutes ?? '0') / 60),
-        avgRating:        parseFloat(ratingStats.avg_rating ?? '0'),
-        totalReviews:     parseInt(ratingStats.total_reviews ?? '0'),
-        completionRate:   stats.total_sessions > 0
-          ? Math.round((parseInt(stats.completed_sessions) / parseInt(stats.total_sessions)) * 100)
-          : 0,
-        sessionsByWeek:   sessionsPerWeek.rows,
-        ratingsHistory:   ratingsHistory.rows.reverse(),
-        recentSessions:   recentSessions.rows,
+        totalStudents: parseInt(stats.total_students ?? '0'),
+        totalHours: Math.round(parseInt(stats.total_minutes ?? '0') / 60),
+        avgRating: parseFloat(ratingStats.avg_rating ?? '0'),
+        totalReviews: parseInt(ratingStats.total_reviews ?? '0'),
+        completionRate:
+          stats.total_sessions > 0
+            ? Math.round(
+                (parseInt(stats.completed_sessions) / parseInt(stats.total_sessions)) * 100
+              )
+            : 0,
+        sessionsByWeek: sessionsPerWeek.rows,
+        ratingsHistory: ratingsHistory.rows.reverse(),
+        recentSessions: recentSessions.rows,
       },
     });
   } catch (err) {
