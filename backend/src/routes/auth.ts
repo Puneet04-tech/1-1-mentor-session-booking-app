@@ -116,7 +116,7 @@ router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) =>
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [userId, normalizedEmail, name, role, resolvedTimezone, now, now]
     );
-    console.log('✅ User created:', { id: userId, email :normalizedEmail, role });
+    console.log('✅ User created:', { id: userId, email: normalizedEmail, role });
 
     // Store hashed password in user_passwords table
     await query(
@@ -548,27 +548,44 @@ router.post('/2fa/disable', authMiddleware, async (req: AuthRequest, res: Respon
 
     // Verify a current 2FA code (TOTP or an unused backup code).
     let verified = false;
+    let consumedBackupCodes: BackupCode[] | null = null;
+    const now = new Date().toISOString();
+
     if (token) {
       verified = verifyToken(token, user.two_factor_secret);
     }
+
     if (!verified && backupCode) {
-      const updatedCodes = await consumeBackupCode(
+      consumedBackupCodes = await consumeBackupCode(
         backupCode,
         user.two_factor_backup_codes as BackupCode[] | null
       );
-      verified = !!updatedCodes;
+      verified = !!consumedBackupCodes;
     }
 
     if (!verified) {
       return res.status(401).json({ error: 'Invalid 2FA code' });
     }
 
+    // If a backup code was used successfully, persist its consumption
+    // before disabling 2FA so the single-use behavior is recorded.
+    if (consumedBackupCodes) {
+      await query(
+        `UPDATE users
+     SET two_factor_backup_codes = $1, updated_at = $2
+     WHERE id = $3`,
+        [JSON.stringify(consumedBackupCodes), now, userId]
+      );
+    }
+
     await query(
       `UPDATE users
-       SET two_factor_enabled = FALSE, two_factor_secret = NULL,
-           two_factor_backup_codes = NULL, updated_at = $1
-       WHERE id = $2`,
-      [new Date().toISOString(), userId]
+   SET two_factor_enabled = FALSE,
+       two_factor_secret = NULL,
+       two_factor_backup_codes = NULL,
+       updated_at = $1
+   WHERE id = $2`,
+      [now, userId]
     );
 
     console.log('✅ 2FA disabled for user:', userId);
