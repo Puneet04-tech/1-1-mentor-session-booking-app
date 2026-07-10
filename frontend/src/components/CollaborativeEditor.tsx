@@ -27,7 +27,11 @@ export interface RemoteUserState {
  * 
  * 🔥 FIX for Issue #61: Late-joining students now receive existing code content
  */
+
+export class CollaborativeEditorService extends Observable<any> {
+
 export class CollaborativeEditorService extends Observable<string> {
+
   private doc: Y.Doc;
   private provider: WebsocketProvider | null = null;
   private yText: Y.Text;
@@ -172,7 +176,17 @@ export class CollaborativeEditorService extends Observable<string> {
     if (!this.provider) return;
     
     console.log('🔄 [COLLAB] Forcing sync...');
+
+    
+    // ✅ FIX: Check if sync method exists
+    if (typeof this.provider.sync === 'function') {
+      this.provider.sync(true);
+    } else {
+      console.warn('⚠️ [COLLAB] provider.sync is not a function');
+    }
+
     this.provider.synced = true;
+
     
     // Also request sync from awareness
     if (this.awareness) {
@@ -206,7 +220,15 @@ export class CollaborativeEditorService extends Observable<string> {
       this.syncRetryTimer = setTimeout(() => {
         if (this.provider) {
           console.log(`🔄 [COLLAB] Retry ${this.syncAttempts}: Forcing sync...`);
+
+          
+          // ✅ FIX: Check if sync method exists
+          if (typeof this.provider.sync === 'function') {
+            this.provider.sync(true);
+          }
+
           this.provider.synced = true;
+
           
           // Also try to request from other peers
           if (this.awareness) {
@@ -240,6 +262,9 @@ export class CollaborativeEditorService extends Observable<string> {
         clearTimeout(timeout);
         resolve();
       } else {
+
+        // ✅ FIX: Use arrow function to preserve 'this' context
+
         const onStatus = (event: { status: string }) => {
           if (event.status === 'connected') {
             this.provider?.off('status', onStatus);
@@ -393,6 +418,30 @@ export class CollaborativeEditorService extends Observable<string> {
     this.awareness = null;
     this.connected = false;
     this.syncAttempts = 0;
+  }
+
+  /**
+   * ✅ FIX: Add emit method for Observable compatibility
+   */
+  emit(event: string, data: any[]): void {
+    // Call parent emit method
+    super.emit(event, data);
+  }
+
+  /**
+   * ✅ FIX: Add off method for Observable compatibility
+   */
+  off(event: string, callback: Function): void {
+    // Call parent off method
+    super.off(event, callback);
+  }
+
+  /**
+   * ✅ FIX: Add on method for Observable compatibility
+   */
+  on(event: string, callback: Function): void {
+    // Call parent on method
+    super.on(event, callback);
   }
 
   /**
