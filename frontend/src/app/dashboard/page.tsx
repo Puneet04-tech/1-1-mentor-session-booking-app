@@ -8,6 +8,7 @@ import { Session, User } from '@/types';
 import { GlowingButton, GlowingCard, Badge, Avatar, LoadingSpinner, ErrorRetryBanner } from '@/components/ui/GlowingComponents';
 import CancelSessionButton from '@/components/CancelSessionButton';
 import RescheduleSessionButton from '@/components/RescheduleSessionButton';
+import AddToCalendarButton from '@/components/AddToCalendarButton';
 import CancelSeriesButton from '@/components/CancelSeriesButton';
 import FavoriteButton from '@/components/FavoriteButton';
 import { formatSessionDateTime } from '@/utils/formatDateTime';
@@ -316,7 +317,8 @@ export default function DashboardPage() {
                       </Link>
                     </div>
                     {session.status === 'scheduled' && (
-                      <div className="flex items-center flex-wrap">
+                      <div className="flex items-center flex-wrap gap-3">
+                        <AddToCalendarButton sessionId={session.id} />
                         <RescheduleSessionButton
                           sessionId={session.id}
                           scheduledAt={session.scheduled_at}
