@@ -34,12 +34,22 @@ export function setSocketIO(socketIO: SocketIOServer) {
 // Create session (mentor only)
 router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest, res: Response) => {
   try {
-    const { title, description, topic, scheduled_at, duration_minutes, language, code_language, recording_enabled } =
+    const { title, description, topic, scheduled_at, duration_minutes, language, code_language, recording_enabled, max_participants } =
       req.body;
 
     const validation = validateSessionInput({ title, scheduled_at, duration_minutes });
     if (!validation.valid) {
       return res.status(400).json({ error: validation.error });
+    }
+
+    // Group sessions (issue #169): mentors may allow more than one participant.
+    // Default to 1 (single-participant, unchanged) and clamp to a sane range.
+    let maxParticipants = 1;
+    if (max_participants !== undefined && max_participants !== null && max_participants !== '') {
+      maxParticipants = Number(max_participants);
+      if (!Number.isInteger(maxParticipants) || maxParticipants < 1 || maxParticipants > 50) {
+        return res.status(400).json({ error: 'max_participants must be an integer between 1 and 50' });
+      }
     }
 
     const sessionId = uuidv4();
@@ -48,8 +58,8 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
     const sessionScheduledAt = scheduled_at || now;
 
     await query(
-      `INSERT INTO sessions (id, mentor_id, title, description, topic, status, scheduled_at, duration_minutes, language, code_language, recording_enabled, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, 'scheduled', $6, $7, $8, $9, $10, $11, $12)`,
+      `INSERT INTO sessions (id, mentor_id, title, description, topic, status, scheduled_at, duration_minutes, language, code_language, recording_enabled, max_participants, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, 'scheduled', $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         sessionId,
         req.user?.id,
@@ -61,6 +71,7 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
         language || 'javascript',
         code_language || 'javascript',
         recording_enabled === true,
+        maxParticipants,
         now,
         now,
       ]
@@ -99,10 +110,19 @@ router.get('/active', authMiddleware, async (req: AuthRequest, res: Response) =>
 // Get available sessions (scheduled sessions that students can join) (MUST come before /:id)
 router.get('/available', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    // Return all scheduled sessions (no student_id yet) regardless of who created them
+    // Joinable sessions: unclaimed single sessions (unchanged) plus group
+    // sessions (issue #169) that still have open spots, even after they've
+    // started, so later participants can still find and join them.
     const sessions = await query(
-      'SELECT * FROM sessions WHERE status = $1 AND student_id IS NULL ORDER BY created_at DESC LIMIT 100',
-      ['scheduled']
+      `SELECT * FROM sessions s
+       WHERE (s.status = 'scheduled' AND s.student_id IS NULL)
+          OR (
+            s.max_participants > 1
+            AND s.status IN ('scheduled', 'in_progress')
+            AND (SELECT COUNT(*) FROM session_participants sp WHERE sp.session_id = s.id) < s.max_participants
+          )
+       ORDER BY s.created_at DESC
+       LIMIT 100`
     );
 
     console.log('Available sessions:', sessions.rows.length);
@@ -144,14 +164,33 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    // Restrict access to booked sessions to only the participants
-    if (session.student_id && session.student_id !== req.user?.id && session.mentor_id !== req.user?.id) {
+    // Full participant list for group sessions (issue #169).
+    const participantsResult = await query(
+      `SELECT sp.student_id, sp.joined_at, u.name, u.avatar_url
+       FROM session_participants sp
+       JOIN users u ON u.id = sp.student_id
+       WHERE sp.session_id = $1
+       ORDER BY sp.joined_at ASC`,
+      [req.params.id]
+    );
+    const participants = participantsResult.rows;
+
+    const userId = req.user?.id;
+    const isParticipant =
+      session.mentor_id === userId ||
+      session.student_id === userId ||
+      participants.some((p: { student_id: string }) => p.student_id === userId);
+    const isClaimed = !!session.student_id || participants.length > 0;
+
+    // Restrict access to claimed sessions to their mentor and participants.
+    // Unclaimed (open) sessions stay browsable so students can view before joining.
+    if (isClaimed && !isParticipant) {
       return res.status(403).json({ error: 'Unauthorized to view this session' });
     }
 
     res.json({
       success: true,
-      data: session,
+      data: { ...session, participants },
     });
   } catch (err) {
     console.error('Get session error:', err);
@@ -203,19 +242,7 @@ router.post('/:id/join', authMiddleware, requireRole('student'), async (req: Aut
     const now = new Date().toISOString();
     const studentId = req.user?.id;
 
-    // Optional "focus note" (issue #168): what the student wants to discuss.
-    // Capped at 500 chars; stored only on the actual booking transition below.
-    const rawNote = req.body?.note;
-    if (rawNote !== undefined && rawNote !== null && typeof rawNote !== 'string') {
-      return res.status(400).json({ error: 'Note must be a string' });
-    }
-    const studentNote = typeof rawNote === 'string' ? rawNote.trim() : '';
-    if (studentNote.length > 500) {
-      return res.status(400).json({ error: 'Note must be 500 characters or less' });
-    }
-    const noteToStore = studentNote.length > 0 ? studentNote : null;
-
-    const { session: sessionData, justBooked } = await transaction(async (client) => {
+    const { session: sessionData, firstJoin } = await transaction(async (client) => {
       // Lock the row exclusively — concurrent requests for the same session block here
       // until this transaction commits or rolls back, eliminating the TOCTOU race.
       const lockResult = await client.query(
@@ -228,44 +255,78 @@ router.post('/:id/join', authMiddleware, requireRole('student'), async (req: Aut
       }
 
       const session = lockResult.rows[0];
+      const maxParticipants = Number(session.max_participants) || 1;
 
-      const decision = resolveJoinDecision(session, studentId as string);
+      // For group sessions, decide against the live participant count (safe under
+      // the row lock above). Single-participant sessions keep the original,
+      // student_id-based decision so their behaviour is byte-for-byte unchanged.
+      let decision;
+      if (maxParticipants > 1) {
+        const countResult = await client.query(
+          `SELECT COUNT(*)::int AS count, BOOL_OR(student_id = $2) AS is_member
+           FROM session_participants WHERE session_id = $1`,
+          [req.params.id, studentId]
+        );
+        decision = resolveJoinDecision(session, studentId as string, {
+          maxParticipants,
+          participantCount: countResult.rows[0]?.count ?? 0,
+          alreadyParticipant: countResult.rows[0]?.is_member === true,
+        });
+      } else {
+        decision = resolveJoinDecision(session, studentId as string);
+      }
 
       if (decision.action === 'reject') {
         throw new HttpError(decision.status, decision.error);
       }
 
       if (decision.action === 'noop') {
-        return { session, justBooked: false };
+        return { session, justBooked: false, firstJoin: false };
       }
 
+      // Record this student as a participant (source of truth for group lists).
+      // The unique constraint backstops the alreadyParticipant guard above.
       await client.query(
-        'UPDATE sessions SET student_id = $1, status = $2, started_at = $3, updated_at = $4, student_note = $5 WHERE id = $6',
-        [studentId, 'in_progress', now, now, noteToStore, req.params.id]
+        `INSERT INTO session_participants (id, session_id, student_id, joined_at)
+         VALUES ($1, $2, $3, $4) ON CONFLICT (session_id, student_id) DO NOTHING`,
+        [uuidv4(), req.params.id, studentId, now]
       );
 
-      // If this occurrence belongs to a recurring series, claim every other
-      // unclaimed future occurrence in the series for this same student too —
-      // that's the whole point of recurring booking: one join, not one per slot.
-      if (session.recurring_series_id) {
+      const firstJoin = !session.student_id;
+      if (firstJoin) {
+        // First joiner claims the legacy slot and flips the session live.
         await client.query(
-          `UPDATE sessions SET student_id = $1, updated_at = $2
-           WHERE recurring_series_id = $3 AND student_id IS NULL AND status = 'scheduled'`,
-          [studentId, now, session.recurring_series_id]
+          'UPDATE sessions SET student_id = $1, status = $2, started_at = $3, updated_at = $4 WHERE id = $5',
+          [studentId, 'in_progress', now, now, req.params.id]
         );
-        await client.query(
-          `UPDATE recurring_series SET student_id = $1, updated_at = $2 WHERE id = $3 AND student_id IS NULL`,
-          [studentId, now, session.recurring_series_id]
-        );
+
+        // If this occurrence belongs to a recurring series, claim every other
+        // unclaimed future occurrence in the series for this same student too —
+        // that's the whole point of recurring booking: one join, not one per slot.
+        if (session.recurring_series_id) {
+          await client.query(
+            `UPDATE sessions SET student_id = $1, updated_at = $2
+             WHERE recurring_series_id = $3 AND student_id IS NULL AND status = 'scheduled'`,
+            [studentId, now, session.recurring_series_id]
+          );
+          await client.query(
+            `UPDATE recurring_series SET student_id = $1, updated_at = $2 WHERE id = $3 AND student_id IS NULL`,
+            [studentId, now, session.recurring_series_id]
+          );
+        }
+      } else {
+        // A later joiner in a group session — just record the activity.
+        await client.query('UPDATE sessions SET updated_at = $1 WHERE id = $2', [now, req.params.id]);
       }
 
       const updated = await client.query('SELECT * FROM sessions WHERE id = $1', [req.params.id]);
-      return { session: updated.rows[0], justBooked: true };
+      return { session: updated.rows[0], justBooked: true, firstJoin };
     });
 
-    // Send booking confirmation emails to both participants once, on the actual booking
-    // transition (not on idempotent re-joins of an already-booked session).
-    if (justBooked) {
+    // Send booking confirmation emails once, on the first join that flips the
+    // session live. Later joiners in a group session don't re-trigger this
+    // (the legacy student_id only names the first joiner).
+    if (firstJoin) {
       const participants = await query(
         `SELECT id, name, email, email_notifications_enabled, timezone FROM users WHERE id = ANY($1::uuid[])`,
         [[sessionData.mentor_id, sessionData.student_id]]

@@ -46,6 +46,42 @@ describe('resolveJoinDecision', () => {
     });
   });
 
+  describe('group sessions (issue #169)', () => {
+    const session = { mentor_id: mentorId, student_id: null as string | null, status: 'scheduled' };
+
+    it('allows a join while there is remaining capacity', () => {
+      expect(
+        resolveJoinDecision(session, studentA, { maxParticipants: 3, participantCount: 1, alreadyParticipant: false })
+      ).toEqual({ action: 'claim' });
+    });
+
+    it('rejects a join with 409 when the session is full', () => {
+      expect(
+        resolveJoinDecision(session, studentB, { maxParticipants: 3, participantCount: 3, alreadyParticipant: false })
+      ).toEqual({ action: 'reject', status: 409, error: 'This session is full' });
+    });
+
+    it('treats a student already in the group as a no-op', () => {
+      expect(
+        resolveJoinDecision(session, studentA, { maxParticipants: 3, participantCount: 2, alreadyParticipant: true })
+      ).toEqual({ action: 'noop' });
+    });
+
+    it('still rejects the mentor and closed sessions in group mode', () => {
+      expect(
+        resolveJoinDecision(session, mentorId, { maxParticipants: 5, participantCount: 0, alreadyParticipant: false })
+      ).toEqual({ action: 'reject', status: 400, error: 'Mentors cannot join their own sessions' });
+
+      expect(
+        resolveJoinDecision(
+          { ...session, status: 'cancelled' },
+          studentA,
+          { maxParticipants: 5, participantCount: 0, alreadyParticipant: false }
+        )
+      ).toEqual({ action: 'reject', status: 400, error: 'This session is no longer available to join' });
+    });
+  });
+
   it('simulates two concurrent join attempts on the same slot: exactly one succeeds', () => {
     // Models what SELECT ... FOR UPDATE serializes in practice: both requests
     // start from the same unclaimed session, but only the request that wins

@@ -43,9 +43,17 @@ export interface Session {
   recording_enabled?: boolean;
   recurring_series_id?: string;
   recurrence_index?: number;
-  student_note?: string | null;
+  max_participants?: number;
+  participants?: SessionParticipant[];
   created_at: string;
   updated_at: string;
+}
+
+export interface SessionParticipant {
+  student_id: string;
+  name: string;
+  avatar_url?: string | null;
+  joined_at: string;
 }
 
 // Recurring Session Types

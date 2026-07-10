@@ -130,7 +130,18 @@ export default function JoinSessionPage() {
     );
   }
 
-  const canJoin = user?.role === 'student' && session.status === 'scheduled' && !session.student_id;
+  // Group sessions (issue #169): capacity is driven by max_participants and the
+  // participant list, not just the single legacy student_id slot.
+  const maxParticipants = session.max_participants ?? 1;
+  const participantCount = session.participants?.length ?? (session.student_id ? 1 : 0);
+  const isGroup = maxParticipants > 1;
+  const isFull = participantCount >= maxParticipants;
+  const alreadyJoined = session.participants?.some((p) => p.student_id === user?.id)
+    ?? session.student_id === user?.id;
+  // A group session stays joinable while in progress and below capacity; a
+  // single session is only joinable while scheduled and unclaimed (unchanged).
+  const joinableStatus = session.status === 'scheduled' || (isGroup && session.status === 'in_progress');
+  const canJoin = user?.role === 'student' && joinableStatus && !isFull && !alreadyJoined;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950">
@@ -181,10 +192,37 @@ export default function JoinSessionPage() {
               <p className="text-gray-900 dark:text-white font-semibold">{session.topic || 'General'}</p>
             </div>
             <div>
-              <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">Status</p>
-              <p className="text-gray-900 dark:text-white font-semibold capitalize">{session.status}</p>
+              <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">{isGroup ? 'Spots' : 'Status'}</p>
+              {isGroup ? (
+                <p className="text-gray-900 dark:text-white font-semibold">
+                  {participantCount}/{maxParticipants} filled
+                </p>
+              ) : (
+                <p className="text-gray-900 dark:text-white font-semibold capitalize">{session.status}</p>
+              )}
             </div>
           </div>
+
+          {/* Group participants (issue #169) */}
+          {isGroup && (
+            <div className="mb-8 pb-8 border-b border-gray-200 dark:border-gray-700/30">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+                Participants ({participantCount}/{maxParticipants})
+              </p>
+              {participantCount === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">Be the first to join this group session!</p>
+              ) : (
+                <div className="flex flex-wrap gap-3">
+                  {session.participants?.map((p) => (
+                    <div key={p.student_id} className="flex items-center gap-2">
+                      <Avatar name={p.name} size="sm" />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">{p.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Mentor Info */}
           {mentor && (
@@ -276,11 +314,15 @@ export default function JoinSessionPage() {
         {/* Status Message */}
         {!canJoin && (
           <div className="mt-6 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-lg text-yellow-300 text-sm text-center">
-            {session.status !== 'scheduled'
-              ? 'This session is no longer available to join'
-              : session.student_id
-                ? 'This session already has a student joined'
-                : 'Please log in as a student to join sessions'}
+            {user?.role !== 'student'
+              ? 'Please log in as a student to join sessions'
+              : alreadyJoined
+                ? "You've already joined this session"
+                : isFull
+                  ? 'This session is full'
+                  : !joinableStatus
+                    ? 'This session is no longer available to join'
+                    : 'This session cannot be joined right now'}
           </div>
         )}
       </main>
