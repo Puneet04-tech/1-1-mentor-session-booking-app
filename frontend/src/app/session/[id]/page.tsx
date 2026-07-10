@@ -37,6 +37,7 @@ interface Session {
   status: string;
   mentor_id: string;
   student_id: string;
+  student_note?: string | null;
 }
 
 interface Message {
@@ -1236,6 +1237,12 @@ export default function SessionPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{session?.title}</h1>
             <p className="text-gray-500 dark:text-gray-400 text-sm">{session?.description}</p>
+            {session?.mentor_id === currentUser?.id && session?.student_note && (
+              <p className="mt-1 text-sm text-blue-600 dark:text-blue-300">
+                <span className="font-semibold">📝 Student focus:</span>{' '}
+                <span className="text-gray-700 dark:text-gray-200">{session.student_note}</span>
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-4">
             <Badge color="purple">{session?.status}</Badge>

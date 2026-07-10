@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/services/api';
+import FavoriteButton from '@/components/FavoriteButton';
 import {
   GlowingButton,
   GlowingCard,
@@ -23,6 +24,7 @@ export default function AdvancedBrowsePage() {
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
 
   // Filters
   const [minRating, setMinRating] = useState(0);
@@ -83,6 +85,24 @@ export default function AdvancedBrowsePage() {
     fetchMentors(1, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, selectedSkills, minRating, maxHourlyRate, industry, language, sortBy]);
+
+  // Load the student's existing favorites so cards render the correct toggle state.
+  useEffect(() => {
+    if (user?.role !== 'student') return;
+    apiClient
+      .getFavoriteIds()
+      .then((res) => setFavoriteIds(new Set(res.data || [])))
+      .catch((err) => console.error('Failed to load favorites:', err));
+  }, [user]);
+
+  const handleFavoriteChange = (mentorId: string, favorited: boolean) => {
+    setFavoriteIds((prev) => {
+      const next = new Set(prev);
+      if (favorited) next.add(mentorId);
+      else next.delete(mentorId);
+      return next;
+    });
+  };
 
   const handleLoadMore = () => {
     if (page < totalPages) fetchMentors(page + 1, true);
@@ -283,6 +303,14 @@ export default function AdvancedBrowsePage() {
                           <div className="flex items-center gap-2">
                             <h3 className="text-lg font-bold text-gray-900 dark:text-white">{mentor.name}</h3>
                             {mentor.verified && <Badge color="green">✓ Verified</Badge>}
+                            {user?.role === 'student' && (
+                              <FavoriteButton
+                                mentorId={mentor.id}
+                                favorited={favoriteIds.has(mentor.id)}
+                                onChange={handleFavoriteChange}
+                                className="ml-auto -mt-1 -mr-1"
+                              />
+                            )}
                           </div>
                           <p className="text-sm text-gray-600 dark:text-gray-400">{mentor.role}</p>
                           {mentor.avg_rating > 0 && (

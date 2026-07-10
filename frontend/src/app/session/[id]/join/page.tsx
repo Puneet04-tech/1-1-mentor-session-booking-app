@@ -24,6 +24,9 @@ export default function JoinSessionPage() {
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState('');
+  const [note, setNote] = useState('');
+
+  const NOTE_MAX = 500;
 
   useEffect(() => {
     const fetchData = async () => {
@@ -66,7 +69,7 @@ export default function JoinSessionPage() {
     setJoining(true);
     setError('');
     try {
-      const res = await apiClient.joinSession(sessionId);
+      const res = await apiClient.joinSession(sessionId, note.trim() || undefined);
       if (res.data) {
         // Redirect to active session
         router.push(`/session/${sessionId}`);
@@ -253,6 +256,30 @@ export default function JoinSessionPage() {
             </div>
           </div>
         </GlowingCard>
+
+        {/* Focus Note (issue #168) — optional context for the mentor */}
+        {canJoin && (
+          <GlowingCard glow="blue" className="mb-8">
+            <label htmlFor="focus-note" className="block text-lg font-semibold text-gray-900 dark:text-white mb-2">
+              What would you like to focus on? <span className="text-gray-500 dark:text-gray-400 text-sm font-normal">(optional)</span>
+            </label>
+            <p className="text-gray-600 dark:text-gray-400 text-sm mb-3">
+              Share any questions or topics so your mentor can prepare.
+            </p>
+            <textarea
+              id="focus-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value.slice(0, NOTE_MAX))}
+              rows={3}
+              maxLength={NOTE_MAX}
+              placeholder="e.g. I'm stuck on async/await and want to review error handling…"
+              className="w-full px-4 py-3 bg-white dark:bg-dark-800/50 border border-gray-300 dark:border-gray-700/50 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/50 resize-none"
+            />
+            <div className="text-right text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {note.length}/{NOTE_MAX}
+            </div>
+          </GlowingCard>
+        )}
 
         {/* Error Alert */}
         {error && (

@@ -8,7 +8,9 @@ import { Session, User } from '@/types';
 import { GlowingButton, GlowingCard, Badge, Avatar, LoadingSpinner, ErrorRetryBanner } from '@/components/ui/GlowingComponents';
 import CancelSessionButton from '@/components/CancelSessionButton';
 import RescheduleSessionButton from '@/components/RescheduleSessionButton';
+import AddToCalendarButton from '@/components/AddToCalendarButton';
 import CancelSeriesButton from '@/components/CancelSeriesButton';
+import FavoriteButton from '@/components/FavoriteButton';
 import { formatSessionDateTime } from '@/utils/formatDateTime';
 
 const FREQUENCY_LABEL: Record<string, string> = {
@@ -21,6 +23,7 @@ export default function DashboardPage() {
   const { user, logout, isLoading: authLoading } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [mentors, setMentors] = useState<User[]>([]);
+  const [favorites, setFavorites] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [cancelledNotice, setCancelledNotice] = useState<string | null>(null);
@@ -41,11 +44,28 @@ export default function DashboardPage() {
 
       setSessions(sessionsRes.data || []);
       setMentors(mentorsRes.data || []);
+
+      // Saved mentors are a student-only feature (issue #166).
+      if (user?.role === 'student') {
+        try {
+          const favoritesRes = await apiClient.getFavorites();
+          setFavorites(favoritesRes.data || []);
+        } catch (favErr) {
+          console.error('Failed to load saved mentors:', favErr);
+        }
+      }
     } catch (err: any) {
       console.error('Error fetching data:', err);
       setError(err.response?.data?.error || err.message || 'Failed to load your sessions');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFavoriteChange = (mentorId: string, favorited: boolean) => {
+    // Only removals happen from the dashboard list — drop the card immediately.
+    if (!favorited) {
+      setFavorites((prev) => prev.filter((m) => m.id !== mentorId));
     }
   };
 
@@ -289,6 +309,12 @@ export default function DashboardPage() {
                       <Badge color="green">{session.status}</Badge>
                     </div>
                     <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">{session.description}</p>
+                    {user?.role === 'mentor' && session.student_note && (
+                      <div className="mb-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700/40">
+                        <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">📝 Student wants to focus on</p>
+                        <p className="text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap break-words">{session.student_note}</p>
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <Link href={`/session/${session.id}`} className="flex-1">
                         <GlowingButton variant="primary" className="w-full text-sm">
@@ -297,7 +323,8 @@ export default function DashboardPage() {
                       </Link>
                     </div>
                     {session.status === 'scheduled' && (
-                      <div className="flex items-center flex-wrap">
+                      <div className="flex items-center flex-wrap gap-3">
+                        <AddToCalendarButton sessionId={session.id} />
                         <RescheduleSessionButton
                           sessionId={session.id}
                           scheduledAt={session.scheduled_at}
@@ -326,6 +353,47 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+
+        {/* Saved / Favorite Mentors */}
+        {user?.role === 'student' && favorites.length > 0 && (
+          <div className="mb-6 md:mb-8">
+            <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">❤️ Saved Mentors</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {favorites.map((mentor) => (
+                <GlowingCard key={mentor.id} glow="green">
+                  <div className="flex flex-col items-center text-center relative">
+                    <div className="absolute top-0 right-0">
+                      <FavoriteButton
+                        mentorId={mentor.id}
+                        favorited={true}
+                        onChange={handleFavoriteChange}
+                      />
+                    </div>
+                    <Avatar name={mentor.name} size="lg" />
+                    <div className="flex items-center gap-2 mt-4">
+                      <h4 className="text-lg font-bold text-gray-900 dark:text-white">{mentor.name}</h4>
+                      {mentor.verified && <Badge color="green">✓</Badge>}
+                    </div>
+                    {typeof mentor.avg_rating === 'number' && mentor.avg_rating > 0 && (
+                      <div className="flex items-center gap-1 mt-1 text-sm text-gray-600 dark:text-gray-300">
+                        <span className="text-yellow-500 dark:text-yellow-400">★</span>
+                        {mentor.avg_rating.toFixed(1)} ({mentor.total_sessions ?? 0})
+                      </div>
+                    )}
+                    {mentor.bio && (
+                      <p className="text-gray-600 dark:text-gray-400 text-sm mt-1 line-clamp-2">{mentor.bio}</p>
+                    )}
+                    <Link href={`/mentor/${mentor.id}`} className="w-full mt-6">
+                      <GlowingButton variant="primary" className="w-full text-sm">
+                        Book a Session
+                      </GlowingButton>
+                    </Link>
+                  </div>
+                </GlowingCard>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Mentors */}
         {user?.role === 'student' && (

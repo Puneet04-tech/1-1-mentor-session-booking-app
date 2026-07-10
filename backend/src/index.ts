@@ -23,6 +23,7 @@ import adminRoutes from './routes/admin';
 import analyticsRoutes from './routes/analytics';
 import uploadRoutes from './routes/upload';
 import recurringSessionRoutes, { setSocketIO as setRecurringSessionSocketIO } from './routes/recurringSessions';
+import favoritesRoutes from './routes/favorites';
 import path from 'path';
 import { setupSocketHandlers } from './socket/handlers';
 import { setupRealtimeHandlers } from './socket/realtimeHandlers';
@@ -130,6 +131,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/recurring-sessions', recurringSessionRoutes);
+app.use('/api/favorites', favoritesRoutes);
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), {
   // Defense-in-depth for user uploads (#144): stop browsers from MIME-sniffing a
   // stored file into an executable type regardless of its declared Content-Type.
