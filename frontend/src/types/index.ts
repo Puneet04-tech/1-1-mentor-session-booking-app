@@ -43,6 +43,7 @@ export interface Session {
   recording_enabled?: boolean;
   recurring_series_id?: string;
   recurrence_index?: number;
+  student_note?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -137,14 +137,8 @@ class ApiClient {
     return this.client.get(`/sessions/${id}`);
   }
 
-  // Download a session as an iCalendar (.ics) file (issue #167). Uses a blob
-  // response so the authenticated request can be turned into a file download.
-  async downloadSessionIcs(id: string): Promise<Blob> {
-    return this.client.get(`/sessions/${id}/calendar.ics`, { responseType: 'blob' }) as unknown as Promise<Blob>;
-  }
-
-  async joinSession(id: string): Promise<ApiResponse<Session>> {
-    return this.client.post(`/sessions/${id}/join`);
+  async joinSession(id: string, note?: string): Promise<ApiResponse<Session>> {
+    return this.client.post(`/sessions/${id}/join`, note ? { note } : {});
   }
 
   async endSession(id: string): Promise<ApiResponse<Session>> {
