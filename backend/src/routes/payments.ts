@@ -15,6 +15,20 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
     const { sessionId, amount } = req.body;
     const userId = (req as any).user.id;
 
+    if (typeof sessionId !== 'string') {
+      return res.status(400).json({
+        error: 'Session ID must be a string',
+      });
+    }
+
+    const normalizedSessionId = sessionId.trim();
+
+    if (!normalizedSessionId) {
+      return res.status(400).json({
+        error: 'Session ID is required',
+      });
+    }
+
     if (typeof amount !== 'number' || Number.isNaN(amount)) {
       return res.status(400).json({
         error: 'Amount must be a valid number',
@@ -29,8 +43,10 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
 
     // Validate session belongs to user
     const sessionResult = await db.query(
-      `SELECT * FROM sessions WHERE id = $1 AND (mentor_id = $2 OR student_id = $2)`,
-      [sessionId, userId]
+      `SELECT * FROM sessions
+   WHERE id = $1
+     AND (mentor_id = $2 OR student_id = $2)`,
+      [normalizedSessionId, userId]
     );
 
     if (sessionResult.rows.length === 0) {
@@ -42,7 +58,7 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
       `INSERT INTO payments (session_id, user_id, amount, status, created_at)
        VALUES ($1, $2, $3, 'pending', NOW())
        RETURNING id`,
-      [sessionId, userId, amount]
+      [normalizedSessionId, userId, amount]
     );
 
     // In production, create actual Stripe payment intent here
