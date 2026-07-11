@@ -53,7 +53,7 @@ router.get(
             });
         } catch (error: any) {
             console.error("Error verifying audit chain:", error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: "Failed to verify audit chain" });
         }
     },
 );
@@ -72,7 +72,7 @@ router.get("/:sessionId/logs", checkSessionAccess,
             });
         } catch (error: any) {
             console.error("Error fetching audit logs:", error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: "Failed to fetch audit logs" });
         }
     },
 );
@@ -95,7 +95,7 @@ router.get(
             res.send(exportData);
         } catch (error: any) {
             console.error("Error exporting audit log:", error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: "Failed to export audit log" });
         }
     },
 );
@@ -116,7 +116,7 @@ router.get(
             });
         } catch (error: any) {
             console.error("Error fetching audit stats:", error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: "Failed to fetch audit statistics" });
         }
     },
 );
