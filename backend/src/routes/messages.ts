@@ -44,13 +44,26 @@ router.get('/:sessionId', authMiddleware, requireSessionParticipant(), async (re
 router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (req: AuthRequest, res: Response) => {
   try {
     const { content, type = 'text', code_snippet, attachment } = req.body;
+    if (typeof content !== 'string') {
+      return res.status(400).json({
+        error: 'Content must be a string',
+      });
+    }
+
+    const normalizedContent = content.trim();
+
+    if (!normalizedContent) {
+      return res.status(400).json({
+        error: 'Message content cannot be empty',
+      });
+    }
     const now = new Date().toISOString();
 
     const result = await queryOne(
       `INSERT INTO messages (session_id, user_id, content, type, code_snippet, attachment, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [req.params.sessionId, req.user?.id, content, type, code_snippet, attachment ? JSON.stringify(attachment) : null, now]
+      [req.params.sessionId, req.user?.id, normalizedContent, type, code_snippet, attachment ? JSON.stringify(attachment) : null, now]
     );
 
     res.json({
