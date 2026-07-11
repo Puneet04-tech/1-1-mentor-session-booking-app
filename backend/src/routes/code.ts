@@ -25,14 +25,33 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
     const { code, language, sessionId } = req.body;
 
     if (!code || !language) {
-      return res.status(400).json({ error: 'Code and language required' });
+      return res.status(400).json({
+        error: 'Code and language required',
+      });
+    }
+
+    if (typeof code !== 'string') {
+      return res.status(400).json({
+        error: 'Code must be a string',
+      });
+    }
+
+    // Maximum allowed source code size
+    const MAX_CODE_LENGTH = 100000;
+
+    if (code.length > MAX_CODE_LENGTH) {
+      return res.status(400).json({
+        error: `Code must not exceed ${MAX_CODE_LENGTH} characters`,
+      });
     }
 
     // Ensure language is a non-empty string
     const languageStr = String(language).trim().toLowerCase();
 
     if (!languageStr) {
-      return res.status(400).json({ error: 'Language must be a non-empty string' });
+      return res.status(400).json({
+        error: 'Language must be a non-empty string',
+      });
     }
 
     // When a session is targeted, the result is broadcast to that session's
