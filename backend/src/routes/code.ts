@@ -170,29 +170,6 @@ router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (r
   }
 });
 
-// Save code snapshot
-router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (req: AuthRequest, res: Response) => {
-  try {
-    const { code, language } = req.body;
-    const now = new Date().toISOString();
-
-    const result = await queryOne(
-      `INSERT INTO code_snapshots (session_id, code, language, user_id, saved_at)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [req.params.sessionId, code, language, req.user?.id, now]
-    );
-
-    res.json({
-      success: true,
-      data: result,
-    });
-  } catch (err) {
-    console.error('Save code snapshot error:', err);
-    res.status(500).json({ error: 'Failed to save code' });
-  }
-});
-
 /**
  * Get the full ordered code-editor activity recording for playback.
  * Only available once the session has completed and recording was opted into.
