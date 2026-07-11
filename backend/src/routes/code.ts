@@ -101,20 +101,53 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 /**
  * Get code snapshot from database
  */
-router.get('/:sessionId', authMiddleware, requireSessionParticipant(), async (req: AuthRequest, res: Response) => {
+router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (req: AuthRequest, res: Response) => {
   try {
-    const snapshot = await queryOne(
-      'SELECT * FROM code_snapshots WHERE session_id = $1 ORDER BY saved_at DESC LIMIT 1',
-      [req.params.sessionId]
+    const { code, language } = req.body;
+    const now = new Date().toISOString();
+
+    if (typeof code !== 'string' || !code.trim()) {
+      return res.status(400).json({
+        error: 'Code must be a non-empty string',
+      });
+    }
+
+    if (typeof language !== 'string' || !language.trim()) {
+      return res.status(400).json({
+        error: 'Language must be a non-empty string',
+      });
+    }
+
+    const MAX_CODE_LENGTH = 100000;
+
+    if (code.length > MAX_CODE_LENGTH) {
+      return res.status(400).json({
+        error: `Code must not exceed ${MAX_CODE_LENGTH} characters`,
+      });
+    }
+
+    const result = await queryOne(
+      `INSERT INTO code_snapshots (session_id, code, language, user_id, saved_at)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [
+        req.params.sessionId,
+        code.trimEnd(),
+        language.trim().toLowerCase(),
+        req.user?.id,
+        now,
+      ]
     );
 
     res.json({
       success: true,
-      data: snapshot,
+      data: result,
     });
   } catch (err) {
-    console.error('Get code snapshot error:', err);
-    res.status(500).json({ error: 'Failed to get code snapshot' });
+    console.error('Save code snapshot error:', err);
+    res.status(500).json({
+      error: 'Failed to save code',
+    });
   }
 });
 
