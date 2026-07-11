@@ -55,7 +55,7 @@ router.post('/mentor/slots', authMiddleware, requireRole('mentor'), async (req: 
         return res.status(400).json({ error: 'dayOfWeek must be an integer between 0 and 6' });
       }
       if (typeof startTime !== 'string' || !TIME_RE.test(startTime) ||
-          typeof endTime !== 'string' || !TIME_RE.test(endTime)) {
+        typeof endTime !== 'string' || !TIME_RE.test(endTime)) {
         return res.status(400).json({ error: 'startTime and endTime must be in HH:MM format' });
       }
       if (startTime >= endTime) {
@@ -69,7 +69,7 @@ router.post('/mentor/slots', authMiddleware, requireRole('mentor'), async (req: 
     // Insert new slots
     for (const slot of slots) {
       const { dayOfWeek, startTime, endTime } = slot;
-      
+
       await db.query(
         `INSERT INTO mentor_availability (mentor_id, day_of_week, start_time, end_time)
          VALUES ($1, $2, $3, $4)`,
@@ -93,14 +93,38 @@ router.get('/available/:mentorId', async (req: Request, res: Response) => {
     const { mentorId } = req.params;
     const { date } = req.query;
 
-    const mentorRow = await db.query('SELECT timezone FROM users WHERE id = $1', [mentorId]);
+    if (typeof date !== 'string' || !date.trim()) {
+      return res.status(400).json({
+        error: 'date query parameter is required',
+      });
+    }
+
+    // Validate YYYY-MM-DD format
+    const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+    if (!DATE_RE.test(date)) {
+      return res.status(400).json({
+        error: 'date must be in YYYY-MM-DD format',
+      });
+    }
+
+    const parsedDate = new Date(`${date}T00:00:00Z`);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return res.status(400).json({
+        error: 'Invalid date',
+      });
+    }
+
+    const mentorRow = await db.query(
+      'SELECT timezone FROM users WHERE id = $1',
+      [mentorId]
+    );
+
     const mentorTimezone = mentorRow.rows[0]?.timezone || 'UTC';
 
-    // Day-of-week for the requested date, evaluated in the mentor's own
-    // timezone (not the server's), since availability is defined relative
-    // to the mentor's local calendar.
-    const dayOfWeek = zonedTimeToUtc(date as string, '12:00', mentorTimezone).getUTCDay();
-
+    const dayOfWeek =
+      zonedTimeToUtc(date, '12:00', mentorTimezone).getUTCDay();
     const availabilityResult = await db.query(
       `SELECT start_time, end_time FROM mentor_availability
        WHERE mentor_id = $1 AND day_of_week = $2`,
