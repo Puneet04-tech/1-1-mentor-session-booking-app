@@ -6,6 +6,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
+const normalizeMentorId = (mentorId?: string) => mentorId?.trim();
+
 // Bookmark / Favorite Mentors (issue #166).
 //
 // Only students can maintain a favorites list, so every route below is gated by
@@ -62,13 +64,18 @@ router.post('/', authMiddleware, requireRole('student'), async (req: AuthRequest
     const { mentor_id } = req.body;
     const studentId = req.user?.id;
 
-    if (!mentor_id || typeof mentor_id !== 'string') {
-      return res.status(400).json({ error: 'mentor_id is required' });
+    const normalizedMentorId = normalizeMentorId(mentor_id);
+
+    if (!normalizedMentorId) {
+      return res.status(400).json({
+        error: 'mentor_id is required',
+      });
     }
 
-    // Only real mentors can be favorited — reject ids that don't resolve to a
-    // mentor (students, admins, or nonexistent users).
-    const mentor = await queryOne('SELECT id, role FROM users WHERE id = $1', [mentor_id]);
+    const mentor = await queryOne(
+      'SELECT id, role FROM users WHERE id = $1',
+      [normalizedMentorId]
+    );
     if (!mentor || mentor.role !== 'mentor') {
       return res.status(404).json({ error: 'Mentor not found' });
     }
@@ -77,7 +84,7 @@ router.post('/', authMiddleware, requireRole('student'), async (req: AuthRequest
     try {
       await query(
         'INSERT INTO favorites (id, student_id, mentor_id) VALUES ($1, $2, $3)',
-        [id, studentId, mentor_id]
+        [id, studentId, normalizedMentorId]
       );
     } catch (err: any) {
       // Unique constraint — this mentor is already favorited. Treat as success
@@ -90,7 +97,7 @@ router.post('/', authMiddleware, requireRole('student'), async (req: AuthRequest
 
     res.status(201).json({
       success: true,
-      data: { id, mentor_id },
+      data: { id, mentor_id: normalizedMentorId },
     });
   } catch (err) {
     console.error('Add favorite error:', err);
@@ -101,9 +108,17 @@ router.post('/', authMiddleware, requireRole('student'), async (req: AuthRequest
 // Remove a mentor from the student's favorites.
 router.delete('/:mentor_id', authMiddleware, requireRole('student'), async (req: AuthRequest, res: Response) => {
   try {
+    const normalizedMentorId = normalizeMentorId(req.params.mentor_id);
+
+    if (!normalizedMentorId) {
+      return res.status(400).json({
+        error: 'mentor_id is required',
+      });
+    }
+
     const result = await query(
       'DELETE FROM favorites WHERE student_id = $1 AND mentor_id = $2 RETURNING id',
-      [req.user?.id, req.params.mentor_id]
+      [req.user?.id, normalizedMentorId]
     );
 
     if (result.rows.length === 0) {
@@ -112,7 +127,7 @@ router.delete('/:mentor_id', authMiddleware, requireRole('student'), async (req:
 
     res.json({
       success: true,
-      data: { mentor_id: req.params.mentor_id },
+      data: { mentor_id: normalizedMentorId },
     });
   } catch (err) {
     console.error('Remove favorite error:', err);
