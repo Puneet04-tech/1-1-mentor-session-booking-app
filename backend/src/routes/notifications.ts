@@ -90,18 +90,27 @@ router.put('/mark-all/read', authMiddleware, async (req: AuthRequest, res: Respo
   try {
     const userId = req.user?.id;
 
-    await query(
-      'UPDATE notifications SET is_read = TRUE WHERE user_id = $1 AND is_read = FALSE',
+    const result = await query(
+      `UPDATE notifications
+       SET is_read = TRUE
+       WHERE user_id = $1
+         AND is_read = FALSE
+       RETURNING id`,
       [userId]
     );
 
     res.json({
       success: true,
-      data: { message: 'All notifications marked as read' },
+      data: {
+        message: 'All notifications marked as read',
+        updatedCount: result.rows.length,
+      },
     });
   } catch (err) {
     console.error('Mark all read error:', err);
-    res.status(500).json({ error: 'Failed to mark all as read' });
+    res.status(500).json({
+      error: 'Failed to mark all as read',
+    });
   }
 });
 
