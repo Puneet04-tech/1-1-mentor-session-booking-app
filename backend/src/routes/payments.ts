@@ -37,6 +37,29 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
       return res.status(404).json({ error: 'Session not found' });
     }
 
+    // Check for an existing pending payment for this user and session
+    const existingPayment = await db.query(
+      `SELECT id
+   FROM payments
+   WHERE session_id = $1
+     AND user_id = $2
+     AND status = 'pending'
+   LIMIT 1`,
+      [sessionId, userId]
+    );
+
+    if (existingPayment.rows.length > 0) {
+      return res.json({
+        success: true,
+        data: {
+          paymentId: existingPayment.rows[0].id,
+          clientSecret: 'test_secret_' + existingPayment.rows[0].id,
+        },
+        paymentId: existingPayment.rows[0].id,
+        clientSecret: 'test_secret_' + existingPayment.rows[0].id,
+      });
+    }
+
     // Create payment record
     const paymentResult = await db.query(
       `INSERT INTO payments (session_id, user_id, amount, status, created_at)
