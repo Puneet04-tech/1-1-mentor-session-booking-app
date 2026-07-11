@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import * as db from "../database";
+import { transaction } from "../database";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { zonedTimeToUtc } from "../utils/timezone";
 import { requireRole } from "../middleware/requireRole";
@@ -90,21 +91,25 @@ router.post(
         }
       }
 
-      // Delete existing slots
-      await db.query("DELETE FROM mentor_availability WHERE mentor_id = $1", [
-        userId,
-      ]);
-
-      // Insert new slots
-      for (const slot of slots) {
-        const { dayOfWeek, startTime, endTime } = slot;
-
-        await db.query(
-          `INSERT INTO mentor_availability (mentor_id, day_of_week, start_time, end_time)
-         VALUES ($1, $2, $3, $4)`,
-          [userId, dayOfWeek, startTime, endTime],
+      await transaction(async (client) => {
+        // Delete existing slots
+        await client.query(
+          "DELETE FROM mentor_availability WHERE mentor_id = $1",
+          [userId]
         );
-      }
+
+        // Insert new slots
+        for (const slot of slots) {
+          const { dayOfWeek, startTime, endTime } = slot;
+
+          await client.query(
+            `INSERT INTO mentor_availability
+        (mentor_id, day_of_week, start_time, end_time)
+       VALUES ($1, $2, $3, $4)`,
+            [userId, dayOfWeek, startTime, endTime]
+          );
+        }
+      });
 
       res.json({
         success: true,
@@ -160,7 +165,7 @@ router.get("/available/:mentorId", async (req: Request, res: Response) => {
     }
 
     const mentorTimezone = mentorRow.rows[0].timezone || "UTC";
-    
+
     const dayOfWeek = zonedTimeToUtc(date, "12:00", mentorTimezone).getUTCDay();
     const availabilityResult = await db.query(
       `SELECT start_time, end_time FROM mentor_availability
