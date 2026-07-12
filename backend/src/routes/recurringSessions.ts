@@ -65,11 +65,17 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
       occurrences,
     } = req.body;
 
-    if (!title || !scheduled_at) {
+    const normalizedTitle = typeof title === "string" ? title.trim() : "";
+
+    if (!normalizedTitle || !scheduled_at) {
       return res.status(400).json({ error: 'title and scheduled_at are required' });
     }
 
-    const validation = validateSessionInput({ title, scheduled_at, duration_minutes });
+    const validation = validateSessionInput({
+      title: normalizedTitle,
+      scheduled_at,
+      duration_minutes,
+    });
     if (!validation.valid) {
       return res.status(400).json({ error: validation.error });
     }
@@ -122,7 +128,7 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
         [
           seriesId,
           mentorId,
-          title,
+          normalizedTitle,
           description,
           topic,
           frequency,
@@ -153,7 +159,25 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
         const sessionId = uuidv4();
 
         await client.query(
-          `INSERT INTO sessions (...) VALUES (...)`
+          `INSERT INTO sessions
+             (id, mentor_id, title, description, topic, status, scheduled_at, duration_minutes, language, code_language, recording_enabled, recurring_series_id, recurrence_index, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, 'scheduled', $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          [
+            sessionId,
+            mentorId,
+            normalizedTitle,
+            description,
+            topic,
+            date.toISOString(),
+            durationMinutes,
+            language || 'javascript',
+            code_language || 'javascript',
+            recording_enabled === true,
+            seriesId,
+            recurrenceIndex,
+            now,
+            now,
+          ]
         );
 
         existingRanges.push({ start, end });
