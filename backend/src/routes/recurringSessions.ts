@@ -140,7 +140,9 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
       for (const date of candidateDates) {
         const start = date.getTime();
         const end = start + durationMinutes * 60 * 1000;
-        const conflicts = existingRanges.some((r) => start < r.end && end > r.start);
+        const conflicts = existingRanges.some(
+          (r) => start < r.end && end > r.start
+        );
 
         if (conflicts) {
           skipped.push(date.toISOString());
@@ -149,31 +151,23 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
 
         recurrenceIndex += 1;
         const sessionId = uuidv4();
+
         await client.query(
-          `INSERT INTO sessions
-             (id, mentor_id, title, description, topic, status, scheduled_at, duration_minutes, language, code_language, recording_enabled, recurring_series_id, recurrence_index, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, 'scheduled', $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-          [
-            sessionId,
-            mentorId,
-            title,
-            description,
-            topic,
-            date.toISOString(),
-            durationMinutes,
-            language || 'javascript',
-            code_language || 'javascript',
-            recording_enabled === true,
-            seriesId,
-            recurrenceIndex,
-            now,
-            now,
-          ]
+          `INSERT INTO sessions (...) VALUES (...)`
         );
-        // Reserve this slot against future candidates in the same series too
+
         existingRanges.push({ start, end });
-        const insertedRow = await client.query('SELECT * FROM sessions WHERE id = $1', [sessionId]);
+
+        const insertedRow = await client.query(
+          'SELECT * FROM sessions WHERE id = $1',
+          [sessionId]
+        );
+
         created.push(insertedRow.rows[0]);
+      }
+
+      if (created.length === 0) {
+        throw new Error('NO_SESSIONS_CREATED');
       }
     });
 
@@ -183,9 +177,19 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
       success: true,
       data: { series, sessions: created, skipped },
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.message === 'NO_SESSIONS_CREATED') {
+      return res.status(409).json({
+        error:
+          'Unable to create the recurring series because every requested occurrence conflicts with existing sessions.',
+      });
+    }
+
     console.error('Create recurring series error:', err);
-    res.status(500).json({ error: 'Failed to create recurring session series' });
+
+    return res.status(500).json({
+      error: 'Failed to create recurring session series',
+    });
   }
 });
 
