@@ -199,6 +199,21 @@ router.post('/feedback', authMiddleware, async (req: AuthRequest, res: Response)
       return res.status(403).json({ error: 'You are not a participant in this session' });
     }
 
+    // Prevent duplicate feedback submissions
+    const existingFeedback = await queryOne(
+      `SELECT id
+   FROM session_feedback
+   WHERE session_id = $1
+     AND user_id = $2`,
+      [session_id, userId]
+    );
+
+    if (existingFeedback) {
+      return res.status(409).json({
+        error: 'Feedback has already been submitted for this session',
+      });
+    }
+
     const feedbackId = uuidv4();
     const now = new Date().toISOString();
 
