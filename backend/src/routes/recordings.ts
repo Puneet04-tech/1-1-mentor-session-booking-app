@@ -20,6 +20,22 @@ router.post('/start', authMiddleware, async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
+    // Check if the session already has an active recording
+    const existingRecording = await db.query(
+      `SELECT id
+   FROM session_recordings
+   WHERE session_id = $1
+     AND status = 'recording'
+   LIMIT 1`,
+      [sessionId]
+    );
+
+    if (existingRecording.rows.length > 0) {
+      return res.status(409).json({
+        error: 'An active recording already exists for this session',
+      });
+    }
+
     // Create recording record
     const recordingResult = await db.query(
       `INSERT INTO session_recordings (session_id, started_at, status)
