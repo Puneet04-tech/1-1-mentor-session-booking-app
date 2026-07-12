@@ -11,7 +11,14 @@ const router = Router();
 router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { session_id, rating, review, comment } = req.body;
-    const reviewText = review ?? comment ?? null;
+
+    const rawReview = review ?? comment ?? null;
+
+    const reviewText =
+      typeof rawReview === "string"
+        ? rawReview.trim() || null
+        : null;
+
     const student_id = req.user?.id;
 
     if (!session_id || !rating || (rating < 1 || rating > 5)) {
@@ -143,7 +150,14 @@ router.get('/session/:session_id', authMiddleware, requireSessionParticipant('se
 router.put('/:rating_id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { rating, review, comment } = req.body;
-    const reviewText = review ?? comment ?? null;
+
+    const rawReview = review ?? comment ?? null;
+
+    const reviewText =
+      typeof rawReview === "string"
+        ? rawReview.trim() || null
+        : null;
+
     const ratingId = req.params.rating_id;
     const studentId = req.user?.id;
 
