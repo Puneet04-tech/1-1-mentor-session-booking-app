@@ -65,11 +65,17 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
       occurrences,
     } = req.body;
 
-    if (!title || !scheduled_at) {
+    const normalizedTitle = typeof title === "string" ? title.trim() : "";
+
+    if (!normalizedTitle || !scheduled_at) {
       return res.status(400).json({ error: 'title and scheduled_at are required' });
     }
 
-    const validation = validateSessionInput({ title, scheduled_at, duration_minutes });
+    const validation = validateSessionInput({
+      title: normalizedTitle,
+      scheduled_at,
+      duration_minutes,
+    });
     if (!validation.valid) {
       return res.status(400).json({ error: validation.error });
     }
@@ -122,7 +128,7 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
         [
           seriesId,
           mentorId,
-          title,
+          normalizedTitle,
           description,
           topic,
           frequency,
@@ -156,7 +162,7 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
           [
             sessionId,
             mentorId,
-            title,
+            normalizedTitle,
             description,
             topic,
             date.toISOString(),
