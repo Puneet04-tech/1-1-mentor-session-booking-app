@@ -20,6 +20,22 @@ router.post('/start', authMiddleware, async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
+    // Check if the session already has an active recording
+    const existingRecording = await db.query(
+      `SELECT id
+   FROM session_recordings
+   WHERE session_id = $1
+     AND status = 'recording'
+   LIMIT 1`,
+      [sessionId]
+    );
+
+    if (existingRecording.rows.length > 0) {
+      return res.status(409).json({
+        error: 'An active recording already exists for this session',
+      });
+    }
+
     // Create recording record
     const recordingResult = await db.query(
       `INSERT INTO session_recordings (session_id, started_at, status)
@@ -166,15 +182,33 @@ router.delete('/:recordingId', authMiddleware, async (req: Request, res: Respons
     const userId = (req as any).user.id;
 
     // Verify user is mentor of the session
-    const result = await db.query(
-      `SELECT sr.* FROM session_recordings sr
-       JOIN sessions s ON sr.session_id = s.id
-       WHERE sr.id = $1 AND s.mentor_id = $2`,
-      [recordingId, userId]
+    // Verify recording exists
+    const recordingResult = await db.query(
+      `SELECT session_id
+   FROM session_recordings
+   WHERE id = $1`,
+      [recordingId]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(403).json({ error: 'Unauthorized' });
+    if (recordingResult.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Recording not found',
+      });
+    }
+
+    // Verify the authenticated user is the mentor of the session
+    const authorizationResult = await db.query(
+      `SELECT 1
+   FROM sessions
+   WHERE id = $1
+     AND mentor_id = $2`,
+      [recordingResult.rows[0].session_id, userId]
+    );
+
+    if (authorizationResult.rows.length === 0) {
+      return res.status(403).json({
+        error: 'Unauthorized',
+      });
     }
 
     await db.query('DELETE FROM session_recordings WHERE id = $1', [recordingId]);
