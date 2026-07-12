@@ -181,6 +181,10 @@ router.patch('/:session_id/complete', authMiddleware, async (req: AuthRequest, r
 router.post('/feedback', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { session_id, feedback, difficulty_level, would_recommend } = req.body;
+    const normalizedFeedback =
+      typeof feedback === "string"
+        ? feedback.trim() || null
+        : null;
     const userId = req.user?.id;
 
     if (!session_id) {
@@ -205,7 +209,7 @@ router.post('/feedback', authMiddleware, async (req: AuthRequest, res: Response)
     await query(
       `INSERT INTO session_feedback (id, session_id, user_id, feedback, difficulty_level, would_recommend, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [feedbackId, session_id, userId, feedback || null, difficulty_level || null, would_recommend || null, now]
+      [feedbackId, session_id, userId, normalizedFeedback || null, difficulty_level || null, would_recommend || null, now]
     );
 
     const newFeedback = await queryOne(
