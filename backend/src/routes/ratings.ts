@@ -21,8 +21,21 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     const student_id = req.user?.id;
 
-    if (!session_id || !rating || (rating < 1 || rating > 5)) {
-      return res.status(400).json({ error: 'Invalid rating data' });
+    if (!session_id) {
+      return res.status(400).json({
+        error: "session_id is required",
+      });
+    }
+
+    if (
+      typeof rating !== "number" ||
+      !Number.isInteger(rating) ||
+      rating < 1 ||
+      rating > 5
+    ) {
+      return res.status(400).json({
+        error: "Rating must be an integer between 1 and 5",
+      });
     }
 
     if (reviewText && reviewText.length > 300) {
@@ -161,8 +174,15 @@ router.put('/:rating_id', authMiddleware, async (req: AuthRequest, res: Response
     const ratingId = req.params.rating_id;
     const studentId = req.user?.id;
 
-    if (!rating || (rating < 1 || rating > 5)) {
-      return res.status(400).json({ error: 'Invalid rating' });
+    if (
+      typeof rating !== "number" ||
+      !Number.isInteger(rating) ||
+      rating < 1 ||
+      rating > 5
+    ) {
+      return res.status(400).json({
+        error: "Rating must be an integer between 1 and 5",
+      });
     }
 
     if (reviewText && reviewText.length > 300) {
