@@ -82,6 +82,35 @@ router.get('/mentor', authMiddleware, async (req: AuthRequest, res: Response) =>
     const stats = statsResult.rows[0] ?? {};
     const ratingStats = ratingResult.rows[0] ?? {};
 
+    const weekMap = new Map(
+      sessionsPerWeek.rows.map((row) => [row.week, Number(row.count)])
+    );
+
+    const sessionsByWeek = [];
+
+    const today = new Date();
+    const currentWeekStart = new Date(today);
+
+    // Move to the beginning of the current week (Monday)
+    const day = currentWeekStart.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    currentWeekStart.setDate(currentWeekStart.getDate() + diff);
+
+    for (let i = 7; i >= 0; i--) {
+      const weekDate = new Date(currentWeekStart);
+      weekDate.setDate(currentWeekStart.getDate() - i * 7);
+
+      const label = weekDate.toLocaleDateString("en-US", {
+        month: "short",
+        day: "2-digit",
+      });
+
+      sessionsByWeek.push({
+        week: label,
+        count: weekMap.get(label) ?? 0,
+      });
+    }
+
     res.json({
       success: true,
       data: {
@@ -95,10 +124,10 @@ router.get('/mentor', authMiddleware, async (req: AuthRequest, res: Response) =>
         completionRate:
           stats.total_sessions > 0
             ? Math.round(
-                (parseInt(stats.completed_sessions) / parseInt(stats.total_sessions)) * 100
-              )
+              (parseInt(stats.completed_sessions) / parseInt(stats.total_sessions)) * 100
+            )
             : 0,
-        sessionsByWeek: sessionsPerWeek.rows,
+        sessionsByWeek,
         ratingsHistory: ratingsHistory.rows.reverse(),
         recentSessions: recentSessions.rows,
       },
