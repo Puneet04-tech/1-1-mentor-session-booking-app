@@ -31,11 +31,11 @@ const checkSessionAccess = async (req: Request, res: Response, next: NextFunctio
         }
 
         next();
-        } catch (error) {
-            console.error("Audit access check error:", error);
-            res.status(500).json({ error: "Failed to verify access" });
-        }
-    };
+    } catch (error) {
+        console.error("Audit access check error:", error);
+        res.status(500).json({ error: "Failed to verify access" });
+    }
+};
 
 // GET /api/audit/:sessionId/verify
 router.get(
@@ -59,7 +59,7 @@ router.get(
 );
 
 // GET /api/audit/:sessionId/logs
-router.get("/:sessionId/logs", checkSessionAccess, 
+router.get("/:sessionId/logs", checkSessionAccess,
     async (req: Request, res: Response) => {
         try {
             const { sessionId } = req.params;
@@ -85,6 +85,16 @@ router.get(
         try {
             const { sessionId } = req.params;
             const auditService = AuditService.getInstance();
+
+            // Verify audit records exist before exporting
+            const auditLogs = await auditService.getAuditLog(sessionId);
+
+            if (!auditLogs || auditLogs.length === 0) {
+                return res.status(404).json({
+                    error: "No audit records found for this session",
+                });
+            }
+
             const exportData = await auditService.exportAuditLog(sessionId);
 
             res.setHeader("Content-Type", "application/json");
