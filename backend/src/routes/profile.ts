@@ -132,166 +132,169 @@ const updateProfileHandler = async (req: AuthRequest, res: Response) => {
 
       // Insert new skills
       for (const skill of skills) {
-        if (skill.skill_name) {
-          await query(
-            `INSERT INTO user_skills (user_id, skill_name, proficiency_level, years_experience)
-             VALUES ($1, $2, $3, $4)`,
-            [
-              userId,
-              skill.skill_name,
-              skill.proficiency_level || "intermediate",
-              skill.years_experience || 0,
-            ],
-          );
-        }
-      }
-    }
+        const normalizedSkillName = normalizeSkillName(skill.skill_name);
 
-    // Fetch updated profile
-    const updatedUser = await queryOne(
-      `SELECT id, email, name, role, avatar_url, bio, hourly_rate, timezone, industry, language,
+        if (!normalizedSkillName) {
+          continue;
+        }
+
+        await query(
+          `INSERT INTO user_skills (user_id, skill_name, proficiency_level, years_experience)
+     VALUES ($1, $2, $3, $4)`,
+          [
+            userId,
+            normalizedSkillName,
+            skill.proficiency_level || "intermediate",
+            skill.years_experience || 0,
+          ],
+        );
+      }
+
+      // Fetch updated profile
+      const updatedUser = await queryOne(
+        `SELECT id, email, name, role, avatar_url, bio, hourly_rate, timezone, industry, language,
               total_sessions, avg_rating, verified, created_at, email_notifications_enabled
        FROM users WHERE id = $1`,
-      [userId],
-    );
-
-    const updatedSkills = await query(
-      `SELECT skill_name, proficiency_level, years_experience FROM user_skills WHERE user_id = $1`,
-      [userId],
-    );
-
-    res.json({
-      success: true,
-      data: { ...updatedUser, skills: updatedSkills.rows },
-    });
-  } catch (err) {
-    console.error("Update profile error:", err);
-    res.status(500).json({ error: "Failed to update profile" });
-  }
-};
-
-// Update user profile (authenticated)
-router.put("/", authMiddleware, updateProfileHandler);
-router.put("/profile/update", authMiddleware, updateProfileHandler);
-
-// Add skill
-router.post(
-  "/skills",
-  authMiddleware,
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const { name, proficiency_level, years_experience } = req.body;
-      const userId = req.user?.id;
-
-      const normalizedSkillName = normalizeSkillName(name);
-
-      if (!normalizedSkillName) {
-        return res.status(400).json({ error: "Skill name is required" });
-      }
-
-      // Check if skill already exists
-      const existing = await queryOne(
-        "SELECT * FROM user_skills WHERE user_id = $1 AND skill_name = $2",
-        [userId, normalizedSkillName],
+        [userId],
       );
 
-      if (existing) {
-        return res.status(400).json({ error: "Skill already exists" });
-      }
+      const updatedSkills = await query(
+        `SELECT skill_name, proficiency_level, years_experience FROM user_skills WHERE user_id = $1`,
+        [userId],
+      );
 
-      await query(
-        `INSERT INTO user_skills (user_id, skill_name, proficiency_level, years_experience)
+      res.json({
+        success: true,
+        data: { ...updatedUser, skills: updatedSkills.rows },
+      });
+    } catch (err) {
+      console.error("Update profile error:", err);
+      res.status(500).json({ error: "Failed to update profile" });
+    }
+  };
+
+  // Update user profile (authenticated)
+  router.put("/", authMiddleware, updateProfileHandler);
+  router.put("/profile/update", authMiddleware, updateProfileHandler);
+
+  // Add skill
+  router.post(
+    "/skills",
+    authMiddleware,
+    async (req: AuthRequest, res: Response) => {
+      try {
+        const { name, proficiency_level, years_experience } = req.body;
+        const userId = req.user?.id;
+
+        const normalizedSkillName = normalizeSkillName(name);
+
+        if (!normalizedSkillName) {
+          return res.status(400).json({ error: "Skill name is required" });
+        }
+
+        // Check if skill already exists
+        const existing = await queryOne(
+          "SELECT * FROM user_skills WHERE user_id = $1 AND skill_name = $2",
+          [userId, normalizedSkillName],
+        );
+
+        if (existing) {
+          return res.status(400).json({ error: "Skill already exists" });
+        }
+
+        await query(
+          `INSERT INTO user_skills (user_id, skill_name, proficiency_level, years_experience)
        VALUES ($1, $2, $3, $4)`,
-        [
-          userId,
-          normalizedSkillName,
-          proficiency_level || "intermediate",
-          years_experience || 0,
-        ],
-      );
+          [
+            userId,
+            normalizedSkillName,
+            proficiency_level || "intermediate",
+            years_experience || 0,
+          ],
+        );
 
-      const newSkill = await queryOne(
-        `SELECT skill_name, proficiency_level, years_experience 
+        const newSkill = await queryOne(
+          `SELECT skill_name, proficiency_level, years_experience 
        FROM user_skills WHERE user_id = $1 AND skill_name = $2`,
-        [userId, normalizedSkillName],
-      );
+          [userId, normalizedSkillName],
+        );
 
-      res.json({
-        success: true,
-        data: newSkill,
-      });
-    } catch (err) {
-      console.error("Add skill error:", err);
-      res.status(500).json({ error: "Failed to add skill" });
-    }
-  },
-);
+        res.json({
+          success: true,
+          data: newSkill,
+        });
+      } catch (err) {
+        console.error("Add skill error:", err);
+        res.status(500).json({ error: "Failed to add skill" });
+      }
+    },
+  );
 
-// Remove skill
-router.delete(
-  "/skills/:skillName",
-  authMiddleware,
-  async (req: AuthRequest, res: Response) => {
+  // Remove skill
+  router.delete(
+    "/skills/:skillName",
+    authMiddleware,
+    async (req: AuthRequest, res: Response) => {
+      try {
+        const { skillName } = req.params;
+        const userId = req.user?.id;
+
+        const normalizedSkillName = normalizeSkillName(skillName);
+
+        if (!normalizedSkillName) {
+          return res.status(400).json({
+            error: "Skill name is required",
+          });
+        }
+
+        const existingSkill = await queryOne(
+          "SELECT skill_name FROM user_skills WHERE user_id = $1 AND skill_name = $2",
+          [userId, normalizedSkillName],
+        );
+
+        if (!existingSkill) {
+          return res.status(404).json({
+            error: "Skill not found",
+          });
+        }
+
+        await query(
+          "DELETE FROM user_skills WHERE user_id = $1 AND skill_name = $2",
+          [userId, normalizedSkillName],
+        );
+
+        res.json({
+          success: true,
+          data: {
+            skill_name: normalizedSkillName,
+          },
+        });
+      } catch (err) {
+        console.error("Remove skill error:", err);
+        res.status(500).json({
+          error: "Failed to remove skill",
+        });
+      }
+    },
+  );
+
+  // Search/filter/sort/paginate mentors
+  router.get("/mentors/all", async (req: AuthRequest, res: Response) => {
     try {
-      const { skillName } = req.params;
-      const userId = req.user?.id;
+      const { whereClause, params, sortColumn, page, limit, offset } =
+        buildMentorSearchPlan(req.query as MentorSearchQuery);
 
-      const normalizedSkillName = normalizeSkillName(skillName);
-
-      if (!normalizedSkillName) {
-        return res.status(400).json({
-          error: "Skill name is required",
-        });
-      }
-
-      const existingSkill = await queryOne(
-        "SELECT skill_name FROM user_skills WHERE user_id = $1 AND skill_name = $2",
-        [userId, normalizedSkillName],
+      const countResult = await queryOne(
+        `SELECT COUNT(*)::int AS total FROM users u WHERE ${whereClause}`,
+        params,
       );
+      const total = countResult?.total || 0;
 
-      if (!existingSkill) {
-        return res.status(404).json({
-          error: "Skill not found",
-        });
-      }
+      params.push(limit);
+      params.push(offset);
 
-      await query(
-        "DELETE FROM user_skills WHERE user_id = $1 AND skill_name = $2",
-        [userId, normalizedSkillName],
-      );
-
-      res.json({
-        success: true,
-        data: {
-          skill_name: normalizedSkillName,
-        },
-      });
-    } catch (err) {
-      console.error("Remove skill error:", err);
-      res.status(500).json({
-        error: "Failed to remove skill",
-      });
-    }
-  },
-);
-
-// Search/filter/sort/paginate mentors
-router.get("/mentors/all", async (req: AuthRequest, res: Response) => {
-  try {
-    const { whereClause, params, sortColumn, page, limit, offset } =
-      buildMentorSearchPlan(req.query as MentorSearchQuery);
-
-    const countResult = await queryOne(
-      `SELECT COUNT(*)::int AS total FROM users u WHERE ${whereClause}`,
-      params,
-    );
-    const total = countResult?.total || 0;
-
-    params.push(limit);
-    params.push(offset);
-
-    const mentors = await query(
-      `SELECT u.id, u.email, u.name, u.avatar_url, u.bio, u.hourly_rate, u.timezone, u.industry, u.language,
+      const mentors = await query(
+        `SELECT u.id, u.email, u.name, u.avatar_url, u.bio, u.hourly_rate, u.timezone, u.industry, u.language,
               u.total_sessions, u.avg_rating, u.verified, u.created_at,
               COALESCE(
                 (SELECT json_agg(json_build_object(
@@ -306,23 +309,23 @@ router.get("/mentors/all", async (req: AuthRequest, res: Response) => {
        WHERE ${whereClause}
        ORDER BY ${sortColumn} DESC NULLS LAST, u.total_sessions DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
-      params,
-    );
+        params,
+      );
 
-    res.json({
-      success: true,
-      data: mentors.rows,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.max(1, Math.ceil(total / limit)),
-      },
-    });
-  } catch (err) {
-    console.error("Get mentors error:", err);
-    res.status(500).json({ error: "Failed to get mentors" });
-  }
-});
+      res.json({
+        success: true,
+        data: mentors.rows,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / limit)),
+        },
+      });
+    } catch (err) {
+      console.error("Get mentors error:", err);
+      res.status(500).json({ error: "Failed to get mentors" });
+    }
+  });
 
-export default router;
+  export default router;
