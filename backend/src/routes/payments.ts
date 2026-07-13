@@ -65,14 +65,12 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
     );
 
     if (existingPayment.rows.length > 0) {
-      return res.json({
+      res.json({
         success: true,
         data: {
           paymentId: existingPayment.rows[0].id,
           clientSecret: 'test_secret_' + existingPayment.rows[0].id,
         },
-        paymentId: existingPayment.rows[0].id,
-        clientSecret: 'test_secret_' + existingPayment.rows[0].id,
       });
     }
 
@@ -100,8 +98,6 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
         paymentId: paymentResult.rows[0].id,
         clientSecret: 'test_secret_' + paymentResult.rows[0].id,
       },
-      paymentId: paymentResult.rows[0].id,
-      clientSecret: 'test_secret_' + paymentResult.rows[0].id,
     });
   } catch (error) {
     console.error('Error creating payment intent:', error);
