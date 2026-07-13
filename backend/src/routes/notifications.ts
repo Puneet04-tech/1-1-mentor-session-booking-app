@@ -159,13 +159,30 @@ export async function createNotification(
   relatedId?: string
 ) {
   try {
+    const allowedNotificationTypes = [
+      "message",
+      "session",
+      "payment",
+      "system",
+    ];
+
+    const normalizedType =
+      typeof type === "string"
+        ? type.trim().toLowerCase()
+        : "";
+
+    if (!allowedNotificationTypes.includes(normalizedType)) {
+      throw new Error(
+        `Invalid notification type. Allowed values are: ${allowedNotificationTypes.join(", ")}`
+      );
+    }
     const notificationId = uuidv4();
     const now = new Date().toISOString();
 
     await query(
       `INSERT INTO notifications (id, user_id, type, title, message, related_id, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [notificationId, userId, type, title, message, relatedId || null, now]
+      [notificationId, userId, normalizedType, title, message, relatedId || null, now]
     );
 
     if (io) {
