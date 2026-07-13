@@ -200,10 +200,17 @@ router.get('/:sessionId/history', authMiddleware, async (req: AuthRequest, res: 
 
     const events = await query(
       `SELECT code, language, user_id, saved_at
-       FROM code_snapshots WHERE session_id = $1
-       ORDER BY saved_at ASC`,
+   FROM code_snapshots
+   WHERE session_id = $1
+   ORDER BY saved_at ASC`,
       [req.params.sessionId]
     );
+
+    if (events.rows.length === 0) {
+      return res.status(404).json({
+        error: "No code history found for this session",
+      });
+    }
 
     res.json({
       success: true,
