@@ -91,6 +91,32 @@ router.post(
         }
       }
 
+      // Prevent overlapping slots for the same day
+      const slotsByDay = new Map<number, typeof slots>();
+
+      for (const slot of slots) {
+        if (!slotsByDay.has(slot.dayOfWeek)) {
+          slotsByDay.set(slot.dayOfWeek, []);
+        }
+
+        slotsByDay.get(slot.dayOfWeek)!.push(slot);
+      }
+
+      for (const [day, daySlots] of slotsByDay.entries()) {
+        daySlots.sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+        for (let i = 1; i < daySlots.length; i++) {
+          const previous = daySlots[i - 1];
+          const current = daySlots[i];
+
+          if (current.startTime < previous.endTime) {
+            return res.status(400).json({
+              error: `Overlapping availability slots detected for day ${day}`,
+            });
+          }
+        }
+      }
+
       await transaction(async (client) => {
         // Delete existing slots
         await client.query(
