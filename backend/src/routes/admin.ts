@@ -11,6 +11,14 @@ router.use(authMiddleware, requireRole("admin"));
 router.get("/users", async (req: AuthRequest, res: Response) => {
   try {
     const { search, role } = req.query;
+
+    const allowedRoles = ["admin", "mentor", "student"];
+
+    if (role !== undefined && (typeof role !== "string" || !allowedRoles.includes(role))) {
+      return res.status(400).json({
+        error: `Invalid role. Allowed values are: ${allowedRoles.join(", ")}`,
+      });
+    }
     let sql =
       "SELECT id, name, email, role, is_suspended, suspension_reason, created_at FROM users WHERE 1=1";
     const params: any[] = [];
