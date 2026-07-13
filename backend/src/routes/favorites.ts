@@ -86,6 +86,12 @@ router.post(
         });
       }
 
+      if (normalizedMentorId === studentId) {
+        return res.status(400).json({
+          error: "You cannot favorite your own account",
+        });
+      }
+
       const mentor = await queryOne(
         "SELECT id, role FROM users WHERE id = $1",
         [normalizedMentorId],
