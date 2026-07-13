@@ -100,11 +100,18 @@ router.post(
         return res.status(404).json({ error: "Mentor not found" });
       }
 
+      let favorite;
       const id = uuidv4();
       try {
-        await query(
-          "INSERT INTO favorites (id, student_id, mentor_id) VALUES ($1, $2, $3)",
-          [id, studentId, normalizedMentorId],
+        favorite = await queryOne(
+          `INSERT INTO favorites (
+      id,
+      student_id,
+      mentor_id
+   )
+   VALUES ($1, $2, $3)
+   RETURNING id, mentor_id, created_at`,
+          [id, studentId, normalizedMentorId]
         );
       } catch (err: any) {
         // Unique constraint — this mentor is already favorited. Treat as success
@@ -123,7 +130,7 @@ router.post(
 
       res.status(201).json({
         success: true,
-        data: { id, mentor_id: normalizedMentorId },
+        data: favorite,
       });
     } catch (err) {
       console.error("Add favorite error:", err);
