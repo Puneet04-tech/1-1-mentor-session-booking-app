@@ -384,7 +384,12 @@ router.post('/2fa/enable', authMiddleware, async (req: AuthRequest, res: Respons
     const userId = req.user?.id;
     const { token } = req.body;
 
-    if (!token) {
+    const normalizedToken =
+      typeof token === "string"
+        ? token.trim()
+        : "";
+
+    if (!normalizedToken) {
       return res.status(400).json({ error: 'Verification code is required' });
     }
 
@@ -405,7 +410,7 @@ router.post('/2fa/enable', authMiddleware, async (req: AuthRequest, res: Respons
       return res.status(400).json({ error: 'No 2FA setup in progress. Call /2fa/setup first.' });
     }
 
-    if (!verifyToken(token, user.two_factor_secret)) {
+    if (!verifyToken(normalizedToken, user.two_factor_secret)) {
       return res.status(401).json({ error: 'Invalid verification code' });
     }
 
@@ -437,10 +442,20 @@ router.post('/2fa/verify', twoFactorLimiter, async (req: AuthRequest, res: Respo
   try {
     const { pendingToken, token, backupCode } = req.body;
 
+    const normalizedToken =
+      typeof token === "string"
+        ? token.trim()
+        : "";
+
+    const normalizedBackupCode =
+      typeof backupCode === "string"
+        ? backupCode.trim()
+        : "";
+
     if (!pendingToken) {
       return res.status(400).json({ error: 'Pending token is required' });
     }
-    if (!token && !backupCode) {
+    if (!normalizedToken && !normalizedBackupCode) {
       return res.status(400).json({ error: 'A verification code or backup code is required' });
     }
 
@@ -470,11 +485,11 @@ router.post('/2fa/verify', twoFactorLimiter, async (req: AuthRequest, res: Respo
 
     let verified = false;
 
-    if (token) {
-      verified = verifyToken(token, user.two_factor_secret);
+    if (normalizedToken) {
+      verified = verifyToken(normalizedToken, user.two_factor_secret);
     }
 
-    if (!verified && backupCode) {
+    if (!verified && normalizedBackupCode) {
       const updatedCodes = await consumeBackupCode(
         backupCode,
         user.two_factor_backup_codes as BackupCode[] | null
@@ -522,10 +537,20 @@ router.post('/2fa/disable', authMiddleware, async (req: AuthRequest, res: Respon
     const userId = req.user?.id;
     const { password, token, backupCode } = req.body;
 
+    const normalizedToken =
+      typeof token === "string"
+        ? token.trim()
+        : "";
+
+    const normalizedBackupCode =
+      typeof backupCode === "string"
+        ? backupCode.trim()
+        : "";
+
     if (!password) {
       return res.status(400).json({ error: 'Password is required' });
     }
-    if (!token && !backupCode) {
+    if (!normalizedToken && !normalizedBackupCode) {
       return res.status(400).json({ error: 'A current 2FA code or backup code is required' });
     }
 
@@ -554,7 +579,7 @@ router.post('/2fa/disable', authMiddleware, async (req: AuthRequest, res: Respon
     const now = new Date().toISOString();
 
     if (token) {
-      verified = verifyToken(token, user.two_factor_secret);
+      verified = verifyToken(normalizedToken, user.two_factor_secret);
     }
 
     if (!verified && backupCode) {
