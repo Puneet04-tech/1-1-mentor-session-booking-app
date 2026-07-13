@@ -61,7 +61,7 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
      AND user_id = $2
      AND status = 'pending'
    LIMIT 1`,
-      [sessionId, userId]
+      [normalizedSessionId, userId]
     );
 
     if (existingPayment.rows.length > 0) {
