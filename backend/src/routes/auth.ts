@@ -68,8 +68,10 @@ router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) =>
 
     const normalizedEmail = normalizeEmail(email);
 
+    const normalizedName = typeof name === "string" ? name.trim() : "";
+
     // Validate input
-    if (!normalizedEmail || !password || !name || !role) {
+    if (!normalizedEmail || !password || !normalizedName || !role) {
       return res.status(400).json({ error: 'Missing required fields: email, password, name, role' });
     }
 
@@ -114,7 +116,7 @@ router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) =>
     await query(
       `INSERT INTO users (id, email, name, role, timezone, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [userId, normalizedEmail, name, role, resolvedTimezone, now, now]
+      [userId, normalizedEmail, normalizedName, role, resolvedTimezone, now, now]
     );
     console.log('✅ User created:', { id: userId, email: normalizedEmail, role });
 
@@ -137,7 +139,7 @@ router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) =>
       success: true,
       message: 'Signup successful',
       data: {
-        user: { id: userId, email: normalizedEmail, name, role, timezone: resolvedTimezone },
+        user: { id: userId, email: normalizedEmail, name: normalizedName, role, timezone: resolvedTimezone },
         token,
       },
     });
