@@ -220,6 +220,11 @@ router.patch(
       const { verified, note } = req.body;
       const adminId = req.user?.id;
 
+      const normalizedNote =
+        typeof note === "string"
+          ? note.trim() || null
+          : null;
+
       if (typeof verified !== "boolean") {
         return res.status(400).json({ error: "verified must be a boolean" });
       }
@@ -244,7 +249,7 @@ router.patch(
           adminId,
           verified ? "mentor_verified" : "mentor_unverified",
           userId,
-          note ?? null,
+          normalizedNote,
         ],
       );
 
