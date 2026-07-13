@@ -161,6 +161,14 @@ router.post(
       const { sessionId } = req.params;
       const { reason } = req.body;
 
+      if (typeof reason !== "string" || !reason.trim()) {
+        return res.status(400).json({
+          error: "A moderation reason is required when flagging a session",
+        });
+      }
+
+      const normalizedReason = reason.trim();
+
       const session = await queryOne("SELECT id FROM sessions WHERE id = $1", [
         sessionId,
       ]);
@@ -171,7 +179,7 @@ router.post(
       await query(
         `UPDATE sessions SET flagged_for_review = true, review_reason = $1, updated_at = NOW()
        WHERE id = $2`,
-        [reason, sessionId],
+        [normalizedReason, sessionId],
       );
 
       res.json({ success: true, message: "Session flagged for review" });
