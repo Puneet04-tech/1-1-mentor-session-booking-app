@@ -84,7 +84,15 @@ router.get(
     async (req: Request, res: Response) => {
         try {
             const { sessionId } = req.params;
+            const sessionResult = await query(`SELECT status FROM sessions WHERE id = $1`, [sessionId]);
+            const session = sessionResult.rows[0];
             const auditService = AuditService.getInstance();
+
+            if (session.status !== "completed") {
+                return res.status(409).json({
+                    error: "Audit logs can only be exported after the session is completed",
+                });
+            }
 
             // Verify audit records exist before exporting
             const auditLogs = await auditService.getAuditLog(sessionId);
