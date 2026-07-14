@@ -44,6 +44,11 @@ router.get(
     async (req: Request, res: Response) => {
         try {
             const { sessionId } = req.params;
+            if (typeof sessionId !== "string" || sessionId.trim().length === 0 ) {
+                return res.status(400).json({
+                    error: "Invalid session ID",
+                });
+            }
             const auditService = AuditService.getInstance();
             const verification = await auditService.verifyChain(sessionId);
 
