@@ -23,7 +23,7 @@ router.get('/mentor', authMiddleware, async (req: AuthRequest, res: Response) =>
       `SELECT
          COUNT(*)                                                  AS total_sessions,
          COUNT(CASE WHEN status = 'completed' THEN 1 END)         AS completed_sessions,
-         COUNT(CASE WHEN status = 'scheduled' THEN 1 END)         AS upcoming_sessions,
+         COUNT(CASE WHEN status = 'scheduled' AND scheduled_at >= NOW() THEN 1 END ) AS upcoming_sessions,
          COUNT(DISTINCT student_id)                               AS total_students,
          COALESCE(SUM(duration_minutes) FILTER (WHERE status = 'completed'), 0) AS total_minutes
        FROM sessions
