@@ -107,14 +107,27 @@ router.get('/session/:sessionId', authMiddleware, async (req: Request, res: Resp
     const { sessionId } = req.params;
     const userId = (req as any).user.id;
 
-    // Verify user is part of session
+    // Verify the session exists
     const sessionResult = await db.query(
-      `SELECT * FROM sessions WHERE id = $1 AND (mentor_id = $2 OR student_id = $2)`,
-      [sessionId, userId]
+      `SELECT mentor_id, student_id
+   FROM sessions
+   WHERE id = $1`,
+      [sessionId]
     );
 
     if (sessionResult.rows.length === 0) {
-      return res.status(403).json({ error: 'Unauthorized' });
+      return res.status(404).json({
+        error: "Session not found",
+      });
+    }
+
+    const session = sessionResult.rows[0];
+
+    // Verify the authenticated user is a participant
+    if (session.mentor_id !== userId && session.student_id !== userId) {
+      return res.status(403).json({
+        error: "Unauthorized",
+      });
     }
 
     const result = await db.query(
