@@ -224,6 +224,14 @@ router.post(
 router.get("/mentors/verification", async (req: AuthRequest, res: Response) => {
   try {
     const { status, search } = req.query;
+    const allowedStatuses = ["pending", "verified"];
+
+    if (status !== undefined && (typeof status !== "string" || !allowedStatuses.includes(status))) {
+      return res.status(400).json({
+        error: `Invalid status. Allowed values are: ${allowedStatuses.join(", ")}`,
+      });
+    }
+    
     let sql = `SELECT id, name, email, bio, hourly_rate, verified, verification_date, created_at
                FROM users WHERE role = 'mentor'`;
     const params: any[] = [];
