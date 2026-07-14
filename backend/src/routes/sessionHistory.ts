@@ -156,13 +156,22 @@ router.patch('/:session_id/complete', authMiddleware, async (req: AuthRequest, r
     );
 
     if (!session) {
-      return res.status(404).json({ error: 'Session not found or unauthorized' });
+      return res.status(404).json({
+        error: "Session not found or unauthorized",
+      });
+    }
+
+    if (session.status === "completed") {
+      return res.status(409).json({
+        error: "Session has already been completed",
+      });
     }
 
     const now = new Date().toISOString();
+
     await query(
-      'UPDATE sessions SET status = $1, ended_at = $2, updated_at = $3 WHERE id = $4',
-      ['completed', now, now, session_id]
+      "UPDATE sessions SET status = $1, ended_at = $2, updated_at = $3 WHERE id = $4",
+      ["completed", now, now, session_id]
     );
 
     const updatedSession = await queryOne('SELECT * FROM sessions WHERE id = $1', [session_id]);
