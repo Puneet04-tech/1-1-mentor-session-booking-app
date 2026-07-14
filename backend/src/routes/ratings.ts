@@ -12,6 +12,11 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { session_id, rating, review, comment } = req.body;
 
+    const normalizedSessionId =
+      typeof session_id === "string"
+        ? session_id.trim()
+        : "";
+
     const rawReview = review ?? comment ?? null;
 
     const reviewText =
@@ -21,7 +26,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     const student_id = req.user?.id;
 
-    if (!session_id) {
+    if (!normalizedSessionId) {
       return res.status(400).json({
         error: "session_id is required",
       });
@@ -47,7 +52,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: moderation.reason });
     }
 
-    const session = await queryOne('SELECT * FROM sessions WHERE id = $1', [session_id]);
+    const session = await queryOne('SELECT * FROM sessions WHERE id = $1', [normalizedSessionId]);
 
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
@@ -69,7 +74,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       await query(
         `INSERT INTO ratings (id, session_id, mentor_id, student_id, rating, review, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [ratingId, session_id, mentor_id, student_id, rating, reviewText, now]
+        [ratingId, normalizedSessionId, mentor_id, student_id, rating, reviewText, now]
       );
     } catch (err: any) {
       if (err.code === '23505') {
