@@ -23,7 +23,7 @@ const upload = multer({
 
 // Upload a chat attachment (image or file). Returns the metadata the
 // chat message payload embeds: { url, type, name, size }.
-router.post('/chat', authMiddleware, (req: AuthRequest, res: Response) => {
+router.post('/chat', authMiddleware, async (req: AuthRequest, res: Response) => {
   upload.single('file')(req, res, (err: any) => {
     if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ error: 'File exceeds the 10MB size limit' });
@@ -48,10 +48,15 @@ router.post('/chat', authMiddleware, (req: AuthRequest, res: Response) => {
     // response Content-Type, so a spoofed .html can no longer be served.
     const filename = `${uuidv4()}.${detected.ext}`;
     try {
-      fs.writeFileSync(path.join(UPLOAD_DIR, filename), req.file.buffer);
+      await fs.promises.writeFile(
+        path.join(UPLOAD_DIR, filename),
+        req.file.buffer
+      );
     } catch (writeErr) {
       console.error('Failed to persist upload:', writeErr);
-      return res.status(500).json({ error: 'Failed to store file' });
+      return res.status(500).json({
+        error: 'Failed to store file'
+      });
     }
 
     res.json({
