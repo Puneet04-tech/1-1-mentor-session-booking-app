@@ -115,12 +115,21 @@ const getRatingsHandler = async (req: AuthRequest, res: Response) => {
     const mentorId = req.params.mentor_id;
 
     const ratings = await query(
-      `SELECT r.*, u.name as student_name, u.avatar_url as student_avatar
-       FROM ratings r
-       JOIN users u ON r.student_id = u.id
-       WHERE r.mentor_id = $1
-       ORDER BY r.created_at DESC
-       LIMIT 10`,
+      `SELECT
+        r.id,
+        r.session_id,
+        r.student_id,
+        r.mentor_id,
+        r.rating,
+        r.review,
+        r.created_at,
+        u.name AS student_name,
+        u.avatar_url AS student_avatar
+        FROM ratings r
+        JOIN users u ON r.student_id = u.id
+        WHERE r.mentor_id = $1
+        ORDER BY r.created_at DESC
+        LIMIT 10`,
       [mentorId]
     );
 
