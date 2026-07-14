@@ -59,6 +59,19 @@ router.put(
       const { name, bio, avatar_url } = req.body;
       const now = new Date().toISOString();
 
+      const existingUser = await queryOne(
+        `SELECT name, bio, avatar_url
+   FROM users
+   WHERE id = $1`,
+        [req.user?.id]
+      );
+
+      if (!existingUser) {
+        return res.status(404).json({
+          error: "User not found",
+        });
+      }
+
       // Validate name
       if (name !== undefined) {
         if (typeof name !== "string" || !name.trim()) {
@@ -95,11 +108,22 @@ router.put(
       await query(
         `UPDATE users SET name = $1,bio = $2,avatar_url = $3,updated_at = $4WHERE id = $5`,
         [
-          name?.trim() ?? null,
-          bio?.trim() ?? null,
-          avatar_url?.trim() ?? null,
-          now,
-          req.user?.id,
+          [
+            name !== undefined
+              ? name.trim()
+              : existingUser.name,
+
+            bio !== undefined
+              ? bio.trim()
+              : existingUser.bio,
+
+            avatar_url !== undefined
+              ? avatar_url.trim()
+              : existingUser.avatar_url,
+
+            now,
+            req.user?.id,
+          ]
         ],
       );
 
