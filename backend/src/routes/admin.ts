@@ -47,6 +47,22 @@ router.get("/users", async (req: AuthRequest, res: Response) => {
 router.get("/sessions", async (req: AuthRequest, res: Response) => {
   try {
     const { status } = req.query;
+    const allowedStatuses = [
+      "scheduled",
+      "in_progress",
+      "completed",
+      "cancelled",
+    ];
+
+    if (
+      status !== undefined &&
+      (typeof status !== "string" ||
+        !allowedStatuses.includes(status))
+    ) {
+      return res.status(400).json({
+        error: `Invalid status. Allowed values are: ${allowedStatuses.join(", ")}`,
+      });
+    }
     let sql = `
       SELECT s.id, s.title, s.status, s.scheduled_at, s.started_at, s.ended_at, s.created_at,
              m.name AS mentor_name, m.email AS mentor_email,
