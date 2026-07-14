@@ -54,12 +54,17 @@ router.post('/chat', authMiddleware, (req: AuthRequest, res: Response) => {
       return res.status(500).json({ error: 'Failed to store file' });
     }
 
+    const sanitizedName = req.file.originalname
+      .trim()
+      .replace(/[\r\n\t]/g, '')
+      .slice(0, 255);
+
     res.json({
       success: true,
       data: {
         url: `/uploads/chat/${filename}`,
         type: detected.mime,
-        name: req.file.originalname,
+        name: sanitizedName,
         size: req.file.size,
       },
     });
