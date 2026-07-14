@@ -119,6 +119,12 @@ router.patch(
       const { userId } = req.params;
       const { isSuspended, reason } = req.body;
 
+      if (userId === req.user?.id) {
+        return res.status(409).json({
+          error: "Administrators cannot suspend their own accounts",
+        });
+      }
+
       const existingUser = await queryOne(
         "SELECT id FROM users WHERE id = $1",
         [userId],
