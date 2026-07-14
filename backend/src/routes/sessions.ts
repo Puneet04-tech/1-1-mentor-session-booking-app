@@ -449,7 +449,7 @@ router.post('/:id/video-code', authMiddleware, async (req: AuthRequest, res: Res
     console.log('============================================================\n');
 
     // First verify session exists
-    const sessionCheck = await queryOne('SELECT id, mentor_id, student_id, video_code FROM sessions WHERE id = $1', [sessionId]);
+    const sessionCheck = await queryOne(`SELECT id, mentor_id, student_id, status, video_code FROM sessions WHERE id = $1`, [sessionId]);
     if (!sessionCheck) {
       console.error('❌ Session not found');
       return res.status(404).json({ error: 'Session not found' });
@@ -459,6 +459,12 @@ router.post('/:id/video-code', authMiddleware, async (req: AuthRequest, res: Res
     // Restrict to session participants
     if (sessionCheck.mentor_id !== req.user?.id && sessionCheck.student_id !== req.user?.id) {
       return res.status(403).json({ error: 'Unauthorized to generate code for this session' });
+    }
+
+    if (sessionCheck.status !== "in_progress") {
+      return res.status(409).json({
+        error: "Video codes can only be generated for active sessions",
+      });
     }
 
     // Check if there's already an unexpired code
