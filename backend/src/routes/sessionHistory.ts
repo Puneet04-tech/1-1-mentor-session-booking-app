@@ -192,15 +192,17 @@ router.post('/feedback', authMiddleware, async (req: AuthRequest, res: Response)
     }
 
     // Only participants of an existing session may leave feedback on it.
-    const session = await queryOne<SessionRecord>(
-      'SELECT id, mentor_id, student_id FROM sessions WHERE id = $1',
-      [session_id]
-    );
+    const session = await queryOne<SessionRecord & { status: string }>(`SELECT id, mentor_id, student_id, status FROM sessions WHERE id = $1`, [session_id]);
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
     }
     if (!isSessionParticipant(session, userId)) {
       return res.status(403).json({ error: 'You are not a participant in this session' });
+    }
+    if (session.status !== "completed") {
+      return res.status(409).json({
+        error: "Feedback can only be submitted after the session is completed",
+      });
     }
 
     // Prevent duplicate feedback submissions
