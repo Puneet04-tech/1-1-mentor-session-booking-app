@@ -387,12 +387,21 @@ router.post('/:id/end', authMiddleware, requireRole('mentor'), async (req: AuthR
 
     // 3. Verify authorization (Mentor only)
     if (session.mentor_id !== req.user?.id) {
-      return res.status(403).json({ error: 'You are not authorized to end this session' });
+      return res.status(403).json({
+        error: "You are not authorized to end this session",
+      });
+    }
+
+    // 4. Ensure the session is currently active
+    if (session.status !== "in_progress") {
+      return res.status(409).json({
+        error: "Only active sessions can be ended",
+      });
     }
 
     await query(
-      'UPDATE sessions SET status = $1, ended_at = $2, updated_at = $3 WHERE id = $4',
-      ['completed', now, now, req.params.id]
+      "UPDATE sessions SET status = $1, ended_at = $2, updated_at = $3 WHERE id = $4",
+      ["completed", now, now, req.params.id]
     );
 
     const updatedSession = await queryOne('SELECT * FROM sessions WHERE id = $1', [req.params.id]);
