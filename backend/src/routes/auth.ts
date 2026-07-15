@@ -126,6 +126,7 @@ router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) =>
        VALUES ($1, $2, $3, $4)`,
       [userId, hashedPassword, now, now]
     );
+    await query("COMMIT");
     console.log('✅ Password stored securely in user_passwords table');
 
     // Generate JWT token
@@ -144,8 +145,13 @@ router.post('/signup', signupLimiter, async (req: AuthRequest, res: Response) =>
       },
     });
   } catch (err) {
-    console.error('❌ Signup error:', err);
-    res.status(500).json({ error: 'Signup failed' });
+    await query("ROLLBACK");
+
+    console.error("❌ Signup error:", err);
+
+    res.status(500).json({
+      error: "Signup failed",
+    });
   }
 });
 
