@@ -47,13 +47,13 @@ interface UpcomingSession {
 
 async function dispatchReminder(session: UpcomingSession, minutesBefore: number) {
   const { id, title, topic, scheduled_at, mentor_id, student_id,
-          mentor_name, mentor_email, mentor_email_opt_in, mentor_timezone,
-          student_name, student_email, student_email_opt_in, student_timezone } = session;
+    mentor_name, mentor_email, mentor_email_opt_in, mentor_timezone,
+    student_name, student_email, student_email_opt_in, student_timezone } = session;
 
   const scheduledAt = new Date(scheduled_at);
-  const timeLabel   = minutesBefore >= 60 ? `${minutesBefore / 60} hour(s)` : `${minutesBefore} minute(s)`;
-  const notifTitle  = `⏰ Session in ${timeLabel}`;
-  const notifMsg    = `Your session "${title}" starts in ${timeLabel}.`;
+  const timeLabel = minutesBefore >= 60 ? `${minutesBefore / 60} hour(s)` : `${minutesBefore} minute(s)`;
+  const notifTitle = `⏰ Session in ${timeLabel}`;
+  const notifMsg = `Your session "${title}" starts in ${timeLabel}.`;
 
   console.log(`📨 [REMINDER] Dispatching ${minutesBefore}min reminder for session ${id} — "${title}"`);
 
@@ -61,11 +61,11 @@ async function dispatchReminder(session: UpcomingSession, minutesBefore: number)
   if (mentor_email && mentor_email_opt_in !== false) {
     await sendSessionReminderEmail({
       recipientEmail: mentor_email,
-      recipientName:  mentor_name || 'Mentor',
+      recipientName: mentor_name || 'Mentor',
       otherPartyName: student_name || 'Student',
-      sessionId:      id,
-      sessionTitle:   title,
-      sessionTopic:   topic,
+      sessionId: id,
+      sessionTitle: title,
+      sessionTopic: topic,
       scheduledAt,
       recipientTimezone: mentor_timezone,
       minutesBefore,
@@ -80,11 +80,11 @@ async function dispatchReminder(session: UpcomingSession, minutesBefore: number)
     if (student_email && student_email_opt_in !== false) {
       await sendSessionReminderEmail({
         recipientEmail: student_email,
-        recipientName:  student_name || 'Student',
+        recipientName: student_name || 'Student',
         otherPartyName: mentor_name || 'Mentor',
-        sessionId:      id,
-        sessionTitle:   title,
-        sessionTopic:   topic,
+        sessionId: id,
+        sessionTitle: title,
+        sessionTopic: topic,
         scheduledAt,
         recipientTimezone: student_timezone,
         minutesBefore,
@@ -142,13 +142,21 @@ async function check24hReminders() {
     console.log(`🔔 [REMINDER-24H] Found ${sessions.length} session(s) to remind`);
 
     for (const session of sessions) {
-      await dispatchReminder(session, 1440);
-
-      // Mark flag so we never send again
-      await query(
-        'UPDATE sessions SET reminder_sent_24h = TRUE WHERE id = $1',
+      const claimResult = await query(
+        `UPDATE sessions
+          SET reminder_sent_24h = TRUE
+          WHERE id = $1
+            AND reminder_sent_24h = FALSE
+          RETURNING id`,
         [session.id]
       );
+
+      // Another worker already claimed this reminder
+      if (claimResult.rowCount === 0) {
+        continue;
+      }
+
+      await dispatchReminder(session, 1440);
     }
   } catch (err) {
     console.error('❌ [REMINDER-24H] Error in 24h check:', err);
@@ -182,12 +190,21 @@ async function check30mReminders() {
     console.log(`🔔 [REMINDER-30M] Found ${sessions.length} session(s) to remind`);
 
     for (const session of sessions) {
-      await dispatchReminder(session, 30);
-
-      await query(
-        'UPDATE sessions SET reminder_sent_30m = TRUE WHERE id = $1',
+      const claimResult = await query(
+        `UPDATE sessions
+          SET reminder_sent_30m = TRUE
+          WHERE id = $1
+            AND reminder_sent_30m = FALSE
+          RETURNING id`,
         [session.id]
       );
+
+      // Another worker already claimed this reminder
+      if (claimResult.rowCount === 0) {
+        continue;
+      }
+
+      await dispatchReminder(session, 1440);
     }
   } catch (err) {
     console.error('❌ [REMINDER-30M] Error in 30m check:', err);
@@ -221,16 +238,25 @@ async function check15mReminders() {
     console.log(`🔔 [REMINDER-15M] Found ${sessions.length} session(s) to remind`);
 
     for (const session of sessions) {
-      await dispatchReminder(session, 15);
-
-      await query(
-        'UPDATE sessions SET reminder_sent_15m = TRUE WHERE id = $1',
+      const claimResult = await query(
+        `UPDATE sessions
+          SET reminder_sent_15m = TRUE
+          WHERE id = $1
+            AND reminder_sent_15m = FALSE
+          RETURNING id`,
         [session.id]
       );
+
+      // Another worker already claimed this reminder
+      if (claimResult.rowCount === 0) {
+        continue;
+      }
+
+      await dispatchReminder(session, 1440);
     }
   } catch (err) {
-    console.error('❌ [REMINDER-15M] Error in 15m check:', err);
-  }
+  console.error('❌ [REMINDER-15M] Error in 15m check:', err);
+}
 }
 
 // ─── Start Cron ───────────────────────────────────────────────────────────────
