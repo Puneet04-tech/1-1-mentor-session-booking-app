@@ -47,8 +47,11 @@ export function requireSessionParticipant(paramName: string = 'sessionId') {
       }
 
       const sessionId = req.params[paramName];
-      if (!sessionId) {
-        return res.status(400).json({ error: 'Session id is required' });
+
+      if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
+        return res.status(400).json({
+          error: "Session id is required",
+        });
       }
 
       const session = await queryOne<SessionRecord>(
