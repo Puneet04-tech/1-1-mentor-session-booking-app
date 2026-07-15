@@ -46,14 +46,18 @@ export function requireSessionParticipant(paramName: string = 'sessionId') {
         return res.status(401).json({ error: 'Unauthorized' });
       }
 
-      const sessionId = req.params[paramName];
+      const rawSessionId = req.params[paramName];
 
-      if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
+      if (
+        typeof rawSessionId !== "string" ||
+        rawSessionId.trim().length === 0
+      ) {
         return res.status(400).json({
           error: "Session id is required",
         });
       }
 
+      const sessionId = rawSessionId.trim();
       const session = await queryOne<SessionRecord>(
         'SELECT id, mentor_id, student_id FROM sessions WHERE id = $1',
         [sessionId]
