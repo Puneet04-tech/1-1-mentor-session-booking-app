@@ -11,43 +11,28 @@ export function auditLog(eventType: string) {
 
             // Override send to log after response
             res.send = function (data: any) {
-                const sanitizedBody = { ...req.body };
-
-                const sensitiveFields = [
-                    "password",
-                    "oldPassword",
-                    "newPassword",
-                    "token",
-                    "pendingToken",
-                    "backupCode",
-                ];
-
-                for (const field of sensitiveFields) {
-                    if (field in sanitizedBody) {
-                        sanitizedBody[field] = "[REDACTED]";
-                    }
-                }
                 // Log the event
-                const event = {
-                    sessionId: req.params.id || req.params.sessionId || req.body.sessionId,
-                    eventType,
-                    eventData: {
-                        method: req.method,
-                        path: req.path,
-                        query: req.query,
-                        body: sanitizedBody,
-                        responseStatus: res.statusCode,
-                        responseData: data ? JSON.parse(JSON.stringify(data)) : null,
-                        ip: req.ip,
-                        userAgent: req.get('user-agent')
-                    },
-                    userId: (req as any).user?.id || 'system'
-                };
+                // Only audit successful requests
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    const event = {
+                        sessionId: req.params.id || req.params.sessionId || req.body.sessionId,
+                        eventType,
+                        eventData: {
+                            method: req.method,
+                            path: req.path,
+                            query: req.query,
+                            body: req.body,
+                            responseStatus: res.statusCode,
+                            responseData: data ? JSON.parse(JSON.stringify(data)) : null,
+                            ip: req.ip,
+                            userAgent: req.get("user-agent"),
+                        },
+                        userId: (req as any).user?.id || "system",
+                    };
 
-                // Log asynchronously (don't block response)
-                auditService.queueEvent(event).catch(console.error);
+                    auditService.queueEvent(event).catch(console.error);
+                }
 
-                // Call original send
                 return originalSend.call(this, data);
             };
 
