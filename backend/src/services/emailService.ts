@@ -44,6 +44,15 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
   }
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // ─── HTML Template ────────────────────────────────────────────────────────────
 
 function buildReminderEmailHTML(params: {
@@ -104,24 +113,24 @@ function buildReminderEmailHTML(params: {
         <p>Your mentoring session is coming up soon!</p>
       </div>
       <div class="body">
-        <p style="font-size:18px;font-weight:600;color:#fff;margin-bottom:16px">Hello, ${recipientName}! 👋</p>
+        <p style="font-size:18px;font-weight:600;color:#fff;margin-bottom:16px">Hello, ${escapeHtml(recipientName)}! 👋</p>
         <div class="badge">⏰ Starting in ${timeLabel}</div>
         <p style="color:#94a3b8;font-size:14px;line-height:1.6">
-          You have an upcoming session with <strong style="color:#e2e8f0">${otherPartyName}</strong>.
+          You have an upcoming session with <strong style="color:#e2e8f0">${escapeHtml(otherPartyName)}</strong>.
           ${tagline}
         </p>
         <div class="sc">
           <div class="lbl">Session Title</div>
-          <div class="val">${sessionTitle}</div>
-          ${sessionTopic ? `<div class="lbl">Topic</div><div class="val">${sessionTopic}</div>` : ''}
+          <div class="val">${escapeHtml(sessionTitle)}</div>
+          ${sessionTopic ? `<div class="lbl">Topic</div><div class="val">${escapeHtml(sessionTopic)}</div>` : ''}
           <div class="lbl">Scheduled Time</div>
           <div class="val">${formattedTime}</div>
           <div class="lbl">${otherLabel}</div>
-          <div class="val">${otherPartyName}</div>
+          <div class="val">${escapeHtml(otherPartyName)}</div>
         </div>
         <a href="${joinLink}" class="btn">🚀 Join Session Now</a>
         <p style="color:#64748b;font-size:13px;text-align:center">
-          If you can't attend, please notify ${otherPartyName} in advance.
+          If you can't attend, please notify ${escapeHtml(otherPartyName)} in advance.
         </p>
       </div>
       <div class="ftr">
@@ -153,7 +162,7 @@ export async function sendSessionReminderEmail(params: {
 
   const joinLink  = `${config.CLIENT_URL}/session/${sessionId}`;
   const timeLabel = minutesBefore >= 60 ? `${minutesBefore / 60} hour(s)` : `${minutesBefore} minute(s)`;
-  const subject   = `⏰ Reminder: "${sessionTitle}" starts in ${timeLabel}`;
+  const subject   = `⏰ Reminder: "${escapeHtml(sessionTitle)}" starts in ${timeLabel}`;
 
   const html = buildReminderEmailHTML({
     recipientName, otherPartyName, sessionTitle, sessionTopic,
@@ -176,38 +185,38 @@ interface LegacyEmailOptions {
 const legacyTemplates: Record<string, (data: any) => string> = {
   'session-booked': (d) => `
     <h2>Session Booked Successfully!</h2>
-    <p>Hi ${d.studentName},</p>
-    <p>Your session with ${d.mentorName} has been confirmed for <strong>${d.sessionTime}</strong>.</p>
+    <p>Hi ${escapeHtml(d.studentName)},</p>
+    <p>Your session with ${escapeHtml(d.mentorName)} has been confirmed for <strong>${d.sessionTime}</strong>.</p>
     <ul>
-      <li>Mentor: ${d.mentorName}</li>
+      <li>Mentor: ${escapeHtml(d.mentorName)}</li>
       <li>Date &amp; Time: ${d.sessionTime}</li>
       <li>Duration: ${d.duration} minutes</li>
-      <li>Topic: ${d.topic}</li>
+      <li>Topic: ${escapeHtml(d.topic)}</li>
     </ul>
     <p><a href="${process.env.CLIENT_URL}/session/${d.sessionId}">Join Session</a></p>
   `,
   'session-reminder': (d) => `
     <h2>Session Reminder</h2>
-    <p>Hi ${d.studentName},</p>
-    <p>Your session with ${d.mentorName} is coming up in 30 minutes!</p>
+    <p>Hi ${escapeHtml(d.studentName)},</p>
+    <p>Your session with ${escapeHtml(d.mentorName)} is coming up in 30 minutes!</p>
     <p><a href="${process.env.CLIENT_URL}/session/${d.sessionId}">Join Now</a></p>
   `,
   'rating-received': (d) => `
     <h2>You Received a New Rating!</h2>
-    <p>Hi ${d.mentorName},</p>
-    <p>${d.studentName} left you a <strong>${d.rating}⭐</strong> rating after your session.</p>
+    <p>Hi ${escapeHtml(d.mentorName)},</p>
+    <p>${escapeHtml(d.studentName)} left you a <strong>${d.rating}⭐</strong> rating after your session.</p>
     <p><strong>Feedback:</strong> "${d.comment || d.review || ''}"</p>
     <p><a href="${process.env.CLIENT_URL}/profile">View Your Profile</a></p>
   `,
   'session-ended': (d) => `
     <h2>Session Completed</h2>
-    <p>Hi ${d.studentName},</p>
-    <p>Your session with ${d.mentorName} has ended. Please take a moment to leave feedback.</p>
+    <p>Hi ${escapeHtml(d.studentName)},</p>
+    <p>Your session with ${escapeHtml(d.mentorName)} has ended. Please take a moment to leave feedback.</p>
     <p><a href="${process.env.CLIENT_URL}/sessions/history/${d.sessionId}">Leave Feedback</a></p>
   `,
   'welcome': (d) => `
     <h2>Welcome to MentorConnect! 👋</h2>
-    <p>Hi ${d.userName},</p>
+    <p>Hi ${escapeHtml(d.userName)},</p>
     <p>Thank you for joining! <a href="${process.env.CLIENT_URL}/dashboard">Go to Dashboard</a></p>
   `,
 };
