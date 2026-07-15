@@ -55,7 +55,12 @@ const normalizeEmail = (email?: string) => email?.trim().toLowerCase();
 /** Sign a full-access session JWT for a fully-authenticated user. */
 function issueSessionToken(user: { id: string; email: string; role: string }): string {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      tokenVersion: user.token_version,
+    },
     jwtSecret,
     jwtOptions
   );
