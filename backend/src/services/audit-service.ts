@@ -42,7 +42,7 @@ export class AuditService {
         const startTime = Date.now();
 
         try {
-            // Get the last event's hash for this session
+            // Get the last event's hash
             const lastHash = await this.getLastHash(event.sessionId);
 
             // Generate hash for this event
@@ -63,9 +63,9 @@ export class AuditService {
                     event.sessionId,
                     event.eventType,
                     JSON.stringify({
-                        ...event.eventData,
-                        userId: event.userId,
-                        timestamp: event.timestamp || new Date()
+                        ...eventToStore.eventData,
+                        userId: eventToStore.userId,
+                        timestamp: eventToStore.timestamp
                     }),
                     lastHash,
                     currentHash
@@ -115,7 +115,12 @@ export class AuditService {
      * Generate SHA-256 hash
      */
     private generateHash(previousHash: string, event: AuditEvent): string {
-        const payload = `${previousHash}|${JSON.stringify(event.eventData)}|${event.userId || 'system'}|${Date.now()}`;
+        const payload = [
+            previousHash,
+            JSON.stringify(event.eventData),
+            event.userId ?? "system",
+            (event.timestamp ?? new Date()).toISOString(),
+        ].join("|");
         return crypto.createHash('sha256').update(payload).digest('hex');
     }
 
