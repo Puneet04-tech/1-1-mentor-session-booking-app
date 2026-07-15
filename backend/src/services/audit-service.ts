@@ -21,6 +21,8 @@ export interface AuditLogEntry {
 
 export class AuditService {
     private static instance: AuditService;
+    private static readonly MAX_QUEUE_SIZE = 10000;
+
     private eventQueue: AuditEvent[] = [];
     private isProcessing: boolean = false;
 
@@ -43,16 +45,8 @@ export class AuditService {
             // Get the last event's hash
             const lastHash = await this.getLastHash(event.sessionId);
 
-            // Create one timestamp for the entire event
-            const timestamp = event.timestamp ?? new Date();
-
-            const eventToStore = {
-                ...event,
-                timestamp,
-            };
-
-            // Generate hash
-            const currentHash = this.generateHash(lastHash, eventToStore);
+            // Generate hash for this event
+            const currentHash = this.generateHash(lastHash, event);
 
             // Insert into database
             const result = await query(
@@ -273,9 +267,14 @@ export class AuditService {
      * Queue event for async processing (for high-volume events)
      */
     async queueEvent(event: AuditEvent): Promise<void> {
+        if (this.eventQueue.length >= AuditService.MAX_QUEUE_SIZE) {
+            throw new Error("Audit event queue is full");
+        }
+
         this.eventQueue.push(event);
+
         if (!this.isProcessing) {
-            this.processQueue();
+            void this.processQueue();
         }
     }
 
