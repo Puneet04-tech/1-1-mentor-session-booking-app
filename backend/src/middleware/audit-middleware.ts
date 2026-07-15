@@ -8,9 +8,25 @@ export function auditLog(eventType: string) {
         try {
             // Store original send function
             const originalSend = res.send;
-            
+
             // Override send to log after response
-            res.send = function(data: any) {
+            res.send = function (data: any) {
+                const sanitizedBody = { ...req.body };
+
+                const sensitiveFields = [
+                    "password",
+                    "oldPassword",
+                    "newPassword",
+                    "token",
+                    "pendingToken",
+                    "backupCode",
+                ];
+
+                for (const field of sensitiveFields) {
+                    if (field in sanitizedBody) {
+                        sanitizedBody[field] = "[REDACTED]";
+                    }
+                }
                 // Log the event
                 const event = {
                     sessionId: req.params.id || req.params.sessionId || req.body.sessionId,
@@ -19,7 +35,7 @@ export function auditLog(eventType: string) {
                         method: req.method,
                         path: req.path,
                         query: req.query,
-                        body: req.body,
+                        body: sanitizedBody,
                         responseStatus: res.statusCode,
                         responseData: data ? JSON.parse(JSON.stringify(data)) : null,
                         ip: req.ip,
@@ -27,14 +43,14 @@ export function auditLog(eventType: string) {
                     },
                     userId: (req as any).user?.id || 'system'
                 };
-                
+
                 // Log asynchronously (don't block response)
                 auditService.queueEvent(event).catch(console.error);
-                
+
                 // Call original send
                 return originalSend.call(this, data);
             };
-            
+
             next();
         } catch (error) {
             console.error('Audit middleware error:', error);
