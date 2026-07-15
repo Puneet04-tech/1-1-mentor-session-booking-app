@@ -24,7 +24,7 @@ export class AuditService {
     private eventQueue: AuditEvent[] = [];
     private isProcessing: boolean = false;
 
-    private constructor() {}
+    private constructor() { }
 
     static getInstance(): AuditService {
         if (!AuditService.instance) {
@@ -38,14 +38,22 @@ export class AuditService {
      */
     async logEvent(event: AuditEvent): Promise<AuditLogEntry> {
         const startTime = Date.now();
-        
+
         try {
-            // Get the last event's hash for this session
+            // Get the last event's hash
             const lastHash = await this.getLastHash(event.sessionId);
-            
-            // Generate hash for this event
-            const currentHash = this.generateHash(lastHash, event);
-            
+
+            // Create one timestamp for the entire event
+            const timestamp = event.timestamp ?? new Date();
+
+            const eventToStore = {
+                ...event,
+                timestamp,
+            };
+
+            // Generate hash
+            const currentHash = this.generateHash(lastHash, eventToStore);
+
             // Insert into database
             const result = await query(
                 `INSERT INTO session_audit_logs (
@@ -61,23 +69,23 @@ export class AuditService {
                     event.sessionId,
                     event.eventType,
                     JSON.stringify({
-                        ...event.eventData,
-                        userId: event.userId,
-                        timestamp: event.timestamp || new Date()
+                        ...eventToStore.eventData,
+                        userId: eventToStore.userId,
+                        timestamp: eventToStore.timestamp
                     }),
                     lastHash,
                     currentHash
                 ]
             );
-            
+
             const entry = result.rows[0];
             const endTime = Date.now();
             const latency = endTime - startTime;
-            
+
             if (latency > 10) {
                 console.warn(`⚠️ Audit log latency: ${latency}ms (threshold: 10ms)`);
             }
-            
+
             return {
                 id: entry.id,
                 sessionId: entry.session_id,
@@ -105,7 +113,7 @@ export class AuditService {
              LIMIT 1`,
             [sessionId]
         );
-        
+
         return result.rows.length > 0 ? result.rows[0].current_hash : '0';
     }
 
@@ -113,7 +121,12 @@ export class AuditService {
      * Generate SHA-256 hash
      */
     private generateHash(previousHash: string, event: AuditEvent): string {
-        const payload = `${previousHash}|${JSON.stringify(event.eventData)}|${event.userId || 'system'}|${Date.now()}`;
+        const payload = [
+            previousHash,
+            JSON.stringify(event.eventData),
+            event.userId ?? "system",
+            (event.timestamp ?? new Date()).toISOString(),
+        ].join("|");
         return crypto.createHash('sha256').update(payload).digest('hex');
     }
 
@@ -139,7 +152,7 @@ export class AuditService {
              ORDER BY created_at ASC`,
             [sessionId]
         );
-        
+
         if (result.rows.length === 0) {
             return {
                 isValid: true,
@@ -148,16 +161,16 @@ export class AuditService {
                 chainLength: 0
             };
         }
-        
+
         let previousHash = '0';
         const tamperedEvents: string[] = [];
-        
+
         for (const row of result.rows) {
             // Check if previous_hash matches
             if (row.previous_hash !== previousHash) {
                 tamperedEvents.push(row.id);
             }
-            
+
             // Verify current_hash
             const expectedHash = this.generateHash(
                 previousHash,
@@ -169,14 +182,14 @@ export class AuditService {
                     timestamp: row.created_at
                 }
             );
-            
+
             if (row.current_hash !== expectedHash) {
                 tamperedEvents.push(row.id);
             }
-            
+
             previousHash = row.current_hash;
         }
-        
+
         return {
             isValid: tamperedEvents.length === 0,
             tamperedEvents,
@@ -203,7 +216,7 @@ export class AuditService {
              ORDER BY created_at ASC`,
             [sessionId]
         );
-        
+
         return result.rows.map((row: any) => ({
             id: row.id,
             sessionId: row.session_id,
@@ -221,7 +234,7 @@ export class AuditService {
     async exportAuditLog(sessionId: string): Promise<string> {
         const logs = await this.getAuditLog(sessionId);
         const verification = await this.verifyChain(sessionId);
-        
+
         const exportData = {
             sessionId,
             exportedAt: new Date().toISOString(),
@@ -233,7 +246,7 @@ export class AuditService {
                 eventData: { exportedAt: new Date().toISOString() }
             })
         };
-        
+
         return JSON.stringify(exportData, null, 2);
     }
 
@@ -252,7 +265,7 @@ export class AuditService {
              WHERE session_id = $1`,
             [sessionId]
         );
-        
+
         return result.rows[0];
     }
 
@@ -269,7 +282,7 @@ export class AuditService {
     private async processQueue(): Promise<void> {
         if (this.isProcessing) return;
         this.isProcessing = true;
-        
+
         while (this.eventQueue.length > 0) {
             const event = this.eventQueue.shift();
             if (event) {
@@ -280,7 +293,7 @@ export class AuditService {
                 }
             }
         }
-        
+
         this.isProcessing = false;
     }
 }
