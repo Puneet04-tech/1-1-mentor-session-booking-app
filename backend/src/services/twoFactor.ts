@@ -103,21 +103,39 @@ export async function consumeBackupCode(
   codes: BackupCode[] | null | undefined
 ): Promise<BackupCode[] | null> {
   if (!code || !Array.isArray(codes)) return null;
+
   const candidate = normalizeBackupCode(code);
   if (!candidate) return null;
 
+  const matchingIndexes: number[] = [];
+
   for (let i = 0; i < codes.length; i++) {
     const entry = codes[i];
-    if (!entry || entry.used) continue;
+
+    if (!entry || entry.used) {
+      continue;
+    }
+
     // eslint-disable-next-line no-await-in-loop
     const matches = await bcrypt.compare(candidate, entry.hash);
+
     if (matches) {
-      const updated = codes.map((c) => ({ ...c }));
-      updated[i].used = true;
-      return updated;
+      matchingIndexes.push(i);
     }
   }
-  return null;
+
+  if (matchingIndexes.length === 0) {
+    return null;
+  }
+
+  if (matchingIndexes.length > 1) {
+    throw new Error("Duplicate backup code entries detected");
+  }
+
+  const updated = codes.map((entry) => ({ ...entry }));
+  updated[matchingIndexes[0]].used = true;
+
+  return updated;
 }
 
 const jwtSecret: Secret = config.JWT_SECRET as Secret;
