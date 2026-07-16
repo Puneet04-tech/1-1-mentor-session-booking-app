@@ -107,8 +107,13 @@ export function verifyStripeSignature(
     throw new Error('No signatures found matching the expected signature for payload');
   }
 
-  if (toleranceSeconds > 0 && Math.abs(nowSeconds - timestamp) > toleranceSeconds) {
-    throw new Error('Timestamp outside the tolerance zone');
+  // Reject webhooks with timestamps in the future
+  if (timestamp > nowSeconds) {
+    throw new Error("Timestamp is in the future");
+  }
+
+  if (toleranceSeconds > 0 && nowSeconds - timestamp > toleranceSeconds) {
+    throw new Error("Timestamp outside the tolerance zone");
   }
 
   try {
