@@ -112,8 +112,26 @@ export function verifyStripeSignature(
   }
 
   try {
-    return JSON.parse(payloadStr) as StripeEvent;
-  } catch {
-    throw new Error('Invalid JSON payload');
+    const event = JSON.parse(payloadStr);
+
+    if (
+      typeof event !== "object" ||
+      event === null ||
+      typeof event.type !== "string" ||
+      typeof event.data !== "object" ||
+      event.data === null ||
+      typeof event.data.object !== "object" ||
+      event.data.object === null
+    ) {
+      throw new Error("Invalid Stripe event payload");
+    }
+
+    return event as StripeEvent;
+  } catch (err) {
+    if (err instanceof Error && err.message === "Invalid Stripe event payload") {
+      throw err;
+    }
+
+    throw new Error("Invalid JSON payload");
   }
 }
