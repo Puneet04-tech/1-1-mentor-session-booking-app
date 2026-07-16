@@ -69,6 +69,11 @@ export function verifyToken(token: string, secret: string): boolean {
 export async function generateBackupCodes(
   count: number = BACKUP_CODE_COUNT
 ): Promise<{ plainCodes: string[]; hashedCodes: BackupCode[] }> {
+
+  if (!Number.isInteger(count) || count <= 0 || count > 100) {
+    throw new Error("Invalid backup code count");
+  }
+
   const plainCodes: string[] = [];
   const hashedCodes: BackupCode[] = [];
 
