@@ -39,69 +39,236 @@ import {
   handleMentorProfileUnwatch,
 } from './handlers/mentorAvailability';
 
+function wrapSocketHandler<T>(
+  socket: Socket,
+  handler: (data: T) => void | Promise<void>
+) {
+  return async (data: T) => {
+    try {
+      await handler(data);
+    } catch (error) {
+      console.error('Socket handler error:', error);
+
+      socket.emit('socket:error', {
+        message: 'An unexpected error occurred.',
+      });
+    }
+  };
+}
+
 export function setupSocketHandlers(io: SocketIOServer) {
   io.on('connection', (socket: Socket) => {
     const userId = socket.data.userId;
+
     console.log(`✅ User connected: ${socket.id} (userId: ${userId})`);
     console.log(`   Total connected clients: ${io.engine.clientsCount}`);
 
     // Code editor events
-    socket.on('code:update', (data) => handleCodeUpdate(socket, io, data));
-    socket.on('cursor:move', (data) => handleCursorMove(socket, io, data));
-    socket.on('language:change', (data) => handleLanguageChange(socket, io, data));
+    socket.on(
+      'code:update',
+      wrapSocketHandler(socket, (data) =>
+        handleCodeUpdate(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'cursor:move',
+      wrapSocketHandler(socket, (data) =>
+        handleCursorMove(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'language:change',
+      wrapSocketHandler(socket, (data) =>
+        handleLanguageChange(socket, io, data)
+      )
+    );
 
     // Whiteboard events
-    socket.on('whiteboard:draw', (data) => handleWhiteboardDraw(socket, io, data));
-    socket.on('whiteboard:clear', (data) => handleWhiteboardClear(socket, io, data));
+    socket.on(
+      'whiteboard:draw',
+      wrapSocketHandler(socket, (data) =>
+        handleWhiteboardDraw(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'whiteboard:clear',
+      wrapSocketHandler(socket, (data) =>
+        handleWhiteboardClear(socket, io, data)
+      )
+    );
 
     // Chat events
-    socket.on('message:send', (data) => {
-      console.log('💬 ========== BACKEND: message:send event RECEIVED ==========');
-      console.log('📊 Message data:', { 
-        sessionId: data?.sessionId, 
-        userId: data?.userId, 
-        contentLength: data?.content?.length,
-        type: data?.type 
-      });
-      console.log('📊 Socket:', { socketId: socket.id, userId: socket.data.userId });
-      handleMessageSend(socket, io, data);
-      console.log('💬 ========== BACKEND: message:send PROCESSED ==========');
-    });
-    socket.on('session:join', (data) => {
-      console.log('🚪 ========== BACKEND: session:join event RECEIVED ==========');
-      console.log('📊 Event data:', data);
-      console.log('📊 Socket details:', { socketId: socket.id, userId: socket.data.userId });
-      handleSessionJoin(socket, io, data);
-      console.log('🚪 ========== BACKEND: session:join PROCESSED ==========');
-    });
-    socket.on('session:leave', (data) => handleSessionLeave(socket, io, data));
+    socket.on(
+      'message:send',
+      wrapSocketHandler(socket, async (data) => {
+        console.log('💬 ========== BACKEND: message:send event RECEIVED ==========');
+        console.log('📊 Message data:', {
+          sessionId: data?.sessionId,
+          userId: data?.userId,
+          contentLength: data?.content?.length,
+          type: data?.type,
+        });
+
+        console.log('📊 Socket:', {
+          socketId: socket.id,
+          userId: socket.data.userId,
+        });
+
+        await handleMessageSend(socket, io, data);
+
+        console.log('💬 ========== BACKEND: message:send PROCESSED ==========');
+      })
+    );
+
+    socket.on(
+      'session:join',
+      wrapSocketHandler(socket, async (data) => {
+        console.log('🚪 ========== BACKEND: session:join event RECEIVED ==========');
+        console.log('📊 Event data:', data);
+        console.log('📊 Socket details:', {
+          socketId: socket.id,
+          userId: socket.data.userId,
+        });
+
+        await handleSessionJoin(socket, io, data);
+
+        console.log('🚪 ========== BACKEND: session:join PROCESSED ==========');
+      })
+    );
+
+    socket.on(
+      'session:leave',
+      wrapSocketHandler(socket, (data) =>
+        handleSessionLeave(socket, io, data)
+      )
+    );
 
     // Video events
-    socket.on('video:initiate', (data) => handleVideoInitiate(socket, io, data));
-    socket.on('video:offer', (data) => handleVideoOffer(socket, io, data));
-    socket.on('video:answer', (data) => handleVideoAnswer(socket, io, data));
-    socket.on('video:ice-candidate', (data) => handleICECandidate(socket, io, data));
-    socket.on('video:end', () => handleVideoEnd(socket, io));
-    socket.on('video:connection-request', (data) => handleVideoConnectionRequest(socket, io, data));
+    socket.on(
+      'video:initiate',
+      wrapSocketHandler(socket, (data) =>
+        handleVideoInitiate(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'video:offer',
+      wrapSocketHandler(socket, (data) =>
+        handleVideoOffer(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'video:answer',
+      wrapSocketHandler(socket, (data) =>
+        handleVideoAnswer(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'video:ice-candidate',
+      wrapSocketHandler(socket, (data) =>
+        handleICECandidate(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'video:end',
+      wrapSocketHandler(socket, async () => {
+        await handleVideoEnd(socket, io);
+      })
+    );
+
+    socket.on(
+      'video:connection-request',
+      wrapSocketHandler(socket, (data) =>
+        handleVideoConnectionRequest(socket, io, data)
+      )
+    );
 
     // Screen share events
-    socket.on('screen:started', (data) => handleScreenStarted(socket, io, data));
-    socket.on('screen:stopped', (data) => handleScreenStopped(socket, io, data));
-    socket.on('screen:offer', (data) => handleScreenOffer(socket, io, data));
-    socket.on('screen:answer', (data) => handleScreenAnswer(socket, io, data));
-    socket.on('screen:ice-candidate', (data) => handleScreenICECandidate(socket, io, data));
+    socket.on(
+      'screen:started',
+      wrapSocketHandler(socket, (data) =>
+        handleScreenStarted(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'screen:stopped',
+      wrapSocketHandler(socket, (data) =>
+        handleScreenStopped(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'screen:offer',
+      wrapSocketHandler(socket, (data) =>
+        handleScreenOffer(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'screen:answer',
+      wrapSocketHandler(socket, (data) =>
+        handleScreenAnswer(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'screen:ice-candidate',
+      wrapSocketHandler(socket, (data) =>
+        handleScreenICECandidate(socket, io, data)
+      )
+    );
 
     // Presence events
-    socket.on('presence:update', (data) => handlePresenceUpdate(socket, io, data));
+    socket.on(
+      'presence:update',
+      wrapSocketHandler(socket, (data) =>
+        handlePresenceUpdate(socket, io, data)
+      )
+    );
 
     // Mentor availability events
-    socket.on('mentor-profile:watch', (mentorId: string) => handleMentorProfileWatch(socket, mentorId));
-    socket.on('mentor-profile:unwatch', (mentorId: string) => handleMentorProfileUnwatch(socket, mentorId));
+    socket.on(
+      'mentor-profile:watch',
+      wrapSocketHandler(socket, (mentorId: string) =>
+        handleMentorProfileWatch(socket, mentorId)
+      )
+    );
+
+    socket.on(
+      'mentor-profile:unwatch',
+      wrapSocketHandler(socket, (mentorId: string) =>
+        handleMentorProfileUnwatch(socket, mentorId)
+      )
+    );
 
     // Recording events
-    socket.on('recording:request', (data) => handleRecordingRequest(socket, io, data));
-    socket.on('recording:consent', (data) => handleRecordingConsent(socket, io, data));
-    socket.on('recording:stop', (data) => handleRecordingStop(socket, io, data));
+    socket.on(
+      'recording:request',
+      wrapSocketHandler(socket, (data) =>
+        handleRecordingRequest(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'recording:consent',
+      wrapSocketHandler(socket, (data) =>
+        handleRecordingConsent(socket, io, data)
+      )
+    );
+
+    socket.on(
+      'recording:stop',
+      wrapSocketHandler(socket, (data) =>
+        handleRecordingStop(socket, io, data)
+      )
+    );
 
     socket.on('disconnect', () => {
       console.log(`❌ User disconnected: ${socket.id} (userId: ${userId})`);
