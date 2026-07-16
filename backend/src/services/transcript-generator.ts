@@ -39,16 +39,16 @@ export class TranscriptGenerator {
 
         // 1. Get session details
         const session = await this.getSessionDetails();
-        
+
         // 2. Fetch all chat messages
         const messages = await this.getChatMessages();
-        
+
         // 3. Get final code state from Yjs
         const codeSnapshot = await this.getCodeSnapshot();
-        
+
         // 4. Calculate duration
         const duration = this.calculateDuration(session.start_time, session.end_time);
-        
+
         const transcript: TranscriptData = {
             sessionId: this.sessionId,
             mentor: session.mentor_name,
@@ -59,7 +59,7 @@ export class TranscriptGenerator {
             chatTranscript: messages,
             codeSnapshot
         };
-        
+
         return transcript;
     }
 
@@ -75,11 +75,11 @@ export class TranscriptGenerator {
             WHERE s.id = $1`,
             [this.sessionId]
         );
-        
+
         if (result.rows.length === 0) {
             throw new Error('Session not found');
         }
-        
+
         return result.rows[0];
     }
 
@@ -95,7 +95,7 @@ export class TranscriptGenerator {
             ORDER BY c.created_at ASC`,
             [this.sessionId]
         );
-        
+
         return result.rows.map((row: any) => ({
             timestamp: this.formatTime(row.created_at),
             sender: row.sender,
@@ -117,7 +117,7 @@ export class TranscriptGenerator {
                 LIMIT 1`,
                 [this.sessionId]
             );
-            
+
             if (result.rows.length > 0) {
                 return {
                     language: result.rows[0].language || 'javascript',
@@ -128,7 +128,7 @@ export class TranscriptGenerator {
         } catch (error) {
             console.warn('No code snapshot found, using empty state');
         }
-        
+
         return {
             language: 'javascript',
             content: '// No code was written during this session',
@@ -141,7 +141,7 @@ export class TranscriptGenerator {
         const diff = end.getTime() - start.getTime();
         const minutes = Math.floor(diff / 60000);
         const hours = Math.floor(minutes / 60);
-        
+
         if (hours > 0) {
             return `${hours}h ${minutes % 60}m`;
         }
@@ -158,14 +158,14 @@ export class TranscriptGenerator {
 
     async generateAndStore(): Promise<{ pdfPath: string; markdownPath: string }> {
         const transcript = await this.generateTranscript();
-        
+
         // Generate PDF and Markdown
         const pdfPath = await this.generatePDF(transcript);
         const markdownPath = await this.generateMarkdown(transcript);
-        
+
         // Store in database
         await this.storeTranscript(transcript, pdfPath, markdownPath);
-        
+
         return { pdfPath, markdownPath };
     }
 
@@ -174,17 +174,26 @@ export class TranscriptGenerator {
         const html = this.generatePDFHTML(transcript);
         const filename = `transcript_${this.sessionId}_${Date.now()}.pdf`;
         const filepath = path.join(__dirname, '../uploads/transcripts', filename);
-        
+
         // Ensure directory exists
         const dir = path.dirname(filepath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
-        
+
         // For now, save as HTML (will be converted to PDF later)
         fs.writeFileSync(filepath.replace('.pdf', '.html'), html);
-        
+
         return filepath;
+    }
+
+    private escapeHtml(value: unknown): string {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
     }
 
     private generatePDFHTML(transcript: TranscriptData): string {
@@ -209,25 +218,25 @@ export class TranscriptGenerator {
     <h1>📝 Mentoring Session Transcript</h1>
     
     <div class="meta">
-        <p><strong>Session ID:</strong> ${transcript.sessionId}</p>
-        <p><strong>Mentor:</strong> ${transcript.mentor}</p>
-        <p><strong>Student:</strong> ${transcript.student}</p>
-        <p><strong>Duration:</strong> ${transcript.duration}</p>
+        <p><strong>Session ID:</strong>${this.escapeHtml(transcript.sessionId)}</p>
+        <p><strong>Mentor:</strong> ${this.escapeHtml(transcript.mentor)}</p>
+        <p><strong>Student:</strong> ${this.escapeHtml(transcript.student)}</p>
+        <p><strong>Duration:</strong> ${this.escapeHtml(transcript.duration)}</p>
         <p><strong>Date:</strong> ${new Date(transcript.startTime).toLocaleDateString()}</p>
     </div>
     
     <h2>💬 Chat Transcript</h2>
     ${transcript.chatTranscript.map(msg => `
         <div class="message">
-            <span class="timestamp">[${msg.timestamp}]</span>
-            <span class="sender">${msg.sender}:</span>
-            ${msg.message}
+            <span class="timestamp">[${this.escapeHtml(msg.timestamp)}]</span>
+            <span class="sender">${this.escapeHtml(msg.sender)}:</span>
+            ${this.escapeHtml(msg.message)}
         </div>
     `).join('')}
     
     <h2>💻 Code Snapshot</h2>
-    <div class="code-header">Language: ${transcript.codeSnapshot.language}</div>
-    <pre><code>${transcript.codeSnapshot.content}</code></pre>
+    <div class="code-header">Language: ${this.escapeHtml(transcript.codeSnapshot.language)}</div>
+    <pre><code${this.escapeHtml(transcript.codeSnapshot.content)}</code></pre>
 </body>
 </html>
         `;
@@ -241,28 +250,28 @@ export class TranscriptGenerator {
         markdown += `- **Student:** ${transcript.student}\n`;
         markdown += `- **Duration:** ${transcript.duration}\n`;
         markdown += `- **Date:** ${new Date(transcript.startTime).toLocaleDateString()}\n\n`;
-        
+
         markdown += `## 💬 Chat Transcript\n\n`;
         transcript.chatTranscript.forEach(msg => {
             markdown += `**[${msg.timestamp}] ${msg.sender}:** ${msg.message}\n\n`;
         });
-        
+
         markdown += `## 💻 Code Snapshot\n\n`;
         markdown += `**Language:** ${transcript.codeSnapshot.language}\n\n`;
         markdown += `\`\`\`${transcript.codeSnapshot.language}\n`;
         markdown += transcript.codeSnapshot.content;
         markdown += `\n\`\`\`\n`;
-        
+
         const filename = `transcript_${this.sessionId}_${Date.now()}.md`;
         const filepath = path.join(__dirname, '../uploads/transcripts', filename);
-        
+
         const dir = path.dirname(filepath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
-        
+
         fs.writeFileSync(filepath, markdown);
-        
+
         return filepath;
     }
 
@@ -282,7 +291,7 @@ export class TranscriptGenerator {
                 markdownPath
             ]
         );
-        
+
         // Update sessions table
         await query(
             `UPDATE sessions SET transcript_generated_at = NOW() WHERE id = $1`,
