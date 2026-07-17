@@ -19,10 +19,22 @@ export async function handleRecordingConsent(socket: Socket, io: SocketIOServer,
     const { sessionId, granted } = data;
     const roomName = `session:${sessionId}`;
 
-    if (!socket.rooms.has(roomName)) return;
+    if (!socket.rooms.has(roomName)) {
+      return;
+    }
+
+    // Validate consent payload
+    if (typeof granted !== "boolean") {
+      socket.emit("error", {
+        message: "Invalid recording consent value.",
+      });
+      return;
+    }
 
     // Both participants need the result so they can start/skip recording together
-    io.to(roomName).emit('recording:consent-result', { granted });
+    io.to(roomName).emit("recording:consent-result", {
+      granted,
+    });
   } catch (err) {
     console.error('Recording consent error:', err);
   }
