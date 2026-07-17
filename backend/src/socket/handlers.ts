@@ -39,11 +39,17 @@ import {
   handleMentorProfileUnwatch,
 } from './handlers/mentorAvailability';
 
+function debugLog(...args: unknown[]) {
+  if (process.env.NODE_ENV !== "production") {
+    console.log(...args);
+  }
+}
+
 export function setupSocketHandlers(io: SocketIOServer) {
   io.on('connection', (socket: Socket) => {
     const userId = socket.data.userId;
-    console.log(`✅ User connected: ${socket.id} (userId: ${userId})`);
-    console.log(`   Total connected clients: ${io.engine.clientsCount}`);
+    debugLog(`✅ User connected: ${socket.id} (userId: ${userId})`);
+    debugLog(`   Total connected clients: ${io.engine.clientsCount}`);
 
     // Code editor events
     socket.on('code:update', (data) => handleCodeUpdate(socket, io, data));
@@ -56,23 +62,37 @@ export function setupSocketHandlers(io: SocketIOServer) {
 
     // Chat events
     socket.on('message:send', (data) => {
-      console.log('💬 ========== BACKEND: message:send event RECEIVED ==========');
-      console.log('📊 Message data:', { 
-        sessionId: data?.sessionId, 
-        userId: data?.userId, 
+      debugLog('💬 ========== BACKEND: message:send event RECEIVED ==========');
+
+      debugLog('📊 Message data:', {
+        sessionId: data?.sessionId,
+        userId: data?.userId,
         contentLength: data?.content?.length,
-        type: data?.type 
+        type: data?.type,
       });
-      console.log('📊 Socket:', { socketId: socket.id, userId: socket.data.userId });
+
+      debugLog('📊 Socket:', {
+        socketId: socket.id,
+        userId: socket.data.userId,
+      });
+
       handleMessageSend(socket, io, data);
-      console.log('💬 ========== BACKEND: message:send PROCESSED ==========');
+
+      debugLog('💬 ========== BACKEND: message:send PROCESSED ==========');
     });
     socket.on('session:join', (data) => {
-      console.log('🚪 ========== BACKEND: session:join event RECEIVED ==========');
-      console.log('📊 Event data:', data);
-      console.log('📊 Socket details:', { socketId: socket.id, userId: socket.data.userId });
+      debugLog('🚪 ========== BACKEND: session:join event RECEIVED ==========');
+
+      debugLog('📊 Event data:', data);
+
+      debugLog('📊 Socket details:', {
+        socketId: socket.id,
+        userId: socket.data.userId,
+      });
+
       handleSessionJoin(socket, io, data);
-      console.log('🚪 ========== BACKEND: session:join PROCESSED ==========');
+
+      debugLog('🚪 ========== BACKEND: session:join PROCESSED ==========');
     });
     socket.on('session:leave', (data) => handleSessionLeave(socket, io, data));
 
@@ -104,8 +124,8 @@ export function setupSocketHandlers(io: SocketIOServer) {
     socket.on('recording:stop', (data) => handleRecordingStop(socket, io, data));
 
     socket.on('disconnect', () => {
-      console.log(`❌ User disconnected: ${socket.id} (userId: ${userId})`);
-      console.log(`   Total connected clients: ${io.engine.clientsCount}`);
+      debugLog(`❌ User disconnected: ${socket.id} (userId: ${userId})`);
+      debugLog(`   Total connected clients: ${io.engine.clientsCount}`);
     });
 
     socket.on('error', (error) => {
