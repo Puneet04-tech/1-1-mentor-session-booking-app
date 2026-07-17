@@ -12,9 +12,31 @@ export async function handleCodeUpdate(socket: Socket, io: SocketIOServer, data:
       console.warn(`⚠️ Unauthorized code:update from user ${userId} for session ${sessionId}`);
       return;
     }
-    
+
+    const MAX_CODE_SIZE = 1024 * 1024; // 1 MB
+
+    if (code.length > MAX_CODE_SIZE) {
+      socket.emit("error", {
+        message: "Code payload exceeds the maximum allowed size.",
+      });
+      return;
+    }
+
+    // Validate payload
+    if (
+      typeof sessionId !== "string" ||
+      sessionId.trim() === "" ||
+      typeof code !== "string" ||
+      typeof language !== "string"
+    ) {
+      socket.emit("error", {
+        message: "Invalid code update payload.",
+      });
+      return;
+    }
+
     console.log('📝 Code update received:', { sessionId, codeLength: code?.length, language, userId, socketId: socket.id });
-    
+
     // Broadcast to other users in the session
     const codeData = {
       code,
@@ -22,7 +44,7 @@ export async function handleCodeUpdate(socket: Socket, io: SocketIOServer, data:
       userId,
       timestamp: Date.now(),
     };
-    
+
     console.log('📤 Broadcasting code to session:', roomName, codeData);
     socket.to(roomName).emit('code:update', codeData);
 
@@ -53,7 +75,7 @@ export async function handleCursorMove(socket: Socket, io: SocketIOServer, data:
     const roomName = `session:${sessionId}`;
 
     if (!socket.rooms.has(roomName)) return;
-    
+
     socket.to(roomName).emit('cursor:move', {
       line,
       column,
@@ -71,7 +93,7 @@ export async function handleLanguageChange(socket: Socket, io: SocketIOServer, d
     const roomName = `session:${sessionId}`;
 
     if (!socket.rooms.has(roomName)) return;
-    
+
     socket.to(roomName).emit('language:change', {
       language,
       timestamp: Date.now(),
