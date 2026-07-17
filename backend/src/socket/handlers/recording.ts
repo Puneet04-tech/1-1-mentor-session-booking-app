@@ -1,5 +1,7 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 
+const activeRecordingSessions = new Set<string>();
+
 export async function handleRecordingRequest(socket: Socket, io: SocketIOServer, data: any) {
   try {
     const { sessionId, requesterName } = data;
@@ -33,10 +35,17 @@ export async function handleRecordingStop(socket: Socket, io: SocketIOServer, da
     const { sessionId } = data;
     const roomName = `session:${sessionId}`;
 
-    if (!socket.rooms.has(roomName)) return;
+    if (!socket.rooms.has(roomName)) {
+      return;
+    }
 
-    // Notify both so they stop their local recorders and show the download
-    io.to(roomName).emit('recording:stopped-by-peer');
+    if (!activeRecordingSessions.has(sessionId)) {
+      return;
+    }
+
+    activeRecordingSessions.delete(sessionId);
+
+    io.to(roomName).emit("recording:stopped-by-peer");
   } catch (err) {
     console.error('Recording stop error:', err);
   }
