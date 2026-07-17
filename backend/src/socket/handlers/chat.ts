@@ -25,9 +25,9 @@ export async function handleMessageSend(socket: Socket, io: SocketIOServer, data
       socket.emit('error', { message: 'Unauthorized' });
       return;
     }
-    
+
     console.log('📨 Message received:', { sessionId, content, type, userId, socketId: socket.id });
-    
+
     const messageId = uuidv4();
     const timestamp = new Date().toISOString();
 
@@ -53,10 +53,10 @@ export async function handleMessageSend(socket: Socket, io: SocketIOServer, data
       created_at: timestamp,
       user: user ? { id: user.id, name: user.name, email: user.email, avatar: user.avatar_url } : null,
     };
-    
+
     console.log('📤 Broadcasting message to session:', `session:${sessionId}`, messageData);
     io.to(`session:${sessionId}`).emit('message:receive', messageData);
-    
+
     // Log room members for debugging
     const room = io.sockets.adapter.rooms.get(`session:${sessionId}`);
     console.log('👥 Room members:', room ? Array.from(room) : 'No members');
@@ -69,17 +69,35 @@ export async function handleMessageSend(socket: Socket, io: SocketIOServer, data
 export async function handleSessionJoin(socket: Socket, io: SocketIOServer, data: any) {
   try {
     const { sessionId } = data;
-    const userId = socket.data.userId; // Use authenticated userId from socket
+    const userId = socket.data.userId;
     const userName = socket.data.user?.name || data.userName;
-    
+
     if (!sessionId || !userId) {
-      console.warn('⚠️ Join session attempt with missing data:', { sessionId, userId });
+      console.warn("⚠️ Join session attempt with missing data:", {
+        sessionId,
+        userId,
+      });
       return;
     }
 
-    console.log('🚪 User attempting to join session:', { sessionId, userId, userName, socketId: socket.id });
-    
-    // Verify authorization: check if user is mentor or student for this session
+    const roomName = `session:${sessionId}`;
+
+    // Ignore duplicate join requests
+    if (socket.rooms.has(roomName)) {
+      console.log(
+        `ℹ️ Socket ${socket.id} is already a member of ${roomName}. Ignoring duplicate join request.`
+      );
+      return;
+    }
+
+    console.log("🚪 User attempting to join session:", {
+      sessionId,
+      userId,
+      userName,
+      socketId: socket.id,
+    });
+
+    // Verify authorization check if user is mentor or student for this session
     const session = await queryOne(
       'SELECT mentor_id, student_id FROM sessions WHERE id = $1',
       [sessionId]
@@ -99,14 +117,14 @@ export async function handleSessionJoin(socket: Socket, io: SocketIOServer, data
       return;
     }
 
-    socket.join(`session:${sessionId}`);
-    
+    socket.join(roomName);
+
     // Log room members after joining
-    const room = io.sockets.adapter.rooms.get(`session:${sessionId}`);
+    const room = io.sockets.adapter.rooms.get(roomName);
     console.log('👥 Room members after join:', room ? Array.from(room) : 'No members');
-    
+
     // Notify others in session
-    socket.to(`session:${sessionId}`).emit('presence:user-joined', {
+    socket.to(roomName).emit("presence:user-joined", {
       userId,
       userName,
       timestamp: Date.now(),
@@ -122,9 +140,9 @@ export async function handleSessionJoin(socket: Socket, io: SocketIOServer, data
 export async function handleSessionLeave(socket: Socket, io: SocketIOServer, data: any) {
   try {
     const { sessionId, userId } = data;
-    
+
     socket.leave(`session:${sessionId}`);
-    
+
     // Notify others in session
     socket.to(`session:${sessionId}`).emit('presence:user-left', {
       userId,
