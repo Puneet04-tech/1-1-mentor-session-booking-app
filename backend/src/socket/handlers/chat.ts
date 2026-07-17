@@ -70,6 +70,9 @@ export async function handleSessionJoin(socket: Socket, io: SocketIOServer, data
   try {
     const { sessionId } = data;
     const userId = socket.data.userId; // Use authenticated userId from socket
+    if (!sessionId || !userId) {
+      return;
+    }
     const userName = socket.data.user?.name || data.userName;
     
     if (!sessionId || !userId) {
@@ -121,7 +124,11 @@ export async function handleSessionJoin(socket: Socket, io: SocketIOServer, data
 
 export async function handleSessionLeave(socket: Socket, io: SocketIOServer, data: any) {
   try {
-    const { sessionId, userId } = data;
+    const { sessionId } = data;
+    const userId = socket.data.userId;
+    if (!sessionId || !userId) {
+      return;
+    }
     
     socket.leave(`session:${sessionId}`);
     
