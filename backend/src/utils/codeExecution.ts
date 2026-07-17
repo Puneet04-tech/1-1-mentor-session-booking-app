@@ -176,6 +176,10 @@ export async function executeViaGlot(code: string, language: string): Promise<st
  * execution path. Returns the program's stdout (or a friendly no-output note).
  */
 export async function executeCode(code: string, language: string): Promise<string> {
+  if (typeof code !== "string" || code.trim().length === 0) {
+    throw new Error("Source code cannot be empty.");
+  }
+
   const normalizedLang = normalizeLanguage(language);
   return executeViaGlot(code, normalizedLang);
 }
