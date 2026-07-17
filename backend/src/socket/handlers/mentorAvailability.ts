@@ -8,11 +8,29 @@ export function mentorAvailabilityRoom(mentorId: string): string {
 // mentor's profile for live availability changes — there's no participant
 // restriction here the way there is for session-scoped rooms.
 export function handleMentorProfileWatch(socket: Socket, mentorId: string) {
-  if (typeof mentorId !== 'string' || !mentorId) return;
-  socket.join(mentorAvailabilityRoom(mentorId));
+  if (typeof mentorId !== "string") {
+    return;
+  }
+
+  const normalizedMentorId = mentorId.trim();
+
+  if (!normalizedMentorId) {
+    return;
+  }
+
+  socket.join(mentorAvailabilityRoom(normalizedMentorId));
 }
 
 export function handleMentorProfileUnwatch(socket: Socket, mentorId: string) {
-  if (typeof mentorId !== 'string' || !mentorId) return;
-  socket.leave(mentorAvailabilityRoom(mentorId));
+  if (typeof mentorId !== "string") {
+    return;
+  }
+
+  const normalizedMentorId = mentorId.trim();
+
+  if (!normalizedMentorId) {
+    return;
+  }
+
+  socket.leave(mentorAvailabilityRoom(normalizedMentorId));
 }
