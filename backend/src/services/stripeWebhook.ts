@@ -107,13 +107,36 @@ export function verifyStripeSignature(
     throw new Error('No signatures found matching the expected signature for payload');
   }
 
-  if (toleranceSeconds > 0 && Math.abs(nowSeconds - timestamp) > toleranceSeconds) {
-    throw new Error('Timestamp outside the tolerance zone');
+  // Reject webhooks with timestamps in the future
+  if (timestamp > nowSeconds) {
+    throw new Error("Timestamp is in the future");
+  }
+
+  if (toleranceSeconds > 0 && nowSeconds - timestamp > toleranceSeconds) {
+    throw new Error("Timestamp outside the tolerance zone");
   }
 
   try {
-    return JSON.parse(payloadStr) as StripeEvent;
-  } catch {
-    throw new Error('Invalid JSON payload');
+    const event = JSON.parse(payloadStr);
+
+    if (
+      typeof event !== "object" ||
+      event === null ||
+      typeof event.type !== "string" ||
+      typeof event.data !== "object" ||
+      event.data === null ||
+      typeof event.data.object !== "object" ||
+      event.data.object === null
+    ) {
+      throw new Error("Invalid Stripe event payload");
+    }
+
+    return event as StripeEvent;
+  } catch (err) {
+    if (err instanceof Error && err.message === "Invalid Stripe event payload") {
+      throw err;
+    }
+
+    throw new Error("Invalid JSON payload");
   }
 }
