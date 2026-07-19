@@ -54,7 +54,7 @@ export function setupRealtimeHandlers(io: SocketIOServer) {
         console.warn(`⚠️ Unauthorized session:started trigger by user ${userId}`);
         return;
       }
-      
+
       // Notify both participants
       const notification = {
         type: 'session_start',
@@ -154,6 +154,34 @@ export function setupRealtimeHandlers(io: SocketIOServer) {
         return;
       }
 
+      // Verify session membership
+      const sessionResult = await db.query(
+        `SELECT mentor_id, student_id
+   FROM sessions
+   WHERE id = $1
+   LIMIT 1`,
+        [sessionId]
+      );
+
+      if (sessionResult.rows.length === 0) {
+        return;
+      }
+
+      const session = sessionResult.rows[0];
+
+      const participants = [session.mentor_id, session.student_id];
+
+      if (
+        !participants.includes(senderId) ||
+        !participants.includes(recipientId)
+      ) {
+        console.warn(
+          `⚠️ Unauthorized message notification attempt for session ${sessionId}`
+        );
+        return;
+      }
+
+
       const notification = {
         type: 'message',
         title: 'New Message',
@@ -197,7 +225,7 @@ export function setupRealtimeHandlers(io: SocketIOServer) {
 
       for (const follower of followersResult.rows) {
         io.to(`user:${follower.user_id}`).emit('notification:received', notification);
-        
+
         await db.query(
           `INSERT INTO notifications (user_id, type, title, message, data, is_read) 
            VALUES ($1, $2, $3, $4, $5, false)`,
