@@ -11,7 +11,22 @@ export async function handleWhiteboardDraw(socket: Socket, io: SocketIOServer, d
       return;
     }
 
-    socket.to(roomName).emit('whiteboard:draw', { segment, userId: socket.data.userId });
+    // Validate drawing segment
+    if (
+      typeof segment !== "object" ||
+      segment === null ||
+      Array.isArray(segment)
+    ) {
+      socket.emit("error", {
+        message: "Invalid whiteboard segment.",
+      });
+      return;
+    }
+
+    socket.to(roomName).emit("whiteboard:draw", {
+      segment,
+      userId: socket.data.userId,
+    });
   } catch (err) {
     console.error('Whiteboard draw error:', err);
   }
