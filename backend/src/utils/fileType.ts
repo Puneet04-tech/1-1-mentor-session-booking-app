@@ -19,6 +19,9 @@ export interface DetectedFileType {
 /** Bytes that unambiguously indicate active/markup content we must never store. */
 const DANGEROUS_MARKUP = /<\s*(!doctype\s+html|html|head|body|script|svg|iframe|object|embed|xml)\b/i;
 
+// Maximum file size accepted for type detection (10 MB)
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
 function startsWith(buf: Buffer, bytes: number[], offset = 0): boolean {
   if (buf.length < offset + bytes.length) return false;
   for (let i = 0; i < bytes.length; i++) {
@@ -61,6 +64,10 @@ function looksLikePlainText(buf: Buffer): boolean {
  */
 export function detectFileType(buffer: Buffer): DetectedFileType | null {
   if (!buffer || buffer.length < 4) return null;
+
+  if (buffer.length > MAX_FILE_SIZE) {
+    return null;
+  }
 
   // --- Images ---
   // PNG: 89 50 4E 47 0D 0A 1A 0A
