@@ -4,7 +4,7 @@ export async function handleVideoInitiate(socket: Socket, io: SocketIOServer, da
   try {
     const { sessionId, initiatorId, receiverId } = data;
     const roomName = `session:${sessionId}`;
-    
+
     if (!socket.rooms.has(roomName)) return;
 
     io.to(roomName).emit('video:incoming-call', {
@@ -21,11 +21,11 @@ export async function handleVideoConnectionRequest(socket: Socket, io: SocketIOS
   try {
     const { sessionId, userId, targetUserId } = data;
     const roomName = `session:${sessionId}`;
-    
+
     if (!socket.rooms.has(roomName)) return;
 
     console.log('🔄 Video connection request received:', { sessionId, userId, targetUserId });
-    
+
     // Forward the connection request to the target user
     io.to(roomName).emit('video:connection-request', {
       sessionId,
@@ -39,11 +39,23 @@ export async function handleVideoConnectionRequest(socket: Socket, io: SocketIOS
 
 export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data: any) {
   try {
-    const { sessionId, peerId, offer, remoteUserId, initiatorId, callerId, targetId } = data;
+    const {
+      sessionId,
+      peerId,
+      offer,
+      remoteUserId,
+      targetId,
+    } = data;
+
+    const authenticatedUserId = socket.data.userId;
     const roomName = `session:${sessionId}`;
-    
+
+    if (!authenticatedUserId) {
+      return;
+    }
+
     if (!socket.rooms.has(roomName)) return;
-    
+
     console.log('📨 Video offer received:', {
       sessionId,
       peerId,
@@ -54,18 +66,18 @@ export async function handleVideoOffer(socket: Socket, io: SocketIOServer, data:
       socketId: socket.id,
       offerType: offer?.type
     });
-    
+
     // Broadcast offer to session, preserving user IDs (callerId, targetId)
-    socket.to(roomName).emit('video:offer', {
-      peerId: peerId || socket.id, // Use provided peerId or fallback to socket.id
+    socket.to(roomName).emit("video:offer", {
+      peerId: socket.id,
       offer,
-      callerId: callerId || socket.id, // Preserve user ID of offer sender
-      targetId: targetId || remoteUserId, // Preserve target user ID
+      callerId: authenticatedUserId,
+      targetId,
       remoteUserId,
-      initiatorId: initiatorId || peerId || socket.id,
+      initiatorId: authenticatedUserId,
       timestamp: Date.now(),
     });
-    
+
     console.log(`📤 Video offer forwarded in session ${sessionId}`);
   } catch (err) {
     console.error('Video offer error:', err);
@@ -76,9 +88,9 @@ export async function handleVideoAnswer(socket: Socket, io: SocketIOServer, data
   try {
     const { sessionId, peerId, answer, initiatorId, callerId, targetId } = data;
     const roomName = `session:${sessionId}`;
-    
+
     if (!socket.rooms.has(roomName)) return;
-    
+
     console.log('📨 Video answer received:', {
       sessionId,
       peerId,
@@ -87,17 +99,23 @@ export async function handleVideoAnswer(socket: Socket, io: SocketIOServer, data
       initiatorId,
       socketId: socket.id
     });
-    
+
+    const authenticatedUserId = socket.data.userId;
+
+    if (!authenticatedUserId) {
+      return;
+    }
+
     // Broadcast answer to session, preserving user IDs (callerId, targetId)
     socket.to(roomName).emit('video:answer', {
       peerId: peerId || socket.id, // Use provided peerId or fallback to socket.id
       answer,
-      callerId: callerId || socket.id, // Preserve user ID of answer sender
+      callerId: authenticatedUserId, // Preserve user ID of answer sender
       targetId: targetId, // Preserve target user ID
-      initiatorId: initiatorId || peerId || socket.id,
+      initiatorId: authenticatedUserId,
       timestamp: Date.now(),
     });
-    
+
     console.log(`📤 Video answer forwarded in session ${sessionId}`);
   } catch (err) {
     console.error('Video answer error:', err);
@@ -108,14 +126,20 @@ export async function handleICECandidate(socket: Socket, io: SocketIOServer, dat
   try {
     const { sessionId, peerId, candidate, callerId, targetId } = data;
     const roomName = `session:${sessionId}`;
-    
+
     if (!socket.rooms.has(roomName)) return;
-    
+
+    const authenticatedUserId = socket.data.userId;
+
+    if (!authenticatedUserId) {
+      return;
+    }
+
     // Broadcast ICE candidate to session, preserving user IDs
     socket.to(roomName).emit('video:ice-candidate', {
       peerId: peerId || socket.id, // Use provided peerId or fallback to socket.id
       candidate,
-      callerId: callerId || peerId || socket.id, // Preserve user ID of candidate sender
+      callerId: authenticatedUserId, // Preserve user ID of candidate sender
       targetId: targetId,
       timestamp: Date.now(),
     });
@@ -140,18 +164,18 @@ export async function handleScreenStarted(socket: Socket, io: SocketIOServer, da
   try {
     const { sessionId, userId } = data;
     const roomName = `session:${sessionId}`;
-    
+
     if (!socket.rooms.has(roomName)) return;
-    
+
     console.log('🖥️ Screen share started:', { sessionId, userId, socketId: socket.id });
-    
+
     // Broadcast screen share started event to session
     socket.to(roomName).emit('screen:started', {
       userId,
       socketId: socket.id,
       timestamp: Date.now(),
     });
-    
+
     console.log(`📤 Screen share started event forwarded in session ${sessionId}`);
   } catch (err) {
     console.error('Screen share started error:', err);
@@ -162,18 +186,18 @@ export async function handleScreenStopped(socket: Socket, io: SocketIOServer, da
   try {
     const { sessionId, userId } = data;
     const roomName = `session:${sessionId}`;
-    
+
     if (!socket.rooms.has(roomName)) return;
-    
+
     console.log('🛑 Screen share stopped:', { sessionId, userId, socketId: socket.id });
-    
+
     // Broadcast screen share stopped event to session
     socket.to(roomName).emit('screen:stopped', {
       userId,
       socketId: socket.id,
       timestamp: Date.now(),
     });
-    
+
     console.log(`📤 Screen share stopped event forwarded in session ${sessionId}`);
   } catch (err) {
     console.error('Screen share stopped error:', err);
@@ -184,9 +208,9 @@ export async function handleScreenOffer(socket: Socket, io: SocketIOServer, data
   try {
     const { sessionId, offer, initiatorId } = data;
     const roomName = `session:${sessionId}`;
-    
+
     if (!socket.rooms.has(roomName)) return;
-    
+
     // Broadcast screen offer to session
     socket.to(roomName).emit('screen:offer', {
       peerId: socket.id,
@@ -194,7 +218,7 @@ export async function handleScreenOffer(socket: Socket, io: SocketIOServer, data
       initiatorId: initiatorId || socket.id,
       timestamp: Date.now(),
     });
-    
+
     console.log(`📤 Screen offer forwarded in session ${sessionId}`);
   } catch (err) {
     console.error('Screen offer error:', err);
@@ -205,9 +229,9 @@ export async function handleScreenAnswer(socket: Socket, io: SocketIOServer, dat
   try {
     const { sessionId, answer, initiatorId } = data;
     const roomName = `session:${sessionId}`;
-    
+
     if (!socket.rooms.has(roomName)) return;
-    
+
     // Broadcast screen answer to session
     socket.to(roomName).emit('screen:answer', {
       peerId: socket.id,
@@ -215,7 +239,7 @@ export async function handleScreenAnswer(socket: Socket, io: SocketIOServer, dat
       initiatorId: initiatorId || socket.id,
       timestamp: Date.now(),
     });
-    
+
     console.log(`📤 Screen answer forwarded in session ${sessionId}`);
   } catch (err) {
     console.error('Screen answer error:', err);
@@ -226,9 +250,9 @@ export async function handleScreenICECandidate(socket: Socket, io: SocketIOServe
   try {
     const { sessionId, candidate, initiatorId } = data;
     const roomName = `session:${sessionId}`;
-    
+
     if (!socket.rooms.has(roomName)) return;
-    
+
     // Broadcast screen ICE candidate to session
     socket.to(roomName).emit('screen:ice-candidate', {
       peerId: socket.id,

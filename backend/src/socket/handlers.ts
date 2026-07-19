@@ -39,29 +39,17 @@ import {
   handleMentorProfileUnwatch,
 } from './handlers/mentorAvailability';
 
-function wrapSocketHandler<T>(
-  socket: Socket,
-  handler: (data: T) => void | Promise<void>
-) {
-  return async (data: T) => {
-    try {
-      await handler(data);
-    } catch (error) {
-      console.error('Socket handler error:', error);
-
-      socket.emit('socket:error', {
-        message: 'An unexpected error occurred.',
-      });
-    }
-  };
+function debugLog(...args: unknown[]) {
+  if (process.env.NODE_ENV !== "production") {
+    console.log(...args);
+  }
 }
 
 export function setupSocketHandlers(io: SocketIOServer) {
   io.on('connection', (socket: Socket) => {
     const userId = socket.data.userId;
-
-    console.log(`✅ User connected: ${socket.id} (userId: ${userId})`);
-    console.log(`   Total connected clients: ${io.engine.clientsCount}`);
+    debugLog(`✅ User connected: ${socket.id} (userId: ${userId})`);
+    debugLog(`   Total connected clients: ${io.engine.clientsCount}`);
 
     // Code editor events
     socket.on(
@@ -101,50 +89,40 @@ export function setupSocketHandlers(io: SocketIOServer) {
     );
 
     // Chat events
-    socket.on(
-      'message:send',
-      wrapSocketHandler(socket, async (data) => {
-        console.log('💬 ========== BACKEND: message:send event RECEIVED ==========');
-        console.log('📊 Message data:', {
-          sessionId: data?.sessionId,
-          userId: data?.userId,
-          contentLength: data?.content?.length,
-          type: data?.type,
-        });
+    socket.on('message:send', (data) => {
+      debugLog('💬 ========== BACKEND: message:send event RECEIVED ==========');
 
-        console.log('📊 Socket:', {
-          socketId: socket.id,
-          userId: socket.data.userId,
-        });
+      debugLog('📊 Message data:', {
+        sessionId: data?.sessionId,
+        userId: data?.userId,
+        contentLength: data?.content?.length,
+        type: data?.type,
+      });
 
-        await handleMessageSend(socket, io, data);
+      debugLog('📊 Socket:', {
+        socketId: socket.id,
+        userId: socket.data.userId,
+      });
 
-        console.log('💬 ========== BACKEND: message:send PROCESSED ==========');
-      })
-    );
+      handleMessageSend(socket, io, data);
 
-    socket.on(
-      'session:join',
-      wrapSocketHandler(socket, async (data) => {
-        console.log('🚪 ========== BACKEND: session:join event RECEIVED ==========');
-        console.log('📊 Event data:', data);
-        console.log('📊 Socket details:', {
-          socketId: socket.id,
-          userId: socket.data.userId,
-        });
+      debugLog('💬 ========== BACKEND: message:send PROCESSED ==========');
+    });
+    socket.on('session:join', (data) => {
+      debugLog('🚪 ========== BACKEND: session:join event RECEIVED ==========');
 
-        await handleSessionJoin(socket, io, data);
+      debugLog('📊 Event data:', data);
 
-        console.log('🚪 ========== BACKEND: session:join PROCESSED ==========');
-      })
-    );
+      debugLog('📊 Socket details:', {
+        socketId: socket.id,
+        userId: socket.data.userId,
+      });
 
-    socket.on(
-      'session:leave',
-      wrapSocketHandler(socket, (data) =>
-        handleSessionLeave(socket, io, data)
-      )
-    );
+      handleSessionJoin(socket, io, data);
+
+      debugLog('🚪 ========== BACKEND: session:join PROCESSED ==========');
+    });
+    socket.on('session:leave', (data) => handleSessionLeave(socket, io, data));
 
     // Video events
     socket.on(
@@ -271,8 +249,8 @@ export function setupSocketHandlers(io: SocketIOServer) {
     );
 
     socket.on('disconnect', () => {
-      console.log(`❌ User disconnected: ${socket.id} (userId: ${userId})`);
-      console.log(`   Total connected clients: ${io.engine.clientsCount}`);
+      debugLog(`❌ User disconnected: ${socket.id} (userId: ${userId})`);
+      debugLog(`   Total connected clients: ${io.engine.clientsCount}`);
     });
 
     socket.on('error', (error) => {

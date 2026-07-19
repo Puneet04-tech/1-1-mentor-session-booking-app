@@ -1,5 +1,7 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 
+const activeRecordingSessions = new Set<string>();
+
 export async function handleRecordingRequest(socket: Socket, io: SocketIOServer, data: any) {
   try {
     const { sessionId, requesterName } = data;
@@ -19,10 +21,22 @@ export async function handleRecordingConsent(socket: Socket, io: SocketIOServer,
     const { sessionId, granted } = data;
     const roomName = `session:${sessionId}`;
 
-    if (!socket.rooms.has(roomName)) return;
+    if (!socket.rooms.has(roomName)) {
+      return;
+    }
+
+    // Validate consent payload
+    if (typeof granted !== "boolean") {
+      socket.emit("error", {
+        message: "Invalid recording consent value.",
+      });
+      return;
+    }
 
     // Both participants need the result so they can start/skip recording together
-    io.to(roomName).emit('recording:consent-result', { granted });
+    io.to(roomName).emit("recording:consent-result", {
+      granted,
+    });
   } catch (err) {
     console.error('Recording consent error:', err);
   }
@@ -33,10 +47,17 @@ export async function handleRecordingStop(socket: Socket, io: SocketIOServer, da
     const { sessionId } = data;
     const roomName = `session:${sessionId}`;
 
-    if (!socket.rooms.has(roomName)) return;
+    if (!socket.rooms.has(roomName)) {
+      return;
+    }
 
-    // Notify both so they stop their local recorders and show the download
-    io.to(roomName).emit('recording:stopped-by-peer');
+    if (!activeRecordingSessions.has(sessionId)) {
+      return;
+    }
+
+    activeRecordingSessions.delete(sessionId);
+
+    io.to(roomName).emit("recording:stopped-by-peer");
   } catch (err) {
     console.error('Recording stop error:', err);
   }
