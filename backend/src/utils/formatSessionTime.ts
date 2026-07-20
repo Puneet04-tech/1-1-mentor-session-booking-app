@@ -2,13 +2,33 @@
 // abbreviation/offset, so the same email/notification reads unambiguously
 // for a mentor and student in different zones instead of silently rendering
 // in the server's own timezone with no indication of what zone that is.
-export function formatSessionTime(date: Date, recipientTimezone?: string ): string {
+
+function isValidTimezone(timezone?: string): boolean {
+  if (!timezone) return true;
+
+  try {
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+    });
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
+export function formatSessionTime(date: Date, recipientTimezone?: string): string {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
     throw new Error("Invalid session date.");
   }
 
+  const timezone = isValidTimezone(recipientTimezone)
+    ? recipientTimezone
+    : undefined;
+
   return date.toLocaleString("en-US", {
-    timeZone: recipientTimezone || undefined,
+    timeZone: timezone,
     weekday: "long",
     year: "numeric",
     month: "long",
