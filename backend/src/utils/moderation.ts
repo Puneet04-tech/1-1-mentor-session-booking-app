@@ -35,19 +35,21 @@ export interface ModerationResult {
 }
 
 export function moderateReviewText(text: string | null | undefined): ModerationResult {
-  if (!text) {
+  const normalizedText = text?.trim();
+
+  if (!normalizedText) {
     return { allowed: true };
   }
 
-  if (containsProfanity(text)) {
+  if (containsProfanity(normalizedText)) {
     return { allowed: false, reason: 'Review contains inappropriate language' };
   }
 
-  if (containsUrl(text)) {
+  if (containsUrl(normalizedText)) {
     return { allowed: false, reason: 'Review cannot contain links' };
   }
 
-  if (isExcessiveRepetition(text) || isShoutingSpam(text)) {
+  if (isExcessiveRepetition(normalizedText) || isShoutingSpam(normalizedText)) {
     return { allowed: false, reason: 'Review looks like spam' };
   }
 
