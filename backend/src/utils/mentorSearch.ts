@@ -69,13 +69,23 @@ export function buildMentorSearchPlan(query: MentorSearchQuery): MentorSearchPla
     }
   }
 
-  if (query.industry) {
-    params.push(query.industry);
+  const industry =
+    typeof query.industry === "string"
+      ? query.industry.trim()
+      : "";
+
+  if (industry) {
+    params.push(industry);
     conditions.push(`u.industry = $${params.length}`);
   }
 
-  if (query.language) {
-    params.push(query.language);
+  const language =
+    typeof query.language === "string"
+      ? query.language.trim()
+      : "";
+
+  if (language) {
+    params.push(language);
     conditions.push(`u.language = $${params.length}`);
   }
 
