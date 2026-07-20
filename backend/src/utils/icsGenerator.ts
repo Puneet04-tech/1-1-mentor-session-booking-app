@@ -65,8 +65,12 @@ function foldLine(line: string): string {
  */
 export function generateSessionIcs(session: IcsSession, now: Date = new Date()): string {
   const start = new Date(session.scheduled_at);
-  if (isNaN(start.getTime())) {
-    throw new Error('Session has no valid scheduled time');
+  if (Number.isNaN(start.getTime())) {
+    throw new Error("Session has no valid scheduled time");
+  }
+
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
+    throw new Error("Invalid generation timestamp");
   }
 
   const durationMinutes =
