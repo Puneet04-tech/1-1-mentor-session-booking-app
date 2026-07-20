@@ -52,13 +52,21 @@ export function buildMentorSearchPlan(query: MentorSearchQuery): MentorSearchPla
   }
 
   if (query.minRating) {
-    params.push(parseFloat(query.minRating));
-    conditions.push(`u.avg_rating >= $${params.length}`);
+    const minRating = Number.parseFloat(query.minRating);
+
+    if (Number.isFinite(minRating)) {
+      params.push(minRating);
+      conditions.push(`u.avg_rating >= $${params.length}`);
+    }
   }
 
   if (query.maxPrice) {
-    params.push(parseFloat(query.maxPrice));
-    conditions.push(`u.hourly_rate <= $${params.length}`);
+    const maxPrice = Number.parseFloat(query.maxPrice);
+
+    if (Number.isFinite(maxPrice)) {
+      params.push(maxPrice);
+      conditions.push(`u.hourly_rate <= $${params.length}`);
+    }
   }
 
   if (query.industry) {
