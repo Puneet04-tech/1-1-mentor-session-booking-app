@@ -29,28 +29,48 @@ function isShoutingSpam(text: string): boolean {
   return upperRatio > 0.8;
 }
 
+function normalizeWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 export interface ModerationResult {
   allowed: boolean;
   reason?: string;
 }
 
 export function moderateReviewText(text: string | null | undefined): ModerationResult {
-  const normalizedText = text?.trim();
+  if (!text) {
+    return { allowed: true };
+  }
+
+  const normalizedText = normalizeWhitespace(text);
 
   if (!normalizedText) {
     return { allowed: true };
   }
 
   if (containsProfanity(normalizedText)) {
-    return { allowed: false, reason: 'Review contains inappropriate language' };
+    return {
+      allowed: false,
+      reason: 'Review contains inappropriate language',
+    };
   }
 
   if (containsUrl(normalizedText)) {
-    return { allowed: false, reason: 'Review cannot contain links' };
+    return {
+      allowed: false,
+      reason: 'Review cannot contain links',
+    };
   }
 
-  if (isExcessiveRepetition(normalizedText) || isShoutingSpam(normalizedText)) {
-    return { allowed: false, reason: 'Review looks like spam' };
+  if (
+    isExcessiveRepetition(normalizedText) ||
+    isShoutingSpam(normalizedText)
+  ) {
+    return {
+      allowed: false,
+      reason: 'Review looks like spam',
+    };
   }
 
   return { allowed: true };
