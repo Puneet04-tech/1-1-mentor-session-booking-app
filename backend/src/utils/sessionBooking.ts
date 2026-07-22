@@ -39,13 +39,42 @@ export function resolveJoinDecision(
   }
 
   // Group-aware path: decide based on remaining capacity.
+  // Group-aware path: decide based on remaining capacity.
   if (group) {
+    if (
+      !Number.isInteger(group.maxParticipants) ||
+      group.maxParticipants <= 0
+    ) {
+      return {
+        action: 'reject',
+        status: 400,
+        error: 'Invalid group session capacity',
+      };
+    }
+
+    if (
+      !Number.isInteger(group.participantCount) ||
+      group.participantCount < 0
+    ) {
+      return {
+        action: 'reject',
+        status: 400,
+        error: 'Invalid participant count',
+      };
+    }
+
     if (group.alreadyParticipant || session.student_id === studentId) {
       return { action: 'noop' };
     }
+
     if (group.participantCount >= group.maxParticipants) {
-      return { action: 'reject', status: 409, error: 'This session is full' };
+      return {
+        action: 'reject',
+        status: 409,
+        error: 'This session is full',
+      };
     }
+
     return { action: 'claim' };
   }
 
