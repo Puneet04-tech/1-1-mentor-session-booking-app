@@ -4,14 +4,29 @@ export interface SessionInput {
   duration_minutes?: unknown;
 }
 
+const MAX_TITLE_LENGTH = 100;
+
 export type SessionValidationResult = { valid: true } | { valid: false; error: string };
 
 // Shared by single-session and recurring-series creation — both ultimately
 // book a slot starting at `scheduled_at`, so both need the same guards
 // against empty/malformed input and past-dated bookings reaching the DB.
 export function validateSessionInput(input: SessionInput): SessionValidationResult {
-  if (typeof input.title !== 'string' || input.title.trim().length === 0) {
+  if (typeof input.title !== 'string') {
     return { valid: false, error: 'Title is required' };
+  }
+
+  const title = input.title.trim();
+
+  if (title.length === 0) {
+    return { valid: false, error: 'Title is required' };
+  }
+
+  if (title.length > MAX_TITLE_LENGTH) {
+    return {
+      valid: false,
+      error: `Title must not exceed ${MAX_TITLE_LENGTH} characters`,
+    };
   }
 
   if (input.scheduled_at !== undefined && input.scheduled_at !== null && input.scheduled_at !== '') {
