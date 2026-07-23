@@ -64,7 +64,20 @@ export function validateRescheduleRequest(params: ValidateRescheduleParams): Res
   // Notice window on the CURRENT start — can't move a session that's already
   // within the cancellation/reschedule cutoff of starting.
   if (session.scheduled_at) {
-    const hoursUntilCurrent = (new Date(session.scheduled_at).getTime() - now) / (1000 * 60 * 60);
+    const currentScheduledAt = new Date(session.scheduled_at);
+
+    if (Number.isNaN(currentScheduledAt.getTime())) {
+      return {
+        ok: false,
+        status: 400,
+        error: "Session has an invalid scheduled time",
+      };
+    }
+
+    const hoursUntilCurrent =
+      (currentScheduledAt.getTime() - now) /
+      (1000 * 60 * 60);
+
     if (hoursUntilCurrent < minNoticeHours) {
       return {
         ok: false,
