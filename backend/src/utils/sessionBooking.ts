@@ -30,7 +30,8 @@ export function resolveJoinDecision(
   studentId: string,
   group?: GroupJoinContext
 ): JoinDecision {
-  if (session.mentor_id === studentId) {
+  const normalizedStudentId = studentId.trim();
+  if (session.mentor_id === normalizedStudentId) {
     return { action: 'reject', status: 400, error: 'Mentors cannot join their own sessions' };
   }
 
@@ -41,29 +42,7 @@ export function resolveJoinDecision(
   // Group-aware path: decide based on remaining capacity.
   // Group-aware path: decide based on remaining capacity.
   if (group) {
-    if (
-      !Number.isInteger(group.maxParticipants) ||
-      group.maxParticipants <= 0
-    ) {
-      return {
-        action: 'reject',
-        status: 400,
-        error: 'Invalid group session capacity',
-      };
-    }
-
-    if (
-      !Number.isInteger(group.participantCount) ||
-      group.participantCount < 0
-    ) {
-      return {
-        action: 'reject',
-        status: 400,
-        error: 'Invalid participant count',
-      };
-    }
-
-    if (group.alreadyParticipant || session.student_id === studentId) {
+    if (group.alreadyParticipant || session.student_id === normalizedStudentId) {
       return { action: 'noop' };
     }
 
@@ -79,7 +58,7 @@ export function resolveJoinDecision(
   }
 
   // Legacy single-participant path (unchanged).
-  if (session.student_id === studentId) {
+  if (session.student_id === normalizedStudentId) {
     return { action: 'noop' };
   }
 
