@@ -40,13 +40,20 @@ export function resolveJoinDecision(
   }
 
   // Group-aware path: decide based on remaining capacity.
+  // Group-aware path: decide based on remaining capacity.
   if (group) {
     if (group.alreadyParticipant || session.student_id === normalizedStudentId) {
       return { action: 'noop' };
     }
+
     if (group.participantCount >= group.maxParticipants) {
-      return { action: 'reject', status: 409, error: 'This session is full' };
+      return {
+        action: 'reject',
+        status: 409,
+        error: 'This session is full',
+      };
     }
+
     return { action: 'claim' };
   }
 

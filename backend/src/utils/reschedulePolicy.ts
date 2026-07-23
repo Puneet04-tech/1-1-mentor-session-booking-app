@@ -31,12 +31,22 @@ export interface ValidateRescheduleParams {
  * conflict checks are done separately by the caller since they need the DB.
  */
 export function validateRescheduleRequest(params: ValidateRescheduleParams): RescheduleDecision {
-  const { session, userId, newScheduledAt, minNoticeHours } = params;
+  const { session, newScheduledAt, minNoticeHours } = params;
+
+  const userId =
+    typeof params.userId === "string"
+      ? params.userId.trim()
+      : "";
+
   const now = params.now ?? Date.now();
 
   // Must be a participant (mentor or the booked student).
   if (session.mentor_id !== userId && session.student_id !== userId) {
-    return { ok: false, status: 403, error: 'You are not a participant in this session' };
+    return {
+      ok: false,
+      status: 403,
+      error: "You are not a participant in this session",
+    };
   }
 
   // Only upcoming, still-scheduled sessions can be moved (mirrors cancellation).
@@ -64,7 +74,20 @@ export function validateRescheduleRequest(params: ValidateRescheduleParams): Res
   // Notice window on the CURRENT start — can't move a session that's already
   // within the cancellation/reschedule cutoff of starting.
   if (session.scheduled_at) {
-    const hoursUntilCurrent = (new Date(session.scheduled_at).getTime() - now) / (1000 * 60 * 60);
+    const currentScheduledAt = new Date(session.scheduled_at);
+
+    if (Number.isNaN(currentScheduledAt.getTime())) {
+      return {
+        ok: false,
+        status: 400,
+        error: "Session has an invalid scheduled time",
+      };
+    }
+
+    const hoursUntilCurrent =
+      (currentScheduledAt.getTime() - now) /
+      (1000 * 60 * 60);
+
     if (hoursUntilCurrent < minNoticeHours) {
       return {
         ok: false,
