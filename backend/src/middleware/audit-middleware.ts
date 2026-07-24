@@ -3,7 +3,17 @@ import { AuditService } from '../services/audit-service';
 
 const auditService = AuditService.getInstance();
 
+function validateEventType(eventType: string): string {
+    if (typeof eventType !== "string" || eventType.trim().length === 0) {
+        throw new Error("Audit event type must be a non-empty string");
+    }
+
+    return eventType.trim();
+}
+
 export function auditLog(eventType: string) {
+    const normalizedEventType = validateEventType(eventType);
+
     return async (req: Request, res: Response, next: NextFunction) => {
         try {
             // Store original send function
@@ -16,7 +26,7 @@ export function auditLog(eventType: string) {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
                     const event = {
                         sessionId: req.params.id || req.params.sessionId || req.body.sessionId,
-                        eventType,
+                        eventType: normalizedEventType,,
                         eventData: {
                             method: req.method,
                             path: req.path,
