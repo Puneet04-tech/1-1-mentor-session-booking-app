@@ -2,15 +2,50 @@ import { Router, Response } from "express";
 import { query, queryOne } from "@/database";
 import authMiddleware, { AuthRequest } from "@/middleware/auth";
 import { requireRole } from "@/middleware/requireRole";
+const MAX_SEARCH_LENGTH = 100;
 
 const router = Router();
 
 router.use(authMiddleware, requireRole("admin"));
 
+function validateSearchQuery(search: unknown): string | null {
+  if (search === undefined) {
+    return null;
+  }
+
+  if (typeof search !== "string") {
+    throw new Error("Search query must be a string");
+  }
+
+  const normalizedSearch = search.trim();
+
+  if (normalizedSearch.length === 0) {
+    throw new Error("Search query cannot be empty");
+  }
+
+  if (normalizedSearch.length > MAX_SEARCH_LENGTH) {
+    throw new Error(
+      `Search query must not exceed ${MAX_SEARCH_LENGTH} characters`
+    );
+  }
+
+  return normalizedSearch;
+}
+
 // Get all users (for admin)
 router.get("/users", async (req: AuthRequest, res: Response) => {
   try {
     const { search, role } = req.query;
+
+    let normalizedSearch: string | null;
+
+    try {
+      normalizedSearch = validateSearchQuery(search);
+    } catch (error) {
+      return res.status(400).json({
+        error: (error as Error).message,
+      });
+    }
 
     const allowedRoles = ["admin", "mentor", "student"];
 
@@ -23,9 +58,9 @@ router.get("/users", async (req: AuthRequest, res: Response) => {
       "SELECT id, name, email, role, is_suspended, suspension_reason, created_at FROM users WHERE 1=1";
     const params: any[] = [];
 
-    if (search) {
+    if (normalizedSearch) {
       sql += ` AND (name ILIKE $${params.length + 1} OR email ILIKE $${params.length + 1})`;
-      params.push(`%${search}%`);
+      params.push(`%${normalizedSearch}%`);
     }
 
     if (role) {
@@ -224,6 +259,16 @@ router.post(
 router.get("/mentors/verification", async (req: AuthRequest, res: Response) => {
   try {
     const { status, search } = req.query;
+
+    let normalizedSearch: string | null;
+
+    try {
+      normalizedSearch = validateSearchQuery(search);
+    } catch (error) {
+      return res.status(400).json({
+        error: (error as Error).message,
+      });
+    }
     const allowedStatuses = ["pending", "verified"];
 
     if (status !== undefined && (typeof status !== "string" || !allowedStatuses.includes(status))) {
@@ -231,7 +276,7 @@ router.get("/mentors/verification", async (req: AuthRequest, res: Response) => {
         error: `Invalid status. Allowed values are: ${allowedStatuses.join(", ")}`,
       });
     }
-    
+
     let sql = `SELECT id, name, email, bio, hourly_rate, verified, verification_date, created_at
                FROM users WHERE role = 'mentor'`;
     const params: any[] = [];
@@ -242,9 +287,9 @@ router.get("/mentors/verification", async (req: AuthRequest, res: Response) => {
       sql += " AND verified = true";
     }
 
-    if (search) {
+    if (normalizedSearch) {
       sql += ` AND (name ILIKE $${params.length + 1} OR email ILIKE $${params.length + 1})`;
-      params.push(`%${search}%`);
+      params.push(`%${normalizedSearch}%`);
     }
 
     sql += " ORDER BY verified ASC, created_at DESC";
