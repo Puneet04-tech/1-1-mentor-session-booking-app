@@ -10,6 +10,20 @@ export interface AuthRequest extends Request {
   };
 }
 
+const VALID_ROLES = new Set(["mentor", "student", "admin"]);
+
+function isValidJwtPayload(payload: any): boolean {
+  return (
+    payload &&
+    typeof payload.id === "string" &&
+    payload.id.trim().length > 0 &&
+    typeof payload.email === "string" &&
+    payload.email.trim().length > 0 &&
+    typeof payload.role === "string" &&
+    VALID_ROLES.has(payload.role)
+  );
+}
+
 export const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
@@ -40,7 +54,7 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
       return res.status(401).json({ error: 'Two-factor verification required' });
     }
 
-    req.user = decoded;
+req.user = decoded;
     next();
   } catch (err) {
     console.error('Auth middleware error:', err);
