@@ -354,10 +354,7 @@ router.get('/2fa/status', authMiddleware, async (req: AuthRequest, res: Response
 router.post('/2fa/setup', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.id;
-    const user = await queryOne(
-      'SELECT email, two_factor_enabled FROM users WHERE id = $1',
-      [userId]
-    );
+    const user = await queryOne(`SELECT email, two_factor_enabled, two_factor_secret FROM users WHERE id = $1`, [userId]);
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -367,15 +364,22 @@ router.post('/2fa/setup', authMiddleware, async (req: AuthRequest, res: Response
       return res.status(400).json({ error: '2FA is already enabled. Disable it first to re-configure.' });
     }
 
-    const secret = generateSecret();
+    const secret =
+      user.two_factor_secret || generateSecret();
+
     const otpauthUrl = buildOtpAuthUrl(user.email, secret);
     const qrCode = await generateQrCodeDataUrl(otpauthUrl);
 
-    // Store the pending secret; enabled stays false until /enable succeeds.
-    await query(
-      'UPDATE users SET two_factor_secret = $1, updated_at = $2 WHERE id = $3',
-      [secret, new Date().toISOString(), userId]
-    );
+    // Only persist a newly generated secret.
+    if (!user.two_factor_secret) {
+      await query(
+        `UPDATE users
+     SET two_factor_secret = $1,
+         updated_at = $2
+     WHERE id = $3`,
+        [secret, new Date().toISOString(), userId]
+      );
+    }
 
     res.json({
       success: true,
