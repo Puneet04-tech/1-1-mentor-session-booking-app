@@ -10,6 +10,20 @@ export interface AuthRequest extends Request {
   };
 }
 
+const VALID_ROLES = new Set(["mentor", "student", "admin"]);
+
+function isValidJwtPayload(payload: any): boolean {
+  return (
+    payload &&
+    typeof payload.id === "string" &&
+    payload.id.trim().length > 0 &&
+    typeof payload.email === "string" &&
+    payload.email.trim().length > 0 &&
+    typeof payload.role === "string" &&
+    VALID_ROLES.has(payload.role)
+  );
+}
+
 export const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
@@ -20,13 +34,17 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
     const token = authHeader.slice(7);
     const decoded = jwt.verify(token, config.JWT_SECRET) as any;
 
-    // Pending 2FA tokens (issue #138) are only valid at the /2fa/verify step,
-    // never as a full session credential — reject them everywhere else.
-    if (decoded?.twofa_pending) {
-      return res.status(401).json({ error: 'Two-factor verification required' });
-    }
+if (decoded?.twofa_pending) {
+  return res.status(401).json({ error: "Two-factor verification required" });
+}
 
-    req.user = decoded;
+if (!isValidJwtPayload(decoded)) {
+  return res.status(401).json({
+    error: "Invalid token payload",
+  });
+}
+
+req.user = decoded;
     next();
   } catch (err) {
     console.error('Auth middleware error:', err);

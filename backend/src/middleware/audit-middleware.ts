@@ -31,7 +31,7 @@ export function auditLog(eventType: string) {
                             method: req.method,
                             path: req.path,
                             query: req.query,
-                            body: req.body,
+                            body: sanitizeAuditBody(req.body),
                             responseStatus: res.statusCode,
                             responseData: data ? JSON.parse(JSON.stringify(data)) : null,
                             ip: req.ip,
