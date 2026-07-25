@@ -3,37 +3,17 @@ import { AuditService } from '../services/audit-service';
 
 const auditService = AuditService.getInstance();
 
-const SENSITIVE_FIELDS = new Set([
-    "password",
-    "confirmPassword",
-    "token",
-    "accessToken",
-    "refreshToken",
-    "otp",
-    "secret",
-    "apiKey",
-]);
-
-function sanitizeAuditBody(value: unknown): unknown {
-    if (Array.isArray(value)) {
-        return value.map(sanitizeAuditBody);
+function validateEventType(eventType: string): string {
+    if (typeof eventType !== "string" || eventType.trim().length === 0) {
+        throw new Error("Audit event type must be a non-empty string");
     }
 
-    if (value && typeof value === "object") {
-        return Object.fromEntries(
-            Object.entries(value as Record<string, unknown>).map(([key, val]) => [
-                key,
-                SENSITIVE_FIELDS.has(key)
-                    ? "[REDACTED]"
-                    : sanitizeAuditBody(val),
-            ])
-        );
-    }
-
-    return value;
+    return eventType.trim();
 }
 
 export function auditLog(eventType: string) {
+    const normalizedEventType = validateEventType(eventType);
+
     return async (req: Request, res: Response, next: NextFunction) => {
         try {
             // Store original send function
@@ -46,7 +26,7 @@ export function auditLog(eventType: string) {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
                     const event = {
                         sessionId: req.params.id || req.params.sessionId || req.body.sessionId,
-                        eventType,
+                        eventType: normalizedEventType,,
                         eventData: {
                             method: req.method,
                             path: req.path,
