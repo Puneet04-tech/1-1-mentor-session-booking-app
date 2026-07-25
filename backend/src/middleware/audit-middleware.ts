@@ -3,6 +3,36 @@ import { AuditService } from '../services/audit-service';
 
 const auditService = AuditService.getInstance();
 
+const SENSITIVE_FIELDS = new Set([
+    "password",
+    "confirmPassword",
+    "token",
+    "accessToken",
+    "refreshToken",
+    "otp",
+    "secret",
+    "apiKey",
+]);
+
+function sanitizeAuditBody(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return value.map(sanitizeAuditBody);
+    }
+
+    if (value && typeof value === "object") {
+        return Object.fromEntries(
+            Object.entries(value as Record<string, unknown>).map(([key, val]) => [
+                key,
+                SENSITIVE_FIELDS.has(key)
+                    ? "[REDACTED]"
+                    : sanitizeAuditBody(val),
+            ])
+        );
+    }
+
+    return value;
+}
+
 export function auditLog(eventType: string) {
     return async (req: Request, res: Response, next: NextFunction) => {
         try {
@@ -21,7 +51,7 @@ export function auditLog(eventType: string) {
                             method: req.method,
                             path: req.path,
                             query: req.query,
-                            body: req.body,
+                            body: sanitizeAuditBody(req.body),
                             responseStatus: res.statusCode,
                             responseData: data ? JSON.parse(JSON.stringify(data)) : null,
                             ip: req.ip,
