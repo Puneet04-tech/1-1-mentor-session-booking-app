@@ -219,31 +219,31 @@ router.get("/available/:mentorId", async (req: Request, res: Response) => {
     const bookedTimes = bookedResult.rows.map((r: any) =>
       new Date(r.scheduled_at).getTime(),
     );
-    const availability = availabilityResult.rows[0];
-
-    // Generate 1-hour time slots as absolute UTC instants, anchoring the
-    // mentor's local start/end-of-day times via their stored timezone so
-    // the result is correct across DST transitions.
     const slots: string[] = [];
-    const start = zonedTimeToUtc(
-      date as string,
-      availability.start_time.slice(0, 5),
-      mentorTimezone,
-    );
-    const end = zonedTimeToUtc(
-      date as string,
-      availability.end_time.slice(0, 5),
-      mentorTimezone,
-    );
 
-    for (
-      let time = start.getTime();
-      time < end.getTime();
-      time += 60 * 60 * 1000
-    ) {
-      const isBooked = bookedTimes.some((bt) => bt === time);
-      if (!isBooked) {
-        slots.push(new Date(time).toISOString());
+    for (const availability of availabilityResult.rows) {
+      const start = zonedTimeToUtc(
+        date as string,
+        availability.start_time.slice(0, 5),
+        mentorTimezone,
+      );
+
+      const end = zonedTimeToUtc(
+        date as string,
+        availability.end_time.slice(0, 5),
+        mentorTimezone,
+      );
+
+      for (
+        let time = start.getTime();
+        time < end.getTime();
+        time += 60 * 60 * 1000
+      ) {
+        const isBooked = bookedTimes.includes(time);
+
+        if (!isBooked) {
+          slots.push(new Date(time).toISOString());
+        }
       }
     }
 
