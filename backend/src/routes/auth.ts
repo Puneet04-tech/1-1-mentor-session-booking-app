@@ -18,6 +18,9 @@ import {
   BackupCode,
 } from '@/services/twoFactor';
 
+const MAX_TOTP_LENGTH = 20;
+const MAX_BACKUP_CODE_LENGTH = 64;
+
 // Rate limiter for login: 10 attempts per 15 minutes per IP
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -463,6 +466,19 @@ router.post('/2fa/verify', twoFactorLimiter, async (req: AuthRequest, res: Respo
         ? backupCode.trim()
         : "";
 
+
+    if (normalizedToken.length > MAX_TOTP_LENGTH) {
+      return res.status(400).json({
+        error: `Verification code must not exceed ${MAX_TOTP_LENGTH} characters`,
+      });
+    }
+
+    if (normalizedBackupCode.length > MAX_BACKUP_CODE_LENGTH) {
+      return res.status(400).json({
+        error: `Backup code must not exceed ${MAX_BACKUP_CODE_LENGTH} characters`,
+      });
+    }
+
     if (!pendingToken) {
       return res.status(400).json({ error: 'Pending token is required' });
     }
@@ -558,6 +574,17 @@ router.post('/2fa/disable', authMiddleware, async (req: AuthRequest, res: Respon
         ? backupCode.trim()
         : "";
 
+    if (normalizedToken.length > MAX_TOTP_LENGTH) {
+      return res.status(400).json({
+        error: `Verification code must not exceed ${MAX_TOTP_LENGTH} characters`,
+      });
+    }
+
+    if (normalizedBackupCode.length > MAX_BACKUP_CODE_LENGTH) {
+      return res.status(400).json({
+        error: `Backup code must not exceed ${MAX_BACKUP_CODE_LENGTH} characters`,
+      });
+    }
     if (!password) {
       return res.status(400).json({ error: 'Password is required' });
     }
