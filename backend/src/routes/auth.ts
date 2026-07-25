@@ -502,7 +502,7 @@ router.post('/2fa/verify', twoFactorLimiter, async (req: AuthRequest, res: Respo
 
     if (!verified && normalizedBackupCode) {
       const updatedCodes = await consumeBackupCode(
-        backupCode,
+        normalizedBackupCode,
         user.two_factor_backup_codes as BackupCode[] | null
       );
       if (updatedCodes) {
@@ -595,7 +595,7 @@ router.post('/2fa/disable', authMiddleware, async (req: AuthRequest, res: Respon
 
     if (!verified && backupCode) {
       consumedBackupCodes = await consumeBackupCode(
-        backupCode,
+        normalizedBackupCode,
         user.two_factor_backup_codes as BackupCode[] | null
       );
       verified = !!consumedBackupCodes;
