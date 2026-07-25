@@ -312,10 +312,19 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
 
     // Update password
     await query(
-      `UPDATE user_passwords 
-       SET password_hash = $1, updated_at = $2 
-       WHERE user_id = $3`,
+      `UPDATE user_passwords
+   SET password_hash = $1,
+       updated_at = $2
+   WHERE user_id = $3`,
       [hashedNewPassword, now, userId]
+    );
+
+    await query(
+      `UPDATE users
+   SET token_version = token_version + 1,
+       updated_at = $1
+   WHERE id = $2`,
+      [now, userId]
     );
 
     console.log('✅ Password changed successfully for user:', userId);
