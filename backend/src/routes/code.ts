@@ -168,7 +168,7 @@ router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (r
       [
         req.params.sessionId,
         code.trimEnd(),
-        normalizedLanguage,
+        language.trim().toLowerCase(),
         req.user?.id,
         now,
       ]
