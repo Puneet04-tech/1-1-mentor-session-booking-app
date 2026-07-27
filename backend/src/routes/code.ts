@@ -5,6 +5,16 @@ import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import { Server as SocketIOServer } from 'socket.io';
 import { GLOT_LANGUAGE_MAP, executeCode, executeViaGlot, normalizeLanguage } from '@/utils/codeExecution';
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidSessionId(sessionId: unknown): sessionId is string {
+  return (
+    typeof sessionId === "string" &&
+    UUID_RE.test(sessionId.trim())
+  );
+}
+
 const router = Router();
 
 // Store io instance reference (will be set by index.ts)
@@ -23,6 +33,14 @@ export function setSocketIO(socketIO: SocketIOServer) {
 router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { code, language, sessionId } = req.body;
+    if (
+      sessionId !== undefined &&
+      !isValidSessionId(sessionId)
+    ) {
+      return res.status(400).json({
+        error: "Invalid session ID",
+      });
+    }
 
     if (!code || !language) {
       return res.status(400).json({
@@ -122,6 +140,13 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
  */
 router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (req: AuthRequest, res: Response) => {
   try {
+    const { sessionId } = req.params;
+
+    if (!isValidSessionId(sessionId)) {
+      return res.status(400).json({
+        error: "Invalid session ID",
+      });
+    }
     const { code, language } = req.body;
     const now = new Date().toISOString();
 
@@ -176,10 +201,17 @@ router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (r
  */
 router.get('/:sessionId/history', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const { sessionId } = req.params;
+
+    if (!isValidSessionId(sessionId)) {
+      return res.status(400).json({
+        error: "Invalid session ID",
+      });
+    }
     const userId = req.user?.id;
     const session = await queryOne(
       'SELECT id, mentor_id, student_id, status, recording_enabled, started_at, ended_at, title, code_language FROM sessions WHERE id = $1',
-      [req.params.sessionId]
+      [sessionId]
     );
 
     if (!session) {
