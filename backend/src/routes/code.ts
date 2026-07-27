@@ -7,6 +7,8 @@ import { GLOT_LANGUAGE_MAP, executeCode, executeViaGlot, normalizeLanguage } fro
 
 const router = Router();
 
+const MAX_LANGUAGE_LENGTH = 50;
+
 // Store io instance reference (will be set by index.ts)
 let io: SocketIOServer | null = null;
 
@@ -50,7 +52,13 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 
     if (!languageStr) {
       return res.status(400).json({
-        error: 'Language must be a non-empty string',
+        error: "Language must be a non-empty string",
+      });
+    }
+
+    if (languageStr.length > MAX_LANGUAGE_LENGTH) {
+      return res.status(400).json({
+        error: `Language must not exceed ${MAX_LANGUAGE_LENGTH} characters`,
       });
     }
 
@@ -131,9 +139,17 @@ router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (r
       });
     }
 
-    if (typeof language !== 'string' || !language.trim()) {
+    const normalizedLanguage = language.trim().toLowerCase();
+
+    if (!normalizedLanguage) {
       return res.status(400).json({
-        error: 'Language must be a non-empty string',
+        error: "Language must be a non-empty string",
+      });
+    }
+
+    if (normalizedLanguage.length > MAX_LANGUAGE_LENGTH) {
+      return res.status(400).json({
+        error: `Language must not exceed ${MAX_LANGUAGE_LENGTH} characters`,
       });
     }
 
@@ -152,7 +168,7 @@ router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (r
       [
         req.params.sessionId,
         code.trimEnd(),
-        language.trim().toLowerCase(),
+        normalizedLanguage,
         req.user?.id,
         now,
       ]
