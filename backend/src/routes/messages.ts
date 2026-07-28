@@ -70,13 +70,33 @@ router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (r
         error: 'Message content cannot be empty',
       });
     }
+
+    if (normalizedType === "code") {
+      if (typeof code_snippet !== "string") {
+        return res.status(400).json({
+          error: "code_snippet must be a string for code messages",
+        });
+      }
+
+      const normalizedCodeSnippet = code_snippet.trim();
+
+      if (!normalizedCodeSnippet) {
+        return res.status(400).json({
+          error: "code_snippet cannot be empty for code messages",
+        });
+      }
+
+      req.body.code_snippet = normalizedCodeSnippet;
+    }
     const now = new Date().toISOString();
 
     const result = await queryOne(
       `INSERT INTO messages (session_id, user_id, content, type, code_snippet, attachment, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [req.params.sessionId, req.user?.id, normalizedContent, normalizedType, code_snippet, attachment ? JSON.stringify(attachment) : null, now]
+      [req.params.sessionId, req.user?.id, normalizedContent, normalizedType, normalizedType === "code"
+        ? req.body.code_snippet
+        : null, attachment ? JSON.stringify(attachment) : null, now]
     );
 
     res.json({
