@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import * as db from '../database';
 import { authMiddleware } from '../middleware/auth';
 import { isStripeConfigured, verifyStripeSignature } from '../services/stripeWebhook';
-
+const MAX_PAYMENT_AMOUNT = 10000;
 const router = express.Router();
 
 // Stripe webhook signing secret (whsec_...). Payment completion is only ever
@@ -38,6 +38,12 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
     if (amount <= 0) {
       return res.status(400).json({
         error: 'Amount must be greater than zero',
+      });
+    }
+
+    if (amount > MAX_PAYMENT_AMOUNT) {
+      return res.status(400).json({
+        error: `Amount must not exceed ${MAX_PAYMENT_AMOUNT}`,
       });
     }
 
