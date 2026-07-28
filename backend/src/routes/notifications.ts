@@ -6,6 +6,9 @@ import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
+const MAX_NOTIFICATION_TITLE_LENGTH = 200;
+const MAX_NOTIFICATION_MESSAGE_LENGTH = 2000;
+
 // Socket.io instance for emitting live notification events
 let io: SocketIOServer | null = null;
 
@@ -179,10 +182,36 @@ export async function createNotification(
     const notificationId = uuidv4();
     const now = new Date().toISOString();
 
+    const normalizedTitle =
+      typeof title === "string" ? title.trim() : "";
+
+    const normalizedMessage =
+      typeof message === "string" ? message.trim() : "";
+
+    if (!normalizedTitle) {
+      throw new Error("Notification title is required");
+    }
+
+    if (normalizedTitle.length > MAX_NOTIFICATION_TITLE_LENGTH) {
+      throw new Error(
+        `Notification title must not exceed ${MAX_NOTIFICATION_TITLE_LENGTH} characters`
+      );
+    }
+
+    if (!normalizedMessage) {
+      throw new Error("Notification message is required");
+    }
+
+    if (normalizedMessage.length > MAX_NOTIFICATION_MESSAGE_LENGTH) {
+      throw new Error(
+        `Notification message must not exceed ${MAX_NOTIFICATION_MESSAGE_LENGTH} characters`
+      );
+    }
+
     await query(
       `INSERT INTO notifications (id, user_id, type, title, message, related_id, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [notificationId, userId, normalizedType, title, message, relatedId || null, now]
+      [notificationId, userId, normalizedType, normalizedTitle, normalizedMessage, relatedId || null, now]
     );
 
     if (io) {
