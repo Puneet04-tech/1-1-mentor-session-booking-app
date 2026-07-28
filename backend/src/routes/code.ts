@@ -5,7 +5,19 @@ import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import { Server as SocketIOServer } from 'socket.io';
 import { GLOT_LANGUAGE_MAP, executeCode, executeViaGlot, normalizeLanguage } from '@/utils/codeExecution';
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidSessionId(sessionId: unknown): sessionId is string {
+  return (
+    typeof sessionId === "string" &&
+    UUID_RE.test(sessionId.trim())
+  );
+}
+
 const router = Router();
+
+const MAX_LANGUAGE_LENGTH = 50;
 
 // Store io instance reference (will be set by index.ts)
 let io: SocketIOServer | null = null;
@@ -23,6 +35,14 @@ export function setSocketIO(socketIO: SocketIOServer) {
 router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { code, language, sessionId } = req.body;
+    if (
+      sessionId !== undefined &&
+      !isValidSessionId(sessionId)
+    ) {
+      return res.status(400).json({
+        error: "Invalid session ID",
+      });
+    }
 
     if (!code || !language) {
       return res.status(400).json({
@@ -50,7 +70,13 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
 
     if (!languageStr) {
       return res.status(400).json({
-        error: 'Language must be a non-empty string',
+        error: "Language must be a non-empty string",
+      });
+    }
+
+    if (languageStr.length > MAX_LANGUAGE_LENGTH) {
+      return res.status(400).json({
+        error: `Language must not exceed ${MAX_LANGUAGE_LENGTH} characters`,
       });
     }
 
@@ -122,6 +148,13 @@ router.post('/execute', authMiddleware, async (req: AuthRequest, res: Response) 
  */
 router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (req: AuthRequest, res: Response) => {
   try {
+    const { sessionId } = req.params;
+
+    if (!isValidSessionId(sessionId)) {
+      return res.status(400).json({
+        error: "Invalid session ID",
+      });
+    }
     const { code, language } = req.body;
     const now = new Date().toISOString();
 
@@ -131,9 +164,17 @@ router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (r
       });
     }
 
-    if (typeof language !== 'string' || !language.trim()) {
+    const normalizedLanguage = language.trim().toLowerCase();
+
+    if (!normalizedLanguage) {
       return res.status(400).json({
-        error: 'Language must be a non-empty string',
+        error: "Language must be a non-empty string",
+      });
+    }
+
+    if (normalizedLanguage.length > MAX_LANGUAGE_LENGTH) {
+      return res.status(400).json({
+        error: `Language must not exceed ${MAX_LANGUAGE_LENGTH} characters`,
       });
     }
 
@@ -145,6 +186,22 @@ router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (r
       });
     }
 
+    const latestSnapshot = await queryOne(`SELECT code, language FROM code_snapshots WHERE session_id = $1 ORDER BY saved_at DESCLIMIT 1`,
+      [req.params.sessionId]
+    );
+
+    if (
+      latestSnapshot &&
+      latestSnapshot.code === code.trimEnd() &&
+      latestSnapshot.language === normalizedLanguage
+    ) {
+      return res.json({
+        success: true,
+        message: "No changes detected. Snapshot was not saved.",
+        data: latestSnapshot,
+      });
+    }
+
     const result = await queryOne(
       `INSERT INTO code_snapshots (session_id, code, language, user_id, saved_at)
        VALUES ($1, $2, $3, $4, $5)
@@ -152,7 +209,7 @@ router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (r
       [
         req.params.sessionId,
         code.trimEnd(),
-        language.trim().toLowerCase(),
+        normalizedLanguage,
         req.user?.id,
         now,
       ]
@@ -176,10 +233,17 @@ router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (r
  */
 router.get('/:sessionId/history', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const { sessionId } = req.params;
+
+    if (!isValidSessionId(sessionId)) {
+      return res.status(400).json({
+        error: "Invalid session ID",
+      });
+    }
     const userId = req.user?.id;
     const session = await queryOne(
       'SELECT id, mentor_id, student_id, status, recording_enabled, started_at, ended_at, title, code_language FROM sessions WHERE id = $1',
-      [req.params.sessionId]
+      [sessionId]
     );
 
     if (!session) {

@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import { requireSessionParticipant } from '@/middleware/requireSessionParticipant';
+const MAX_MESSAGE_LENGTH = 5000;
 
 const router = Router();
 
