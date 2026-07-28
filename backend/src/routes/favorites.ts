@@ -8,6 +8,18 @@ const router = Router();
 
 const normalizeMentorId = (mentorId?: string) => mentorId?.trim();
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isValidMentorId = (
+  mentorId: unknown,
+): mentorId is string => {
+  return (
+    typeof mentorId === "string" &&
+    UUID_RE.test(mentorId.trim())
+  );
+};
+
 // Bookmark / Favorite Mentors (issue #166).
 //
 // Only students can maintain a favorites list, so every route below is gated by
@@ -86,6 +98,12 @@ router.post(
         });
       }
 
+      if (!isValidMentorId(normalizedMentorId)) {
+        return res.status(400).json({
+          error: "Invalid mentor ID",
+        });
+      }
+
       if (normalizedMentorId === studentId) {
         return res.status(400).json({
           error: "You cannot favorite your own account",
@@ -154,6 +172,11 @@ router.delete(
         });
       }
 
+      if (!isValidMentorId(normalizedMentorId)) {
+        return res.status(400).json({
+          error: "Invalid mentor ID",
+        });
+      }
       const result = await query(
         "DELETE FROM favorites WHERE student_id = $1 AND mentor_id = $2 RETURNING id",
         [req.user?.id, normalizedMentorId],
