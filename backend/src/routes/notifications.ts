@@ -3,6 +3,17 @@ import { Server as SocketIOServer } from 'socket.io';
 import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import { v4 as uuidv4 } from 'uuid';
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isValidNotificationId = (
+  notificationId: unknown,
+): notificationId is string => {
+  return (
+    typeof notificationId === "string" &&
+    UUID_RE.test(notificationId.trim())
+  );
+};
 
 const router = Router();
 
@@ -62,6 +73,12 @@ const markReadHandler = async (req: AuthRequest, res: Response) => {
     const notificationId = req.params.notification_id;
     const userId = req.user?.id;
 
+    if (!isValidNotificationId(notificationId)) {
+      return res.status(400).json({
+        error: "Invalid notification ID",
+      });
+    }
+
     // Scope to the owner so a user cannot mutate someone else's notification (issue #141).
     const result = await query(
       'UPDATE notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2 RETURNING id',
@@ -119,6 +136,12 @@ router.delete('/:notification_id', authMiddleware, async (req: AuthRequest, res:
   try {
     const notificationId = req.params.notification_id;
     const userId = req.user?.id;
+
+    if (!isValidNotificationId(notificationId)) {
+      return res.status(400).json({
+        error: "Invalid notification ID",
+      });
+    }
 
     // Scope to the owner so a user cannot delete someone else's notification (issue #141).
     const result = await query(
