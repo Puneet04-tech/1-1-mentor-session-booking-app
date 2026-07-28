@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { query, queryOne } from '@/database';
 import authMiddleware, { AuthRequest } from '@/middleware/auth';
 import { requireSessionParticipant } from '@/middleware/requireSessionParticipant';
+const MAX_MESSAGE_LENGTH = 5000;
 
 const router = Router();
 
@@ -68,6 +69,12 @@ router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (r
     if (!normalizedContent) {
       return res.status(400).json({
         error: 'Message content cannot be empty',
+      });
+    }
+
+    if (normalizedContent.length > MAX_MESSAGE_LENGTH) {
+      return res.status(400).json({
+        error: `Message content must not exceed ${MAX_MESSAGE_LENGTH} characters`,
       });
     }
     const now = new Date().toISOString();
