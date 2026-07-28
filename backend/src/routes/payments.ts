@@ -83,8 +83,8 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
     // Create payment record
     const paymentResult = await db.query(
       `INSERT INTO payments (session_id, user_id, amount, status, created_at)
-       VALUES ($1, $2, $3, 'pending', NOW())
-       RETURNING id`,
+        VALUES ($1, $2, $3, 'pending', NOW())
+        RETURNING *`,
       [normalizedSessionId, userId, amount]
     );
 
@@ -98,11 +98,13 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
     //   },
     // });
 
+    const payment = paymentResult.rows[0];
+
     res.json({
       success: true,
       data: {
-        paymentId: paymentResult.rows[0].id,
-        clientSecret: 'test_secret_' + paymentResult.rows[0].id,
+        paymentId: payment.id,
+        clientSecret: 'test_secret_' + payment.id,
       },
     });
   } catch (error) {
