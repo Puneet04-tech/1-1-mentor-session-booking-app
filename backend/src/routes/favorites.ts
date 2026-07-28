@@ -117,12 +117,18 @@ router.post(
         // Unique constraint — this mentor is already favorited. Treat as success
         // so the toggle is idempotent and safe to double-tap.
         if (err.code === "23505") {
+          const existingFavorite = await queryOne(
+            `SELECT id, mentor_id, created_at
+     FROM favorites
+     WHERE student_id = $1
+       AND mentor_id = $2`,
+            [studentId, normalizedMentorId],
+          );
+
           return res.status(200).json({
             success: true,
-            data: {
-              mentor_id: normalizedMentorId,
-              alreadyFavorited: true,
-            },
+            alreadyFavorited: true,
+            data: existingFavorite,
           });
         }
         throw err;
