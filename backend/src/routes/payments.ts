@@ -189,10 +189,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
       );
 
       if (result.rows.length > 0) {
-        await db.query(
-          `UPDATE sessions SET status = 'confirmed' WHERE id = $1`,
-          [result.rows[0].session_id]
-        );
+        await db.query(`UPDATE sessions SET status = 'confirmed' WHERE id = $1 AND status <> 'confirmed'`,
+          [result.rows[0].session_id]);
         console.log(`Payment ${result.rows[0].id} marked completed via Stripe webhook`);
       } else {
         console.log('Stripe webhook: no matching pending payment found (already processed?)');
