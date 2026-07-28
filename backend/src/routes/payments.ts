@@ -65,7 +65,7 @@ router.post('/create-payment-intent', authMiddleware, async (req: Request, res: 
     );
 
     if (existingPayment.rows.length > 0) {
-      res.json({
+      return res.json({
         success: true,
         data: {
           paymentId: existingPayment.rows[0].id,
