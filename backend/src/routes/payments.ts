@@ -161,6 +161,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const stripePaymentId: string | undefined = object.id;
       const internalPaymentId: string | undefined = object.metadata?.paymentId;
 
+      if (!stripePaymentId && !internalPaymentId) {
+        console.warn(
+          "Stripe webhook received without payment identifiers. Skipping processing."
+        );
+
+        return res.json({ received: true });
+      }
+
       // Resolve our payment record by the internal id we attached as metadata
       // when creating the intent, falling back to a previously stored Stripe id.
       const result = await db.query(
