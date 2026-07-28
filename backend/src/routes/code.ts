@@ -186,6 +186,22 @@ router.post('/:sessionId', authMiddleware, requireSessionParticipant(), async (r
       });
     }
 
+    const latestSnapshot = await queryOne(`SELECT code, language FROM code_snapshots WHERE session_id = $1 ORDER BY saved_at DESCLIMIT 1`,
+      [req.params.sessionId]
+    );
+
+    if (
+      latestSnapshot &&
+      latestSnapshot.code === code.trimEnd() &&
+      latestSnapshot.language === normalizedLanguage
+    ) {
+      return res.json({
+        success: true,
+        message: "No changes detected. Snapshot was not saved.",
+        data: latestSnapshot,
+      });
+    }
+
     const result = await queryOne(
       `INSERT INTO code_snapshots (session_id, code, language, user_id, saved_at)
        VALUES ($1, $2, $3, $4, $5)
