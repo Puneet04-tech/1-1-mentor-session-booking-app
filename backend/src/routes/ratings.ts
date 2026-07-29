@@ -5,6 +5,18 @@ import { requireSessionParticipant } from '@/middleware/requireSessionParticipan
 import { v4 as uuidv4 } from 'uuid';
 import { moderateReviewText } from '@/utils/moderation';
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isValidRatingId = (
+  ratingId: unknown,
+): ratingId is string => {
+  return (
+    typeof ratingId === "string" &&
+    UUID_REGEX.test(ratingId.trim())
+  );
+};
+
 const router = Router();
 
 // Create rating/review for a session
@@ -188,6 +200,12 @@ router.put('/:rating_id', authMiddleware, async (req: AuthRequest, res: Response
     const ratingId = req.params.rating_id;
     const studentId = req.user?.id;
 
+    if (!isValidRatingId(ratingId)) {
+      return res.status(400).json({
+        error: "Invalid rating ID",
+      });
+    }
+
     if (
       typeof rating !== "number" ||
       !Number.isInteger(rating) ||
@@ -254,6 +272,12 @@ router.delete('/:rating_id', authMiddleware, async (req: AuthRequest, res: Respo
   try {
     const ratingId = req.params.rating_id;
     const studentId = req.user?.id;
+
+    if (!isValidRatingId(ratingId)) {
+      return res.status(400).json({
+        error: "Invalid rating ID",
+      });
+    }
 
     // Find rating to check authorization and get mentor_id
     const rating = await queryOne(
