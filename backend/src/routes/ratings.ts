@@ -8,12 +8,12 @@ import { moderateReviewText } from '@/utils/moderation';
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const isValidRatingId = (
-  ratingId: unknown,
-): ratingId is string => {
+const isValidMentorId = (
+  mentorId: unknown,
+): mentorId is string => {
   return (
-    typeof ratingId === "string" &&
-    UUID_REGEX.test(ratingId.trim())
+    typeof mentorId === "string" &&
+    UUID_REGEX.test(mentorId.trim())
   );
 };
 
@@ -125,6 +125,12 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 const getRatingsHandler = async (req: AuthRequest, res: Response) => {
   try {
     const mentorId = req.params.mentor_id;
+
+    if (!isValidMentorId(mentorId)) {
+      return res.status(400).json({
+        error: "Invalid mentor ID",
+      });
+    }
 
     const ratings = await query(
       `SELECT
