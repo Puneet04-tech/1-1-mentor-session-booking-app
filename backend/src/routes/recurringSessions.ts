@@ -8,6 +8,7 @@ import { sendEmail } from '@/services/emailService';
 import { mentorAvailabilityRoom } from '@/socket/handlers/mentorAvailability';
 import { isWithinCancellationWindow } from '@/utils/cancellationPolicy';
 import { validateSessionInput } from '@/utils/sessionValidation';
+const MAX_CANCELLATION_REASON_LENGTH = 500;
 
 const router = Router();
 
@@ -249,6 +250,20 @@ router.post('/:id/cancel', authMiddleware, async (req: AuthRequest, res: Respons
   const { id } = req.params;
   const userId = req.user?.id;
   const { reason } = req.body as { reason?: string };
+
+const normalizedReason =
+  typeof reason === "string"
+    ? reason.trim()
+    : undefined;
+
+if (
+  normalizedReason &&
+  normalizedReason.length > MAX_CANCELLATION_REASON_LENGTH
+) {
+  return res.status(400).json({
+    error: `Cancellation reason must not exceed ${MAX_CANCELLATION_REASON_LENGTH} characters`,
+  });
+}
   const minNoticeHours = parseInt(process.env.MIN_CANCEL_NOTICE_HOURS ?? '2', 10);
 
   try {
@@ -287,7 +302,7 @@ router.post('/:id/cancel', authMiddleware, async (req: AuthRequest, res: Respons
         `UPDATE recurring_series
          SET status = 'cancelled', cancelled_by = $1, cancellation_reason = $2, cancelled_at = $3, updated_at = $4
          WHERE id = $5`,
-        [userId, reason ?? null, now, now, id]
+        [userId, normalizedReason ?? null, now, now, id]
       );
 
       // Only future, not-yet-started occurrences are cancelled — history is preserved.
@@ -295,7 +310,7 @@ router.post('/:id/cancel', authMiddleware, async (req: AuthRequest, res: Respons
         `UPDATE sessions
          SET status = 'cancelled', cancelled_by = $1, cancellation_reason = $2, cancelled_at = $3, updated_at = $4
          WHERE recurring_series_id = $5 AND status = 'scheduled'`,
-        [userId, reason ?? null, now, now, id]
+        [userId, normalizedReason ?? null, now, now, id]
       );
     });
 
@@ -324,7 +339,7 @@ router.post('/:id/cancel', authMiddleware, async (req: AuthRequest, res: Respons
     }
 
     if (io) {
-      const payload = { seriesId: id, cancelledBy: userId, reason: reason ?? null };
+      const payload = { seriesId: id, cancelledBy: userId, reason: normalizedReason ?? null };
       if (series.mentor_id) io.to(series.mentor_id as string).emit('series:cancelled', payload as any);
       if (series.student_id) io.to(series.student_id as string).emit('series:cancelled', payload as any);
 
