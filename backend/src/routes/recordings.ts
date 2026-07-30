@@ -94,17 +94,32 @@ router.post('/stop/:recordingId', authMiddleware, async (req: Request, res: Resp
     }
 
     const { mentor_id, student_id } = ownership.rows[0];
+    const recording = await db.query(
+  `SELECT status
+   FROM session_recordings
+   WHERE id = $1`,
+  [recordingId]
+);
+
+if (recording.rows[0].status !== "recording") {
+  return res.status(409).json({
+    error: "Recording is not currently active",
+  });
+}
     if (mentor_id !== userId && student_id !== userId) {
       return res.status(403).json({ error: 'You are not authorized to stop this recording' });
     }
 
     const result = await db.query(
-      `UPDATE session_recordings
-       SET ended_at = NOW(), status = 'processing', duration = EXTRACT(EPOCH FROM (NOW() - started_at))::INT
-       WHERE id = $1
-       RETURNING *`,
-      [recordingId]
-    );
+  `UPDATE session_recordings
+   SET ended_at = NOW(),
+       status = 'processing',
+       duration = EXTRACT(EPOCH FROM (NOW() - started_at))::INT
+   WHERE id = $1
+     AND status = 'recording'
+   RETURNING *`,
+  [recordingId]
+);
 
     res.json({
       success: true,
