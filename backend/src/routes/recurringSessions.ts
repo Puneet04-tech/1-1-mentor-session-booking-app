@@ -79,6 +79,19 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
     if (!validation.valid) {
       return res.status(400).json({ error: validation.error });
     }
+    const firstOccurrence = new Date(scheduled_at);
+
+    if (Number.isNaN(firstOccurrence.getTime())) {
+      return res.status(400).json({
+        error: "Invalid scheduled_at value",
+      });
+    }
+
+    if (firstOccurrence.getTime() <= Date.now()) {
+      return res.status(400).json({
+        error: "The first occurrence must be scheduled in the future",
+      });
+    }
 
     if (!FREQUENCIES.includes(frequency)) {
       return res.status(400).json({ error: `frequency must be one of: ${FREQUENCIES.join(', ')}` });
@@ -98,7 +111,7 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
 
     // Build candidate dates for every occurrence up front
     const candidateDates: Date[] = [];
-    let cursor = new Date(scheduled_at);
+    let cursor = new Date(firstOccurrence);
     for (let i = 0; i < occurrenceCount; i++) {
       candidateDates.push(new Date(cursor));
       cursor = nextOccurrence(cursor, frequency as Frequency);
