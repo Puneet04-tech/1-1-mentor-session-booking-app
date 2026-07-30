@@ -1,6 +1,17 @@
 import express, { Request, Response } from 'express';
 import * as db from '../database';
 import { authMiddleware } from '../middleware/auth';
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isValidRecordingId = (
+  recordingId: unknown,
+): recordingId is string => {
+  return (
+    typeof recordingId === "string" &&
+    UUID_REGEX.test(recordingId.trim())
+  );
+};
 
 const router = express.Router();
 
@@ -61,6 +72,12 @@ router.post('/stop/:recordingId', authMiddleware, async (req: Request, res: Resp
   try {
     const { recordingId } = req.params;
     const userId = (req as any).user.id;
+
+    if (!isValidRecordingId(recordingId)) {
+      return res.status(400).json({
+        error: "Invalid recording ID",
+      });
+    }
 
     // Verify the recording exists and the user is a participant of its session
     // before allowing them to stop it (issue #141).
@@ -154,6 +171,12 @@ router.get('/:recordingId', authMiddleware, async (req: Request, res: Response) 
     const { recordingId } = req.params;
     const userId = (req as any).user.id;
 
+    if (!isValidRecordingId(recordingId)) {
+      return res.status(400).json({
+        error: "Invalid recording ID",
+      });
+    }
+
     const result = await db.query(
       `SELECT sr.* FROM session_recordings sr
        JOIN sessions s ON sr.session_id = s.id
@@ -193,6 +216,12 @@ router.delete('/:recordingId', authMiddleware, async (req: Request, res: Respons
   try {
     const { recordingId } = req.params;
     const userId = (req as any).user.id;
+
+    if (!isValidRecordingId(recordingId)) {
+      return res.status(400).json({
+        error: "Invalid recording ID",
+      });
+    }
 
     // Verify user is mentor of the session
     // Verify recording exists
