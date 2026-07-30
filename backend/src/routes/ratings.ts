@@ -206,6 +206,12 @@ router.put('/:rating_id', authMiddleware, async (req: AuthRequest, res: Response
     const ratingId = req.params.rating_id;
     const studentId = req.user?.id;
 
+    if (!isValidRatingId(ratingId)) {
+      return res.status(400).json({
+        error: "Invalid rating ID",
+      });
+    }
+
     if (
       typeof rating !== "number" ||
       !Number.isInteger(rating) ||
@@ -272,6 +278,12 @@ router.delete('/:rating_id', authMiddleware, async (req: AuthRequest, res: Respo
   try {
     const ratingId = req.params.rating_id;
     const studentId = req.user?.id;
+
+    if (!isValidRatingId(ratingId)) {
+      return res.status(400).json({
+        error: "Invalid rating ID",
+      });
+    }
 
     // Find rating to check authorization and get mentor_id
     const rating = await queryOne(
