@@ -220,7 +220,13 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
 // Get a series and its sessions (participants only)
 router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const series = await queryOne('SELECT * FROM recurring_series WHERE id = $1', [req.params.id]);
+    const seriesId = req.params.id;
+    if (!isValidSeriesId(seriesId)) {
+      return res.status(400).json({
+        error: "Invalid recurring series ID",
+      });
+    }
+    const series = await queryOne('SELECT * FROM recurring_series WHERE id = $1', [seriesId]);
     if (!series) {
       return res.status(404).json({ error: 'Recurring series not found' });
     }
@@ -231,7 +237,7 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     const sessions = await query(
       'SELECT * FROM sessions WHERE recurring_series_id = $1 ORDER BY recurrence_index ASC',
-      [req.params.id]
+      [seriesId]
     );
 
     res.json({
@@ -247,6 +253,11 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
 // Cancel an entire recurring series (mentor or the enrolled student)
 router.post('/:id/cancel', authMiddleware, async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
+  if (!isValidSeriesId(id)) {
+    return res.status(400).json({
+      error: "Invalid recurring series ID",
+    });
+  }
   const userId = req.user?.id;
   const { reason } = req.body as { reason?: string };
   const minNoticeHours = parseInt(process.env.MIN_CANCEL_NOTICE_HOURS ?? '2', 10);
