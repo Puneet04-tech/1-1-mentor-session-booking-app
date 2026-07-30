@@ -158,10 +158,19 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
         recurrenceIndex += 1;
         const sessionId = uuidv4();
 
-        await client.query(
+        const insertedSession = await client.query(
           `INSERT INTO sessions
-             (id, mentor_id, title, description, topic, status, scheduled_at, duration_minutes, language, code_language, recording_enabled, recurring_series_id, recurrence_index, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, 'scheduled', $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+     (id, mentor_id, title, description, topic, status, scheduled_at,
+      duration_minutes, language, code_language,
+      recording_enabled, recurring_series_id,
+      recurrence_index, created_at, updated_at)
+   VALUES (
+     $1, $2, $3, $4, $5,
+     'scheduled',
+     $6, $7, $8, $9,
+     $10, $11, $12, $13, $14
+   )
+   RETURNING *`,
           [
             sessionId,
             mentorId,
@@ -181,13 +190,7 @@ router.post('/', authMiddleware, requireRole('mentor'), async (req: AuthRequest,
         );
 
         existingRanges.push({ start, end });
-
-        const insertedRow = await client.query(
-          'SELECT * FROM sessions WHERE id = $1',
-          [sessionId]
-        );
-
-        created.push(insertedRow.rows[0]);
+        created.push(insertedSession.rows[0]);
       }
 
       if (created.length === 0) {
