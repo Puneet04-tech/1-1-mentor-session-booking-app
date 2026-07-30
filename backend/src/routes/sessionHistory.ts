@@ -268,20 +268,32 @@ router.post('/feedback', authMiddleware, async (req: AuthRequest, res: Response)
     const feedbackId = uuidv4();
     const now = new Date().toISOString();
 
-    await query(
-      `INSERT INTO session_feedback (id, session_id, user_id, feedback, difficulty_level, would_recommend, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [feedbackId, session_id, userId, normalizedFeedback || null, difficulty_level || null, would_recommend || null, now]
-    );
-
-    const newFeedback = await queryOne(
-      'SELECT * FROM session_feedback WHERE id = $1',
-      [feedbackId]
+    const insertedFeedback = await query(
+      `INSERT INTO session_feedback (
+      id,
+      session_id,
+      user_id,
+      feedback,
+      difficulty_level,
+      would_recommend,
+      created_at
+   )
+   VALUES ($1, $2, $3, $4, $5, $6, $7)
+   RETURNING *`,
+      [
+        feedbackId,
+        session_id,
+        userId,
+        normalizedFeedback || null,
+        difficulty_level || null,
+        would_recommend || null,
+        now,
+      ]
     );
 
     res.json({
       success: true,
-      data: newFeedback,
+      data: insertedFeedback.rows[0],
     });
   } catch (err) {
     console.error('Submit feedback error:', err);
