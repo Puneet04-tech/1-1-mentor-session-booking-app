@@ -13,6 +13,18 @@ const isValidRecordingId = (
   );
 };
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isValidSessionId = (
+  sessionId: unknown,
+): sessionId is string => {
+  return (
+    typeof sessionId === "string" &&
+    UUID_REGEX.test(sessionId.trim())
+  );
+};
+
 const router = express.Router();
 
 // Start recording
@@ -20,6 +32,12 @@ router.post('/start', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { sessionId } = req.body;
     const userId = (req as any).user.id;
+
+    if (!isValidSessionId(sessionId)) {
+      return res.status(400).json({
+        error: "Invalid session ID",
+      });
+    }
 
     // Verify user is part of session
     const sessionResult = await db.query(
@@ -138,6 +156,12 @@ router.get('/session/:sessionId', authMiddleware, async (req: Request, res: Resp
   try {
     const { sessionId } = req.params;
     const userId = (req as any).user.id;
+
+    if (!isValidSessionId(sessionId)) {
+      return res.status(400).json({
+        error: "Invalid session ID",
+      });
+    }
 
     // Verify the session exists
     const sessionResult = await db.query(
