@@ -8,6 +8,32 @@ import {
 } from '@/middleware/requireSessionParticipant';
 import { v4 as uuidv4 } from 'uuid';
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isValidSessionId = (
+  sessionId: unknown,
+): sessionId is string => {
+  return (
+    typeof sessionId === "string" &&
+    UUID_REGEX.test(sessionId.trim())
+  );
+};
+
+const validateSessionId = (
+  req: AuthRequest,
+  res: Response,
+  next: Function,
+) => {
+  if (!isValidSessionId(req.params.session_id)) {
+    return res.status(400).json({
+      error: "Invalid session ID",
+    });
+  }
+
+  next();
+};
+
 const router = Router();
 
 /**
@@ -149,6 +175,11 @@ router.patch('/:session_id/complete', authMiddleware, async (req: AuthRequest, r
     const { session_id } = req.params;
     const userId = req.user?.id;
 
+    if (!isValidSessionId(session_id)) {
+      return res.status(400).json({
+        error: "Invalid session ID",
+      });
+    }
     // Verify session exists and user is part of it
     const session = await queryOne(
       'SELECT * FROM sessions WHERE id = $1 AND (mentor_id = $2 OR student_id = $2)',
@@ -195,6 +226,11 @@ router.post('/feedback', authMiddleware, async (req: AuthRequest, res: Response)
         ? feedback.trim() || null
         : null;
     const userId = req.user?.id;
+    if (!isValidSessionId(session_id)) {
+      return res.status(400).json({
+        error: "Invalid session ID",
+      });
+    }
 
     if (!session_id) {
       return res.status(400).json({ error: 'session_id is required' });
@@ -254,7 +290,7 @@ router.post('/feedback', authMiddleware, async (req: AuthRequest, res: Response)
 });
 
 // Get feedback for a session
-router.get('/:session_id/feedback', authMiddleware, requireSessionParticipant('session_id'), async (req: AuthRequest, res: Response) => {
+router.get('/:session_id/feedback', authMiddleware, validateSessionId ,requireSessionParticipant('session_id'), async (req: AuthRequest, res: Response) => {
   try {
     const feedback = await query(
       `SELECT f.*, u.name, u.avatar_url
