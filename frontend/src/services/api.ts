@@ -168,6 +168,11 @@ class ApiClient {
     return this.client.get('/sessions/user');
   }
 
+  // Downloads a session's .ics calendar file as a Blob (issue #167)
+  async downloadSessionIcs(sessionId: string): Promise<Blob> {
+    return this.client.get(`/sessions/${sessionId}/ics`, { responseType: 'blob' });
+  }
+
   // User endpoints
   async getUser(id: string): Promise<ApiResponse<User>> {
     return this.client.get(`/users/${id}`);

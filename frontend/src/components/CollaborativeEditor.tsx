@@ -30,8 +30,6 @@ export interface RemoteUserState {
 
 export class CollaborativeEditorService extends Observable<any> {
 
-export class CollaborativeEditorService extends Observable<string> {
-
   private doc: Y.Doc;
   private provider: WebsocketProvider | null = null;
   private yText: Y.Text;
@@ -174,21 +172,10 @@ export class CollaborativeEditorService extends Observable<string> {
    */
   private forceSync(): void {
     if (!this.provider) return;
-    
+
     console.log('🔄 [COLLAB] Forcing sync...');
 
-    
-    // ✅ FIX: Check if sync method exists
-    if (typeof this.provider.sync === 'function') {
-      this.provider.sync(true);
-    } else {
-      console.warn('⚠️ [COLLAB] provider.sync is not a function');
-    }
-
-    this.provider.synced = true;
-
-    
-    // Also request sync from awareness
+    // Request sync via awareness (standard Yjs approach)
     if (this.awareness) {
       this.awareness.setLocalState({
         ...this.awareness.getLocalState(),
@@ -221,16 +208,7 @@ export class CollaborativeEditorService extends Observable<string> {
         if (this.provider) {
           console.log(`🔄 [COLLAB] Retry ${this.syncAttempts}: Forcing sync...`);
 
-          
-          // ✅ FIX: Check if sync method exists
-          if (typeof this.provider.sync === 'function') {
-            this.provider.sync(true);
-          }
-
-          this.provider.synced = true;
-
-          
-          // Also try to request from other peers
+          // Request sync via awareness
           if (this.awareness) {
             this.awareness.setLocalState({
               ...this.awareness.getLocalState(),

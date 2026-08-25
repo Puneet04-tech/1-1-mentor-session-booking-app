@@ -45,6 +45,7 @@ export interface Session {
   recurrence_index?: number;
   max_participants?: number;
   participants?: SessionParticipant[];
+  student_note?: string;
   created_at: string;
   updated_at: string;
 }
