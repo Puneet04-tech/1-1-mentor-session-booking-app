@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '@/config';
+import { queryOne } from '@/database';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -24,7 +25,7 @@ function isValidJwtPayload(payload: any): boolean {
   );
 }
 
-export const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
+export const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
@@ -54,7 +55,7 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
       return res.status(401).json({ error: 'Two-factor verification required' });
     }
 
-req.user = decoded;
+    req.user = decoded;
     next();
   } catch (err) {
     console.error('Auth middleware error:', err);

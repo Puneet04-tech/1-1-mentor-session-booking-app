@@ -167,11 +167,12 @@ const updateProfileHandler = async (req: AuthRequest, res: Response) => {
         success: true,
         data: { ...updatedUser, skills: updatedSkills.rows },
       });
-    } catch (err) {
-      console.error("Update profile error:", err);
-      res.status(500).json({ error: "Failed to update profile" });
     }
-  };
+  } catch (err) {
+    console.error("Update profile error:", err);
+    res.status(500).json({ error: "Failed to update profile" });
+  }
+};
 
   // Update user profile (authenticated)
   router.put("/", authMiddleware, updateProfileHandler);
@@ -328,4 +329,4 @@ const updateProfileHandler = async (req: AuthRequest, res: Response) => {
     }
   });
 
-  export default router;
+export default router;

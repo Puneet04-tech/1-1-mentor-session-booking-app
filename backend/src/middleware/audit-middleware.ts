@@ -11,6 +11,22 @@ function validateEventType(eventType: string): string {
     return eventType.trim();
 }
 
+function sanitizeAuditBody(body: any): any {
+    if (!body) return null;
+
+    // Remove sensitive fields from audit logs
+    const sensitiveFields = ['password', 'token', 'secret', 'creditCard', 'ssn'];
+    const sanitized = { ...body };
+
+    for (const field of sensitiveFields) {
+        if (sanitized[field]) {
+            sanitized[field] = '[REDACTED]';
+        }
+    }
+
+    return sanitized;
+}
+
 export function auditLog(eventType: string) {
     const normalizedEventType = validateEventType(eventType);
 
@@ -26,7 +42,7 @@ export function auditLog(eventType: string) {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
                     const event = {
                         sessionId: req.params.id || req.params.sessionId || req.body.sessionId,
-                        eventType: normalizedEventType,,
+                        eventType: normalizedEventType,
                         eventData: {
                             method: req.method,
                             path: req.path,
