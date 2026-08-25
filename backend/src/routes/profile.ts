@@ -13,7 +13,7 @@ router.get("/", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.id;
     const user = await queryOne(
-      `SELECT id, email, name, role, avatar_url, bio, hourly_rate, timezone, industry, language,
+      `SELECT id, email, name, role, avatar_url, bio, hourly_rate, COALESCE(timezone, 'UTC') as timezone, industry, language,
               total_sessions, avg_rating, verified, created_at, email_notifications_enabled
        FROM users WHERE id = $1`,
       [userId],
@@ -45,7 +45,7 @@ router.get("/", authMiddleware, async (req: AuthRequest, res: Response) => {
 router.get("/:id", async (req: AuthRequest, res: Response) => {
   try {
     const user = await queryOne(
-      `SELECT id, email, name, role, avatar_url, bio, hourly_rate, timezone, industry, language,
+      `SELECT id, email, name, role, avatar_url, bio, hourly_rate, COALESCE(timezone, 'UTC') as timezone, industry, language,
               total_sessions, avg_rating, verified, created_at
        FROM users WHERE id = $1`,
       [req.params.id],

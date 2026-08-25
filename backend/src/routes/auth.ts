@@ -175,8 +175,9 @@ router.post('/login', loginLimiter, async (req: AuthRequest, res: Response) => {
     }
 
     // Find user
+    // Note: COALESCE handles the case where timezone column might not exist in older databases
     const user = await queryOne(
-      'SELECT id, email, name, role, timezone, is_suspended, suspension_reason, two_factor_enabled FROM users WHERE email = $1',
+      'SELECT id, email, name, role, COALESCE(timezone, \'UTC\') as timezone, is_suspended, suspension_reason, two_factor_enabled FROM users WHERE email = $1',
       [normalizedEmail]
     );
 
@@ -254,7 +255,7 @@ router.post('/login', loginLimiter, async (req: AuthRequest, res: Response) => {
 router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const user = await queryOne(
-      'SELECT id, email, name, role, timezone FROM users WHERE id = $1',
+      'SELECT id, email, name, role, COALESCE(timezone, \'UTC\') as timezone FROM users WHERE id = $1',
       [req.user?.id]
     );
 

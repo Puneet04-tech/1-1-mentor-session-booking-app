@@ -23,7 +23,7 @@ router.get(
       );
 
       const mentor = await db.query(
-        "SELECT timezone FROM users WHERE id = $1",
+        "SELECT COALESCE(timezone, 'UTC') as timezone FROM users WHERE id = $1",
         [mentorId],
       );
 

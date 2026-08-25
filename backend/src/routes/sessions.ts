@@ -328,7 +328,7 @@ router.post('/:id/join', authMiddleware, requireRole('student'), async (req: Aut
     // (the legacy student_id only names the first joiner).
     if (firstJoin) {
       const participants = await query(
-        `SELECT id, name, email, email_notifications_enabled, timezone FROM users WHERE id = ANY($1::uuid[])`,
+        `SELECT id, name, email, email_notifications_enabled, COALESCE(timezone, 'UTC') as timezone FROM users WHERE id = ANY($1::uuid[])`,
         [[sessionData.mentor_id, sessionData.student_id]]
       );
       const joinLink = `${process.env.CLIENT_URL}/session/${sessionData.id}`;
@@ -1039,7 +1039,7 @@ router.post('/:id/reschedule', authMiddleware, async (req: AuthRequest, res: Res
     // Notify both participants (email + persistent notification + socket).
     const participantIds = [session.mentor_id, session.student_id].filter(Boolean) as string[];
     const usersRes = await query(
-      `SELECT id, name, email, email_notifications_enabled, timezone FROM users WHERE id = ANY($1::uuid[])`,
+      `SELECT id, name, email, email_notifications_enabled, COALESCE(timezone, 'UTC') as timezone FROM users WHERE id = ANY($1::uuid[])`,
       [participantIds]
     );
     const participants = usersRes.rows as {
