@@ -30,6 +30,10 @@ import { setupRealtimeHandlers } from './socket/realtimeHandlers';
 import { startReminderService, setSocketIO as setReminderSocketIO } from './services/reminderService';
 
 const app: Express = express();
+
+// Trust proxy for Render (and other reverse proxies) - needed for express-rate-limit to work correctly
+app.set('trust proxy', 1);
+
 const httpServer = createServer(app);
 
 // Socket.io setup

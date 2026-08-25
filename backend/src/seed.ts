@@ -54,9 +54,9 @@ async function seedDatabase() {
       }
 
       await query(
-        `INSERT INTO users (id, email, name, role, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [user.userId, user.email, user.name, user.role, now, now]
+        `INSERT INTO users (id, email, name, role, timezone, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [user.userId, user.email, user.name, user.role, 'UTC', now, now]
       );
 
       console.log(`✅ User created: ${user.email}`);
