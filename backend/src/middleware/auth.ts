@@ -8,6 +8,15 @@ export interface AuthRequest extends Request {
     id: string;
     email: string;
     role: 'mentor' | 'student' | 'admin';
+    tokenVersion?: number;
+  };
+  file?: {
+    fieldname: string;
+    originalname: string;
+    encoding: string;
+    mimetype: string;
+    size: number;
+    buffer: Buffer;
   };
 }
 

@@ -24,7 +24,7 @@ const upload = multer({
 // Upload a chat attachment (image or file). Returns the metadata the
 // chat message payload embeds: { url, type, name, size }.
 router.post('/chat', authMiddleware, async (req: AuthRequest, res: Response) => {
-  upload.single('file')(req, res, (err: any) => {
+  upload.single('file')(req, res, async (err: any) => {
     if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ error: 'File exceeds the 10MB size limit' });
     }

@@ -63,9 +63,9 @@ export class AuditService {
                     event.sessionId,
                     event.eventType,
                     JSON.stringify({
-                        ...eventToStore.eventData,
-                        userId: eventToStore.userId,
-                        timestamp: eventToStore.timestamp
+                        ...event.eventData,
+                        userId: event.userId,
+                        timestamp: event.timestamp || new Date().toISOString()
                     }),
                     lastHash,
                     currentHash
