@@ -127,8 +127,8 @@ async function check24hReminders() {
         m.name  AS mentor_name,  m.email  AS mentor_email,  m.email_notifications_enabled  AS mentor_email_opt_in, m.timezone AS mentor_timezone,
         st.name AS student_name, st.email AS student_email, st.email_notifications_enabled AS student_email_opt_in, st.timezone AS student_timezone
       FROM sessions s
-      JOIN users m  ON m.id  = s.mentor_id
-      LEFT JOIN users st ON st.id = s.student_id
+      JOIN users m  ON m.id::text  = s.mentor_id::text
+      LEFT JOIN users st ON st.id::text = s.student_id::text
       WHERE
         s.status IN (${STATUS_IN_CLAUSE})
         AND s.reminder_sent_24h = FALSE
@@ -152,7 +152,7 @@ async function check24hReminders() {
       );
 
       // Another worker already claimed this reminder
-      if (claimResult.rowCount === 0) {
+      if (claimResult.rows.length === 0) {
         continue;
       }
 
@@ -175,8 +175,8 @@ async function check30mReminders() {
         m.name  AS mentor_name,  m.email  AS mentor_email,  m.email_notifications_enabled  AS mentor_email_opt_in, m.timezone AS mentor_timezone,
         st.name AS student_name, st.email AS student_email, st.email_notifications_enabled AS student_email_opt_in, st.timezone AS student_timezone
       FROM sessions s
-      JOIN users m  ON m.id  = s.mentor_id
-      LEFT JOIN users st ON st.id = s.student_id
+      JOIN users m  ON m.id::text  = s.mentor_id::text
+      LEFT JOIN users st ON st.id::text = s.student_id::text
       WHERE
         s.status IN (${STATUS_IN_CLAUSE})
         AND s.reminder_sent_30m = FALSE
@@ -200,7 +200,7 @@ async function check30mReminders() {
       );
 
       // Another worker already claimed this reminder
-      if (claimResult.rowCount === 0) {
+      if (claimResult.rows.length === 0) {
         continue;
       }
 
@@ -223,8 +223,8 @@ async function check15mReminders() {
         m.name  AS mentor_name,  m.email  AS mentor_email,  m.email_notifications_enabled  AS mentor_email_opt_in, m.timezone AS mentor_timezone,
         st.name AS student_name, st.email AS student_email, st.email_notifications_enabled AS student_email_opt_in, st.timezone AS student_timezone
       FROM sessions s
-      JOIN users m  ON m.id  = s.mentor_id
-      LEFT JOIN users st ON st.id = s.student_id
+      JOIN users m  ON m.id::text  = s.mentor_id::text
+      LEFT JOIN users st ON st.id::text = s.student_id::text
       WHERE
         s.status IN (${STATUS_IN_CLAUSE})
         AND s.reminder_sent_15m = FALSE
@@ -248,7 +248,7 @@ async function check15mReminders() {
       );
 
       // Another worker already claimed this reminder
-      if (claimResult.rowCount === 0) {
+      if (claimResult.rows.length === 0) {
         continue;
       }
 
