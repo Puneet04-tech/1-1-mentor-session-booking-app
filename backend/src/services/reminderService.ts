@@ -38,9 +38,6 @@ interface UpcomingSession {
   student_email?: string;
   student_email_opt_in?: boolean;
   student_timezone?: string;
-  reminder_sent_24h: boolean;
-  reminder_sent_30m: boolean;
-  reminder_sent_15m: boolean;
 }
 
 // ─── Helper: Send Both Email + In-App Notification ───────────────────────────
@@ -123,7 +120,6 @@ async function check24hReminders() {
       SELECT
         s.id, s.title, s.topic, s.scheduled_at, s.duration_minutes,
         s.mentor_id, s.student_id,
-        s.reminder_sent_24h, s.reminder_sent_30m, s.reminder_sent_15m,
         m.name  AS mentor_name,  m.email  AS mentor_email,  m.email_notifications_enabled  AS mentor_email_opt_in, m.timezone AS mentor_timezone,
         st.name AS student_name, st.email AS student_email, st.email_notifications_enabled AS student_email_opt_in, st.timezone AS student_timezone
       FROM sessions s
@@ -131,7 +127,6 @@ async function check24hReminders() {
       LEFT JOIN users st ON st.id::text = s.student_id::text
       WHERE
         s.status IN (${STATUS_IN_CLAUSE})
-        AND s.reminder_sent_24h = FALSE
         AND s.scheduled_at BETWEEN NOW() + INTERVAL '23 hours 55 minutes'
                                 AND NOW() + INTERVAL '24 hours 5 minutes'
     `);
@@ -142,20 +137,6 @@ async function check24hReminders() {
     console.log(`🔔 [REMINDER-24H] Found ${sessions.length} session(s) to remind`);
 
     for (const session of sessions) {
-      const claimResult = await query(
-        `UPDATE sessions
-          SET reminder_sent_24h = TRUE
-          WHERE id = $1
-            AND reminder_sent_24h = FALSE
-          RETURNING id`,
-        [session.id]
-      );
-
-      // Another worker already claimed this reminder
-      if (claimResult.rows.length === 0) {
-        continue;
-      }
-
       await dispatchReminder(session, 1440);
     }
   } catch (err) {
@@ -171,7 +152,6 @@ async function check30mReminders() {
       SELECT
         s.id, s.title, s.topic, s.scheduled_at, s.duration_minutes,
         s.mentor_id, s.student_id,
-        s.reminder_sent_24h, s.reminder_sent_30m, s.reminder_sent_15m,
         m.name  AS mentor_name,  m.email  AS mentor_email,  m.email_notifications_enabled  AS mentor_email_opt_in, m.timezone AS mentor_timezone,
         st.name AS student_name, st.email AS student_email, st.email_notifications_enabled AS student_email_opt_in, st.timezone AS student_timezone
       FROM sessions s
@@ -179,7 +159,6 @@ async function check30mReminders() {
       LEFT JOIN users st ON st.id::text = s.student_id::text
       WHERE
         s.status IN (${STATUS_IN_CLAUSE})
-        AND s.reminder_sent_30m = FALSE
         AND s.scheduled_at BETWEEN NOW() + INTERVAL '25 minutes'
                                 AND NOW() + INTERVAL '35 minutes'
     `);
@@ -190,21 +169,7 @@ async function check30mReminders() {
     console.log(`🔔 [REMINDER-30M] Found ${sessions.length} session(s) to remind`);
 
     for (const session of sessions) {
-      const claimResult = await query(
-        `UPDATE sessions
-          SET reminder_sent_30m = TRUE
-          WHERE id = $1
-            AND reminder_sent_30m = FALSE
-          RETURNING id`,
-        [session.id]
-      );
-
-      // Another worker already claimed this reminder
-      if (claimResult.rows.length === 0) {
-        continue;
-      }
-
-      await dispatchReminder(session, 1440);
+      await dispatchReminder(session, 30);
     }
   } catch (err) {
     console.error('❌ [REMINDER-30M] Error in 30m check:', err);
@@ -219,7 +184,6 @@ async function check15mReminders() {
       SELECT
         s.id, s.title, s.topic, s.scheduled_at, s.duration_minutes,
         s.mentor_id, s.student_id,
-        s.reminder_sent_24h, s.reminder_sent_30m, s.reminder_sent_15m,
         m.name  AS mentor_name,  m.email  AS mentor_email,  m.email_notifications_enabled  AS mentor_email_opt_in, m.timezone AS mentor_timezone,
         st.name AS student_name, st.email AS student_email, st.email_notifications_enabled AS student_email_opt_in, st.timezone AS student_timezone
       FROM sessions s
@@ -227,7 +191,6 @@ async function check15mReminders() {
       LEFT JOIN users st ON st.id::text = s.student_id::text
       WHERE
         s.status IN (${STATUS_IN_CLAUSE})
-        AND s.reminder_sent_15m = FALSE
         AND s.scheduled_at BETWEEN NOW() + INTERVAL '14 minutes'
                                 AND NOW() + INTERVAL '16 minutes'
     `);
@@ -238,25 +201,11 @@ async function check15mReminders() {
     console.log(`🔔 [REMINDER-15M] Found ${sessions.length} session(s) to remind`);
 
     for (const session of sessions) {
-      const claimResult = await query(
-        `UPDATE sessions
-          SET reminder_sent_15m = TRUE
-          WHERE id = $1
-            AND reminder_sent_15m = FALSE
-          RETURNING id`,
-        [session.id]
-      );
-
-      // Another worker already claimed this reminder
-      if (claimResult.rows.length === 0) {
-        continue;
-      }
-
-      await dispatchReminder(session, 1440);
+      await dispatchReminder(session, 15);
     }
   } catch (err) {
-  console.error('❌ [REMINDER-15M] Error in 15m check:', err);
-}
+    console.error('❌ [REMINDER-15M] Error in 15m check:', err);
+  }
 }
 
 // ─── Start Cron ───────────────────────────────────────────────────────────────
@@ -269,6 +218,10 @@ async function check15mReminders() {
  *   - 15-minute-out reminders
  */
 export function startReminderService() {
+  console.log('⏰ [REMINDER] Reminder service temporarily disabled due to missing database columns');
+  // Temporarily disabled due to missing reminder_sent columns in database schema
+  // Uncomment once database migration is run to add these columns
+  /*
   console.log('⏰ [REMINDER] Starting session reminder cron service...');
 
   // Runs every minute
@@ -279,4 +232,5 @@ export function startReminderService() {
   });
 
   console.log('✅ [REMINDER] Reminder service started — checking every minute');
+  */
 }
